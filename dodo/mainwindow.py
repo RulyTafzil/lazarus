@@ -26,6 +26,8 @@ import os
 from . import app
 from . import commandbar
 from . import panel
+from . import settings
+from . import themes
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,40 @@ class MainWindow(QMainWindow):
 
         w.layout().addWidget(command_area)
         command_area.setVisible(False)
+
+        # Status bar for transient messages
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setVisible(False)
+        self.status_label.setContentsMargins(8, 2, 8, 2)
+        w.layout().addWidget(self.status_label)
+
+        self.status_timer = QTimer()
+        self.status_timer.setSingleShot(True)
+        self.status_timer.timeout.connect(lambda: self.status_label.setVisible(False))
+
+    def show_status(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
+        """Show a transient status message at the bottom of the window.
+
+        :param message: Text to display
+        :param kind: 'info', 'warning', or 'error' — controls text color
+        :param duration: Auto-hide after this many milliseconds
+        """
+        colors = {
+            'info': settings.theme.get('fg_good', settings.theme['fg']),
+            'warning': settings.theme.get('fg_bad', settings.theme['fg']),
+            'error': settings.theme['fg_bad'],
+        }
+        color = colors.get(kind, settings.theme['fg'])
+        self.status_label.setStyleSheet(
+            f'background-color: {settings.theme["bg_alt"]}; '
+            f'color: {color}; '
+            f'font-family: {settings.search_font}; '
+            f'font-size: {settings.search_font_size}pt;'
+        )
+        self.status_label.setText(message)
+        self.status_label.setVisible(True)
+        self.status_timer.start(duration)
 
     def closeEvent(self, e: QCloseEvent) -> None:
         conf = QSettings('dodo', 'dodo')

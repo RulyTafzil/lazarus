@@ -438,6 +438,7 @@ class SearchPanel(panel.Panel):
             return
         other_tags = set(thread.get('tags', [])) - {'inbox', 'unread'}
         if not other_tags:
+            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return  # refuse: thread has no categorizing tags
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if thread_id:

@@ -182,6 +182,10 @@ class Dodo(QApplication):
     def message(self, title, body) -> None:
         QMessageBox.warning(self.main_window, title, body)
 
+    def status_message(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
+        """Show a transient status bar message."""
+        self.main_window.show_status(message, kind, duration)
+
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
         """Add a panel to the tab view
 
@@ -330,9 +334,8 @@ class Dodo(QApplication):
 
         This method runs :func:`~dodo.settings.sync_mail_command`, then 'notmuch new'
 
-        :param quiet: If this is True, do not give any visual cues that email is being synced.
-                      This is less distracting if this is a periodic sync, rather than a
-                      manual sync by the user."""
+        :param quiet: If this is True, do not change the window title during sync.
+                      Status bar messages are always shown."""
 
         if self.sync_thread is not None and self.sync_thread.isRunning():
             return
@@ -343,6 +346,7 @@ class Dodo(QApplication):
         def done() -> None:
             self.refresh_panels()
             self.refresh_tab_titles()
+            self.status_message('Sync complete', 'info')
             if not quiet:
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
@@ -350,6 +354,7 @@ class Dodo(QApplication):
             self.sync_thread = None
             t.deleteLater()
 
+        self.status_message('Syncing...', 'info')
         if not quiet:
             title = self.main_window.windowTitle()
             self.main_window.setWindowTitle(title + ' [syncing]')

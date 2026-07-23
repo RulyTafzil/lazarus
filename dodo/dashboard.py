@@ -418,6 +418,7 @@ class DashboardPanel(panel.Panel):
             return
         other_tags = set(data.get('tags', [])) - {'inbox', 'unread'}
         if not other_tags:
+            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return  # refuse: thread has no categorizing tags
         subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
         self.app.update_single_thread(thread_id)
