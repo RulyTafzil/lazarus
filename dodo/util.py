@@ -380,7 +380,7 @@ def email_is_me(e: str) -> bool:
 
     # nb: strip_email_address(e) is unnecessary with how this is used in compose.py,
     # but doing it avoids a future footgun, and it is idempotent.
-    return strip_email_address(e) in addresses
+    return strip_email_address(e).casefold() in [a.casefold() for a in addresses]
 
 def email_smtp_account_index(e: str) -> Optional[int]:
     """Index in settings.smtp_accounts of account having the provided email address
@@ -392,8 +392,8 @@ def email_smtp_account_index(e: str) -> Optional[int]:
     assert isinstance(settings.email_address, dict), settings.email_address
     return next(
             (i for i, acc in enumerate(settings.smtp_accounts) if
-             strip_email_address(e) ==
-             strip_email_address(settings.email_address[acc])
+             strip_email_address(e).casefold() ==
+             strip_email_address(settings.email_address[acc]).casefold()
              ), None)
 
 def separate_headers(s: str) -> Tuple[str, str]:
