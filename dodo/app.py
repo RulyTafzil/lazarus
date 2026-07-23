@@ -321,6 +321,7 @@ class Dodo(QApplication):
             if w and isinstance(w, panel.Panel):
                 if isinstance(w, search.SearchPanel): w.tag_thread(tag_expr, mode)
                 elif isinstance(w, thread.ThreadPanel): w.tag_message(tag_expr)
+                elif isinstance(w, dashboard.DashboardPanel): w.tag_thread(tag_expr, mode)
                 w.refresh()
         self.command_bar.open(mode, callback)
 

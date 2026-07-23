@@ -17,7 +17,7 @@
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from typing import Optional, Any, List, Tuple
+from typing import Optional, Any, List, Tuple, Literal
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings
 from PyQt6.QtWidgets import QTreeView, QHeaderView
@@ -388,16 +388,23 @@ class DashboardPanel(panel.Panel):
             query = self.queries[0][1] if self.queries else ''
             self.app.open_thread(thread_id, query)
 
-    def tag_thread(self, tag_expr: str) -> None:
-        """Apply a tag expression to the current thread."""
+    def tag_thread(self, tag_expr: str, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
+        """Apply a tag expression to the current thread or all marked threads."""
         import subprocess
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
+
         if not ('+' in tag_expr or '-' in tag_expr):
             tag_expr = '+' + tag_expr
-        subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
-        self.app.update_single_thread(thread_id)
+
+        if mode == 'tag marked':
+            # Tag all marked threads across all dashboard sections
+            subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked', '--', 'tag:marked'])
+            self.app.refresh_panels()
+        else:
+            thread_id = self.model.thread_id(self.tree.currentIndex())
+            if not thread_id:
+                return
+            subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
+            self.app.update_single_thread(thread_id)
 
     def toggle_thread_tag(self, tag: str) -> None:
         """Toggle the given tag on the current thread."""
