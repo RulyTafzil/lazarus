@@ -53,18 +53,28 @@ class SyncMailThread(QThread):
         super().__init__(parent)
         self._proc: subprocess.Popen | None = None
         self._stopping = False
+        self.sync_stderr: str = ''
+        self.sync_rc: int = 0
+        self.notmuch_stderr: str = ''
+        self.notmuch_rc: int = 0
 
     def run(self) -> None:
         """Run :func:`~dodo.settings.sync_mail_command` then `notmuch new`"""
         self._proc = subprocess.Popen(settings.sync_mail_command, stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE,
                                       shell=True, start_new_session=True)
-        self._proc.wait()
+        _, self.sync_stderr = self._proc.communicate()
+        self.sync_rc = self._proc.returncode
+        self.sync_stderr = self.sync_stderr.decode('utf-8', errors='replace').strip()
         self._proc = None
         if self._stopping:
             return
         self._proc = subprocess.Popen(['notmuch', 'new'], stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE,
                                       start_new_session=True)
-        self._proc.wait()
+        _, self.notmuch_stderr = self._proc.communicate()
+        self.notmuch_rc = self._proc.returncode
+        self.notmuch_stderr = self.notmuch_stderr.decode('utf-8', errors='replace').strip()
         self._proc = None
 
     def _kill_proc(self) -> None:
@@ -346,7 +356,19 @@ class Dodo(QApplication):
         def done() -> None:
             self.refresh_panels()
             self.refresh_tab_titles()
-            self.status_message('Sync complete', 'info')
+            # Report sync errors via status bar
+            if t.sync_rc != 0:
+                msg = f'Sync error (exit {t.sync_rc})'
+                if t.sync_stderr:
+                    msg += f': {t.sync_stderr[:200]}'
+                self.status_message(msg, 'error', duration=8000)
+            elif t.notmuch_rc != 0:
+                msg = f'notmuch error (exit {t.notmuch_rc})'
+                if t.notmuch_stderr:
+                    msg += f': {t.notmuch_stderr[:200]}'
+                self.status_message(msg, 'error', duration=8000)
+            else:
+                self.status_message('Sync complete', 'info')
             if not quiet:
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
