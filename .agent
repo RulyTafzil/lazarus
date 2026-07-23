@@ -1,0 +1,112 @@
+# Project: mydodo (Dodo Mail Client)
+
+## Identity
+- **Name**: Dodo (`dodo-mail` on PyPI, v0.2)
+- **Author**: Aleks Kissinger <aleks0@gmail.com>
+- **License**: GPLv3
+- **Repo**: https://github.com/akissinger/dodo
+- **Docs**: https://dodomail.readthedocs.io/en/latest/
+- **Local dir**: `~/Projects/mydodo` (likely a fork or personal copy — upstream is `dodo`)
+
+## What It Is
+Dodo is a graphical, hackable email client built in Python/PyQt6. It provides a
+vim-like, keyboard-driven interface on top of the [notmuch](https://notmuchmail.org/)
+email indexer. It's inspired by alot and astroid (two other notmuch-based clients).
+
+## Core Philosophy
+- Keyboard-oriented with keychord support (e.g. `g g` for top, `t m` to tag marked)
+- UNIX philosophy: offloads work to battle-tested CLI tools
+- Text-first by default; HTML view is one keystroke away (`H`)
+- Fully configurable: `~/.config/dodo/config.py` is exec'd Python that can override
+  settings, keymaps, themes, layouts, message filters, and add custom commands
+- Non-destructive: all operations go through notmuch tags; no email is ever lost
+
+## Architecture
+
+### Entry Point
+`dodo/__main__.py` → `dodo/app.py:main()` → creates `Dodo(QApplication)`, calls `.exec()`
+
+### Class Hierarchy
+```
+QApplication
+ └── Dodo (app.py) — owns everything, holds global commands
+
+QMainWindow
+ └── MainWindow (mainwindow.py)
+      ├── QTabWidget (tabs)
+      │    └── Panel (panel.py) — base class for all panels
+      │         ├── SearchPanel (search.py) — search results via notmuch query
+      │         ├── ThreadPanel (thread.py) — single thread view
+      │         ├── ComposePanel (compose.py) — compose/reply/forward
+      │         └── TagPanel (tag.py) — tag browser
+      ├── CommandBar (commandbar.py) — bottom command input with tag completion
+      └── HelpWindow (helpwindow.py) — keybinding reference (? key)
+
+QAbstractItemModel
+ ├── SearchModel (search.py) — wraps `notmuch search --format=json`
+ ├── ThreadModel (thread.py) — wraps `notmuch show --format=json`
+ └── TagModel (tag.py) — wraps `notmuch search --output=tags`
+```
+
+### Module Map
+| File | Purpose |
+|------|---------|
+| `app.py` | `Dodo(QApplication)`, `SyncMailThread`, `main()` |
+| `mainwindow.py` | `MainWindow`: tabs, command bar, window geometry save/restore |
+| `panel.py` | `Panel(QWidget)`: base class with keychord handling, dirty tracking, temp dir cleanup |
+| `search.py` | `SearchPanel` + `SearchModel`: list threads matching a notmuch query |
+| `thread.py` | `ThreadPanel` + `ThreadModel` + message handlers: view a thread's messages |
+| `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread`: compose/reply/forward |
+| `tag.py` | `TagPanel` + `TagModel`: browse all notmuch tags with message counts |
+| `commandbar.py` | `CommandBar(QLineEdit)`: search/tag input with tag autocomplete and history |
+| `keymap.py` | Global + per-view keymaps (`global_keymap`, `search_keymap`, `thread_keymap`, `compose_keymap`, `tag_keymap`, `command_bar_keymap`) |
+| `settings.py` | All configurable settings with defaults and docstrings |
+| `themes.py` | Theme dicts (Nord, Solarized light/dark, Catppuccin macchiato, Gruvbox light/dark/hard/soft) + `apply_theme()` |
+| `util.py` | HTML/text helpers, key string parsing, attachment I/O, message wrapping, CSS generation |
+| `helpwindow.py` | `HelpWindow`: renders all keybindings as HTML |
+| `pgp_util.py` | PGP/MIME signing and encryption via python-gnupg |
+
+### Data Flow
+1. **Search**: `notmuch search --format=json` → `SearchModel` → `QTreeView` (4 cols: date, from, subject, tags)
+2. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list (QTreeView) + message body (QWebEngineView via custom URL scheme `message:`)
+3. **Compose**: raw email string → external editor (via `EditorThread`) → `SendmailThread` pipes to sendmail command → saved to Maildir sent folder
+4. **Sync**: `SyncMailThread` runs `offlineimap` then `notmuch new` on a timer
+
+### Custom URL Schemes
+- `message:html` / `message:plain` — serves message body to embedded QWebEngineView
+- `cid:<content-id>` — serves embedded images from MIME parts
+- `mailto:` — intercepted to open compose panel
+
+### Configuration System
+- Defaults in `dodo/settings.py` (module-level variables with docstrings)
+- User overrides in `~/.config/dodo/config.py` (exec'd at startup)
+- PyQt6.QtCore and PyQt6.QtWidgets are already imported in config.py scope
+- Can override: settings, theme, keymaps, layouts, message2html filters, command bar modes
+
+### External Tools Required
+- `notmuch` — email indexing and searching
+- `offlineimap` or `mbsync` — IMAP to Maildir sync
+- `msmtp` — SMTP sendmail-compatible client
+- `w3m` — HTML to plaintext conversion
+- `python-gnupg` (optional) — PGP/MIME signing/encryption
+
+### Python Dependencies
+- PyQt6 >= 6.2
+- PyQt6-WebEngine >= 6.2
+- bleach >= 5.0
+- setuptools >= 42 (build only)
+
+### Build Output
+A pre-existing build exists in `build/lib/dodo/` — the package has been installed
+from this directory via `pip install .`
+
+## Key Bindings (Summary)
+- `?` — help
+- `h/l` — previous/next tab
+- `x/X` — close panel / close all
+- `c` — compose
+- `/` — search bar
+- `t t` / `t m` — tag / tag marked
+- `I/U/F/T` — inbox / unread / flagged / tags view
+- Vim-style navigation: `j/k`, `C-d/C-u`, `g g/G`, `<space>` to mark+advance
+- Thread view: `r/R` reply, `C-f` forward, `H` toggle HTML, `M` toggle list mode

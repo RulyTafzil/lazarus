@@ -128,10 +128,13 @@ class MessageHandler(QWebEngineUrlSchemeHandler):
             buf.open(QIODevice.OpenModeFlag.WriteOnly)
             if mode == 'html':
                 html = util.body_html(self.message_json)
-                html = re.sub(r'(<meta(?!\s*(?:name|value)\s*=)[^>]*?charset\s*=[\s"\']*)([^\s"\'/>]*)',
-                              r'\1utf-8', html, flags=re.M)
-                if html: buf.write(html.encode('utf-8'))
-            else:
+                if html:
+                    html = re.sub(r'(<meta(?!\s*(?:name|value)\s*=)[^>]*?charset\s*=[\s"\']*)([^\s"\'/>]*)',
+                                  r'\1utf-8', html, flags=re.M)
+                    buf.write(html.encode('utf-8'))
+                else:
+                    mode = 'plain'  # fall through to plaintext rendering
+            if mode != 'html':
                 for filt in settings.message2html_filters:
                     try:
                         text = filt(self.message_json)
