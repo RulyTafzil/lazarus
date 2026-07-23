@@ -423,6 +423,45 @@ class DashboardPanel(panel.Panel):
         subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
         self.app.update_single_thread(thread_id)
 
+    def delete_thread(self) -> None:
+        """Move the current thread to Trash: tag +deleted and move files to Trash folder."""
+        import subprocess
+        import os
+        import re
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        # Tag in notmuch
+        subprocess.run(['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--', 'thread:' + thread_id])
+        # Move files to Trash folder (Thunderbird/neomutt approach)
+        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
+                          capture_output=True, text=True)
+        for f in r.stdout.strip().split('\n'):
+            if not f:
+                continue
+            # Determine Trash path from the file's current location
+            parts = f.split('/Mail/', 1)
+            if len(parts) != 2:
+                continue
+            account, rest = parts[1].split('/', 1)
+            folder = rest.split('/', 1)[0] if '/' in rest else rest
+            # Gmail uses [Gmail]/Trash, standard IMAP uses Trash
+            trash_dir = os.path.join('/home/rulyt/Mail', account, '[Gmail]', 'Trash', 'cur')
+            if not os.path.isdir(trash_dir):
+                trash_dir = os.path.join('/home/rulyt/Mail', account, 'Trash', 'cur')
+            if not os.path.isdir(trash_dir):
+                os.makedirs(trash_dir, exist_ok=True)
+            basename = os.path.basename(f)
+            # Strip mbsync UID annotation to avoid duplicate UID errors
+            basename = re.sub(r',U=\d+', '', basename)
+            dest = os.path.join(trash_dir, basename)
+            try:
+                os.rename(f, dest)
+            except OSError as e:
+                logger.warning('trash move failed: %s', e)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Moved to trash', 'info')
+
     def toggle_thread_tag(self, tag: str) -> None:
         """Toggle the given tag on the current thread."""
         import subprocess

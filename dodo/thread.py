@@ -801,6 +801,40 @@ class ThreadPanel(panel.Panel):
     def tag_message(self, tag_expr: str) -> None:
         return self.model.tag_message(self.current_index, tag_expr)
 
+    def delete_message(self) -> None:
+        """Move the current message to Trash: tag +deleted and move file to Trash folder."""
+        import subprocess
+        import os
+        import re
+        msg = self.current_message
+        msg_id = msg['id']
+        subprocess.run(['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--', 'id:' + msg_id])
+        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'id:' + msg_id],
+                          capture_output=True, text=True)
+        for f in r.stdout.strip().split('\n'):
+            if not f:
+                continue
+            parts = f.split('/Mail/', 1)
+            if len(parts) != 2:
+                continue
+            account, rest = parts[1].split('/', 1)
+            trash_dir = os.path.join('/home/rulyt/Mail', account, '[Gmail]', 'Trash', 'cur')
+            if not os.path.isdir(trash_dir):
+                trash_dir = os.path.join('/home/rulyt/Mail', account, 'Trash', 'cur')
+            if not os.path.isdir(trash_dir):
+                os.makedirs(trash_dir, exist_ok=True)
+            basename = os.path.basename(f)
+            # Strip mbsync UID annotation to avoid duplicate UID errors
+            basename = re.sub(r',U=\d+', '', basename)
+            dest = os.path.join(trash_dir, basename)
+            try:
+                os.rename(f, dest)
+            except OSError as e:
+                logger.warning('trash move failed: %s', e)
+        self.app.update_single_thread(self.thread_id, msg_id=msg_id)
+        self.next_message()
+        self.app.status_message('Moved to trash', 'info')
+
     def toggle_html(self) -> None:
         """Toggle between HTML and plain text message view"""
 
