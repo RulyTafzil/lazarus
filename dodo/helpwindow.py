@@ -40,6 +40,7 @@ class HelpWindow(QWidget):
 
         maps = [
             ("Global", keymap.global_keymap),
+            ("Dashboard", keymap.dashboard_keymap),
             ("Search view", keymap.search_keymap),
             ("Thread view", keymap.thread_keymap),
             ("Compose view", keymap.compose_keymap),

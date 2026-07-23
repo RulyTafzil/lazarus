@@ -29,6 +29,7 @@ global_keymap = {
   'U':       ('show unread', lambda a: a.open_search('tag:inbox and tag:unread')),
   'F':       ('show flagged', lambda a: a.open_search('tag:flagged')),
   'T':       ('show tags', lambda a: a.open_tags()),
+  'D':       ('show dashboard', lambda a: a.open_dashboard()),
   '/':       ('search', lambda a: a.search_bar()),
   't t':     ('tag', lambda a: a.tag_bar()),
   't m':     ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
@@ -125,6 +126,27 @@ compose_keymap = {
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
 taking :class:`~dodo.compose.ComposePanel` as input.
+"""
+
+dashboard_keymap = {
+  'j':          ('next thread', lambda p: p.next_thread()),
+  'k':          ('previous thread', lambda p: p.previous_thread()),
+  '<down>':     ('next thread', lambda p: p.next_thread()),
+  '<up>':       ('previous thread', lambda p: p.previous_thread()),
+  'g g':        ('first thread', lambda p: p.first_thread()),
+  'G':          ('last thread', lambda p: p.last_thread()),
+  'C-d':        ('down 20', lambda p: [p.next_thread() for i in range(20)]),
+  'C-u':        ('up 20', lambda p: [p.previous_thread() for i in range(20)]),
+  '<enter>':    ('open thread', lambda p: p.open_current_thread()),
+  'a':          ('archive', lambda p: p.tag_thread('-inbox -unread')),
+  'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
+  'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
+  '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
+}
+"""The local keymap for the dashboard panel
+
+A dictionary from key strings to pairs consisting of a short docstring and a function
+taking :class:`~dodo.dashboard.DashboardPanel` as input.
 """
 
 command_bar_keymap = {

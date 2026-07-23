@@ -171,6 +171,26 @@ init_queries = [ 'tag:inbox' ]
 
 You can save query with `notmuch config set query:inbox "tag:inbox and not
 tag:trash"` and use `query:inbox` as a search term.
+
+Set this to ``[]`` when using a dashboard as the default view.
+"""
+
+dashboard_queries = [
+  ('inbox', 'tag:inbox'),
+  ('urgent', 'tag:urgent'),
+  ('todo', 'tag:todo'),
+  ('waiting', 'tag:waiting'),
+]
+"""List of (label, query) tuples shown in the dashboard panel.
+
+When non-empty, the dashboard is opened automatically on startup.
+Labels are used as section headers and matched against tag_icons for display.
+"""
+
+dashboard_max_items = None
+"""Maximum number of threads to show per dashboard section.
+
+Set to None to show all matching threads, or an integer to limit each section.
 """
 
 no_hooks_on_send = True

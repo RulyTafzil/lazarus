@@ -32,6 +32,7 @@ from . import search
 from . import thread
 from . import compose
 from . import tag
+from . import dashboard
 from . import settings
 from . import themes
 from . import util
@@ -151,9 +152,12 @@ class Dodo(QApplication):
         signal.signal(signal.SIGINT, lambda *_: None)
 
         # open init_queries and make un-closeable
-        #
-        for query in settings.init_queries:
-            self.open_search(query, keep_open=True)
+        # If dashboard_queries are configured, open dashboard instead
+        if settings.dashboard_queries:
+            self.open_dashboard(keep_open=True)
+        else:
+            for query in settings.init_queries:
+                self.open_search(query, keep_open=True)
 
     def _handle_signal_wakeup(self) -> None:
         """Called when a Unix signal wakes up the Qt event loop via the pipe"""
@@ -289,6 +293,21 @@ class Dodo(QApplication):
                 return
 
         p = tag.TagPanel(self, keep_open)
+        self.add_panel(p)
+
+    def open_dashboard(self, keep_open: bool=False) -> None:
+        """Open dashboard panel
+
+        If a dashboard panel is already open, switch to it."""
+
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, dashboard.DashboardPanel):
+                w.keep_open = keep_open
+                self.tabs.setCurrentIndex(i)
+                return
+
+        p = dashboard.DashboardPanel(self, keep_open=keep_open)
         self.add_panel(p)
 
     def search_bar(self) -> None:
