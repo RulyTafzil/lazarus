@@ -141,8 +141,11 @@ class DashboardModel(QAbstractItemModel):
             label, model = data
             if role == Qt.ItemDataRole.DisplayRole:
                 if col_idx == 0:
-                    icon = settings.tag_icons.get(label, f'[{label}]')
-                    return f'{icon}  {label} ({model.num_threads})'
+                    icon = settings.tag_icons.get(label, '')
+                    count = model.num_threads
+                    if icon:
+                        return f'{icon}  {label} ({count})'
+                    return f'{label} ({count})'
                 return ''
             elif role == Qt.ItemDataRole.FontRole:
                 font = QFont(settings.search_font, settings.search_font_size)
