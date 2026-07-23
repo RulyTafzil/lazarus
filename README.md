@@ -1,4 +1,7 @@
 # Dodo
+This is a personal fork of Dodo: https://github.com/akissinger/dodo
+Planning to do extensive ai work on it, so didn't want to bother them.
+
 
 [![Documentation Status](https://readthedocs.org/projects/dodomail/badge/?version=latest)](https://dodomail.readthedocs.io/en/latest/?badge=latest)
 
