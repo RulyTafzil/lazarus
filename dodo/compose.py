@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Optional, List, Set
 
 from PyQt6.QtCore import *
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineWidgets import *
 import mailbox
@@ -66,6 +67,7 @@ class ComposePanel(panel.Panel):
         self.mode = mode
         self.msg = msg
         self.message_view = QWebEngineView()
+        self.message_view.page().setBackgroundColor(QColor(settings.theme['bg']))
         self.message_view.setZoomFactor(1.2)
         self.layout().addWidget(self.message_view)
         self.status = f'<i style="color:{settings.theme["fg"]}">draft</i>'
