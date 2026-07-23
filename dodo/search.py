@@ -34,7 +34,7 @@ from . import panel
 
 logger = logging.getLogger(__name__)
 
-columns = ['date', 'from', 'subject', 'tags']
+columns = ['date', 'from', 'subject', 'tags', '#']
 
 class SearchModel(QAbstractItemModel):
     """A model containing the results of a search"""
@@ -150,8 +150,11 @@ class SearchModel(QAbstractItemModel):
                     if t not in settings.hide_tags and self.q != 'tag:' + t:
                         tag_icons.append(settings.tag_icons[t] if t in settings.tag_icons else f'[{t}]')
                 return ' '.join(tag_icons)
+            elif col == '#':
+                total = thread_d.get('total', 1)
+                return f'{total}' if total > 1 else ''
         elif role == Qt.ItemDataRole.FontRole:
-            if col == 'tags':
+            if col in ['tags', '#']:
                 font = QFont(settings.tag_font, settings.tag_font_size)
             else:
                 font = QFont(settings.search_font, settings.search_font_size)
