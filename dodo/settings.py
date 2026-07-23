@@ -246,7 +246,7 @@ The following placeholders can be used:
 tag_icons = {
   'inbox': '',
   'unread': '',
-  'attachment': '',
+  'attachment': '',
   'sent': '>',
   'replied': '',
   'flagged': '',
