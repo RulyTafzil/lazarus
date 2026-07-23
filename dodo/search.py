@@ -431,3 +431,16 @@ class SearchPanel(panel.Panel):
             subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked','--', f'tag:marked AND ({self.q})'])
             self.app.refresh_panels()
 
+    def archive_thread(self) -> None:
+        """Archive the current thread, but only if it has tags beyond inbox/unread."""
+        thread = self.model.thread_json(self.tree.currentIndex())
+        if not thread:
+            return
+        other_tags = set(thread.get('tags', [])) - {'inbox', 'unread'}
+        if not other_tags:
+            return  # refuse: thread has no categorizing tags
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if thread_id:
+            subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+            self.app.update_single_thread(thread_id)
+

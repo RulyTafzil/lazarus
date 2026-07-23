@@ -406,6 +406,22 @@ class DashboardPanel(panel.Panel):
             subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
             self.app.update_single_thread(thread_id)
 
+    def archive_thread(self) -> None:
+        """Archive the current thread, but only if it has tags beyond inbox/unread."""
+        import subprocess
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        row = self.tree.currentIndex().row()
+        typ, data = self.model.rows[row]
+        if typ != 'thread':
+            return
+        other_tags = set(data.get('tags', [])) - {'inbox', 'unread'}
+        if not other_tags:
+            return  # refuse: thread has no categorizing tags
+        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+        self.app.update_single_thread(thread_id)
+
     def toggle_thread_tag(self, tag: str) -> None:
         """Toggle the given tag on the current thread."""
         import subprocess
