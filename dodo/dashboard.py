@@ -272,6 +272,10 @@ class DashboardPanel(panel.Panel):
         # Span header rows across all columns
         self.tree.model().modelReset.connect(self._span_headers)
 
+        # Restore column widths from previous session
+        self.conf = QSettings("dodo", "dodo")
+        self.restore_tree_geometry()
+
         self.layout().addWidget(self.tree)
 
         # Select first selectable row
@@ -285,6 +289,21 @@ class DashboardPanel(panel.Panel):
             if self.model.is_header(row):
                 idx = self.model.index(row, 0)
                 self.tree.setFirstColumnSpanned(row, QModelIndex(), True)
+
+    def restore_tree_geometry(self) -> None:
+        """Restore column widths from previous session."""
+        tree_geometry = self.conf.value("dashboard_tree_geometry")
+        if tree_geometry:
+            self.tree.header().restoreState(tree_geometry)
+
+    def save_tree_geometry(self) -> None:
+        """Save column widths for next session."""
+        self.conf.setValue("dashboard_tree_geometry", self.tree.header().saveState())
+
+    def before_close(self) -> bool:
+        """Save geometry before closing."""
+        self.save_tree_geometry()
+        return super().before_close()
 
     def _select_first_thread(self) -> None:
         """Select the first non-header row."""

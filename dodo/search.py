@@ -34,7 +34,7 @@ from . import panel
 
 logger = logging.getLogger(__name__)
 
-columns = ['date', 'from', 'subject', 'tags', '#']
+columns = ['date', '#', 'from', 'subject', 'tags']
 
 class SearchModel(QAbstractItemModel):
     """A model containing the results of a search"""
