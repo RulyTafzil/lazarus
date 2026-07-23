@@ -152,9 +152,9 @@ class SearchModel(QAbstractItemModel):
                 return ' '.join(tag_icons)
             elif col == '#':
                 total = thread_d.get('total', 1)
-                return f'{total}' if total > 1 else ''
+                return f' {total}' if total > 1 else ''
         elif role == Qt.ItemDataRole.FontRole:
-            if col in ['tags', '#']:
+            if col == 'tags':
                 font = QFont(settings.tag_font, settings.tag_font_size)
             else:
                 font = QFont(settings.search_font, settings.search_font_size)
