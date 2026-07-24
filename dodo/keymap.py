@@ -41,6 +41,17 @@ taking :class:`~dodo.app.Dodo` as input. This commands can be superseded by the 
 local keymaps.
 """
 
+# Split-pane navigation hints — displayed in help but these keys are
+# actually handled by the local keymaps (dashboard/search/thread).
+navigation_keymap = {
+  '<enter>':   ('open thread in preview', lambda a: None),
+  '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
+  'J':         ('next message (in thread)', lambda a: None),
+  'K':         ('previous message (in thread)', lambda a: None),
+  'j':         ('next thread / scroll msg', lambda a: None),
+  'k':         ('previous thread / scroll msg', lambda a: None),
+}
+
 search_keymap = {
   'j':          ('next thread', lambda p: p.next_thread()),
   'k':          ('previous thread', lambda p: p.previous_thread()),

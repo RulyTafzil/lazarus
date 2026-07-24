@@ -57,9 +57,13 @@ class HelpWindow(QWidget):
 
         # Split keymaps into three columns
         columns = [
-            [("Global", keymap.global_keymap), ("Dashboard", keymap.dashboard_keymap)],
-            [("Search view", keymap.search_keymap), ("Compose view", keymap.compose_keymap)],
-            [("Thread view", keymap.thread_keymap), ("Command bar", keymap.command_bar_keymap)],
+            [("Navigation", keymap.navigation_keymap),
+             ("Global", keymap.global_keymap),
+             ("Dashboard", keymap.dashboard_keymap)],
+            [("Search view", keymap.search_keymap),
+             ("Compose view", keymap.compose_keymap)],
+            [("Thread view", keymap.thread_keymap),
+             ("Command bar", keymap.command_bar_keymap)],
         ]
 
         for col_maps in columns:
