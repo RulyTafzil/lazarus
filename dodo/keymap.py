@@ -51,7 +51,7 @@ navigation_keymap = {
   '<enter>':   ('open thread / next message', lambda a: None),
   '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
   '<space> / -': ('page down / up', lambda a: None),
-  's':         ('mark thread for mass edit', lambda a: None),
+  's':         ('mark thread and advance', lambda a: None),
   't m':       ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 
@@ -74,8 +74,7 @@ search_keymap = {
   'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
-  's':          ('toggle marked', lambda p: p.toggle_thread_tag('marked')),
-  '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
+  's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
 """The local keymap for search panels
 
@@ -161,8 +160,7 @@ dashboard_keymap = {
   'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
-  's':          ('toggle marked', lambda p: p.toggle_thread_tag('marked')),
-  '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
+  's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
 """The local keymap for the dashboard panel
 
