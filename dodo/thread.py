@@ -95,8 +95,7 @@ class ThreadPanel(panel.Panel):
 
         self.message_info = QTextBrowser()
 
-        # TODO: this leaks memory, but stops Qt from cleaning up the profile
-        #        too soon
+        # Shared profile for URL scheme handlers
         self.message_profile = QWebEngineProfile(self.app)
 
         self.image_handler = EmbeddedImageHandler(self)
@@ -109,32 +108,42 @@ class ThreadPanel(panel.Panel):
         self.message_profile.settings().setAttribute(
             QWebEngineSettings.WebAttribute.JavascriptEnabled, False)
 
-        # The interceptor must not be garbage collected, so keep a reference
         self.url_interceptor = RemoteBlockingUrlRequestInterceptor()
         self.message_profile.setUrlRequestInterceptor(self.url_interceptor)
 
-        self.message_view = QWebEngineView()
-        page = MessagePage(self.app, self.message_profile, self.message_view)
-        self.message_view.setPage(page)
-        self.message_view.setZoomFactor(1.2)
-        self.message_view.setStyleSheet(
-            f'background-color: {settings.theme["bg"]};')
-        self.message_view.page().setBackgroundColor(
-            QColor(settings.theme['bg']))
-        self.message_view.loadFinished.connect(self._on_load_finished)
+        # Double-buffered views to prevent white flash during page loads.
+        # The inactive view loads in the background; on loadFinished we
+        # swap to it atomically via QStackedWidget.
+        self._views = [self._make_view(), self._make_view()]
+        self._active_view = 0
 
-        # Snapshot overlay to prevent white flash during page loads
-        self._snapshot_label = QLabel()
-        self._snapshot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._snapshot_label.setStyleSheet(
-            f'background-color: {settings.theme["bg"]};')
-
-        # Stack: view on bottom, snapshot overlay on top
         self._view_stack = QStackedWidget()
-        self._view_stack.addWidget(self.message_view)    # index 0
-        self._view_stack.addWidget(self._snapshot_label)  # index 1
+        self._view_stack.addWidget(self._views[0])
+        self._view_stack.addWidget(self._views[1])
 
         self.layout_panel()
+
+    # -- view factory -------------------------------------------------------
+
+    def _make_view(self) -> QWebEngineView:
+        """Create a configured QWebEngineView with its own MessagePage."""
+        view = QWebEngineView()
+        page = MessagePage(self.app, self.message_profile, view)
+        view.setPage(page)
+        view.setZoomFactor(1.2)
+        view.setStyleSheet(
+            f'background-color: {settings.theme["bg"]};')
+        view.page().setBackgroundColor(QColor(settings.theme['bg']))
+        return view
+
+    @property
+    def message_view(self) -> QWebEngineView:
+        """The currently visible view (for backward compat)."""
+        return self._views[self._active_view]
+
+    def _inactive_view(self) -> QWebEngineView:
+        """The hidden view, ready to load the next page."""
+        return self._views[1 - self._active_view]
 
     # -- collapsed-state save/restore ---------------------------------------
 
@@ -321,25 +330,32 @@ class ThreadPanel(panel.Panel):
         self.has_refreshed.emit()
 
     def refresh_content(self) -> None:
-        """Refresh the message body view."""
+        """Load new content into the hidden view, swap on finish."""
         m = self.current_message
         self.message_handler.message_json = m
 
-        # Snapshot the current view and show it as overlay while loading
-        self._snapshot_label.setPixmap(self.message_view.grab())
-        self._view_stack.setCurrentIndex(1)  # show snapshot
+        inactive = self._inactive_view()
+        inactive.loadFinished.connect(self._on_load_finished)
 
         if self.html_mode:
             if 'filename' in m and len(m['filename']) != 0:
                 self.image_handler.set_message(m['filename'][0])
-            self.message_view.page().setUrl(QUrl('message:html'))
+            inactive.page().setUrl(QUrl('message:html'))
         else:
-            self.message_view.page().setUrl(QUrl('message:plain'))
-        self.scroll_message(pos='top')
+            inactive.page().setUrl(QUrl('message:plain'))
 
     def _on_load_finished(self, ok: bool) -> None:
-        """Swap back to the message view once the page has rendered."""
-        self._view_stack.setCurrentIndex(0)  # show message view
+        """Swap to the freshly loaded view and scroll to top."""
+        view = self.sender()
+        if not isinstance(view, QWebEngineView):
+            return
+        try:
+            view.loadFinished.disconnect(self._on_load_finished)
+        except TypeError:
+            pass
+        self._active_view = 1 - self._active_view
+        self._view_stack.setCurrentIndex(self._active_view)
+        self.scroll_message(pos='top')
 
     def update_thread(self, thread_id: str,
                       msg_id: str | None = None) -> None:
