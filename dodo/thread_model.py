@@ -208,11 +208,11 @@ class ThreadModel(QAbstractItemModel):
 
     def get_last_msg_idx(self,
                          parent: QModelIndex = QModelIndex()) -> QModelIndex:
-        children = parent.internalPointer().children
+        children = self._children_at(parent)
         if children:
             return self.get_last_msg_idx(
                 self.index(len(children) - 1, 0, parent))
-        return parent
+        return parent if parent.isValid() else QModelIndex()
 
     def default_message(self) -> QModelIndex:
         """Return the oldest matching message or the last message."""
