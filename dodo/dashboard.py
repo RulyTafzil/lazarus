@@ -462,6 +462,43 @@ class DashboardPanel(panel.Panel):
         self.app.update_single_thread(thread_id)
         self.app.status_message('Moved to trash', 'info')
 
+    def archive_to_local(self) -> None:
+        """Move the current thread to the local Archive Maildir."""
+        import subprocess
+        import os
+        import re
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        # Check refusal condition: must have categorizing tags
+        row = self.tree.currentIndex().row()
+        typ, data = self.model.rows[row]
+        if typ != 'thread':
+            return
+        other_tags = set(data.get('tags', [])) - {'inbox', 'unread'}
+        if not other_tags:
+            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
+            return
+        # Move files to archive
+        archive_path = os.path.expanduser(settings.archive_dir)
+        archive_cur = os.path.join(archive_path, 'cur')
+        os.makedirs(archive_cur, exist_ok=True)
+        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
+                          capture_output=True, text=True)
+        for f in r.stdout.strip().split('\n'):
+            if not f:
+                continue
+            basename = os.path.basename(f)
+            basename = re.sub(r',U=\d+', '', basename)
+            dest = os.path.join(archive_cur, basename)
+            try:
+                os.rename(f, dest)
+            except OSError as e:
+                logger.warning('archive move failed: %s', e)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Archived to local', 'info')
+
     def toggle_thread_tag(self, tag: str) -> None:
         """Toggle the given tag on the current thread."""
         import subprocess

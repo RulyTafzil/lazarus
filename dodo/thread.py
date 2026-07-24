@@ -835,6 +835,37 @@ class ThreadPanel(panel.Panel):
         self.next_message()
         self.app.status_message('Moved to trash', 'info')
 
+    def archive_to_local(self) -> None:
+        """Move the current message to the local Archive Maildir."""
+        import subprocess
+        import os
+        import re
+        msg = self.current_message
+        msg_id = msg['id']
+        other_tags = set(msg.get('tags', [])) - {'inbox', 'unread'}
+        if not other_tags:
+            self.app.status_message('Archive refused: no tags beyond inbox/unread', 'warning')
+            return
+        archive_path = os.path.expanduser(settings.archive_dir)
+        archive_cur = os.path.join(archive_path, 'cur')
+        os.makedirs(archive_cur, exist_ok=True)
+        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'id:' + msg_id])
+        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'id:' + msg_id],
+                          capture_output=True, text=True)
+        for f in r.stdout.strip().split('\n'):
+            if not f:
+                continue
+            basename = os.path.basename(f)
+            basename = re.sub(r',U=\d+', '', basename)
+            dest = os.path.join(archive_cur, basename)
+            try:
+                os.rename(f, dest)
+            except OSError as e:
+                logger.warning('archive move failed: %s', e)
+        self.app.update_single_thread(self.thread_id, msg_id=msg_id)
+        self.next_message()
+        self.app.status_message('Archived to local', 'info')
+
     def toggle_html(self) -> None:
         """Toggle between HTML and plain text message view"""
 

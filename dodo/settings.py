@@ -193,6 +193,15 @@ dashboard_max_items = None
 Set to None to show all matching threads, or an integer to limit each section.
 """
 
+archive_dir = '~/Mail/Archive'
+"""Path to a local-only Maildir where ``A`` hotkey moves archived emails.
+
+Files are moved into a ``cur/`` subdirectory here, keeping them
+searchable in notmuch while removing them from synced IMAP folders.
+This directory should be under mail_root but outside all mbsync
+channels so archived mail stays local-only.
+"""
+
 no_hooks_on_send = True
 """disable/enable calling notmuch hooks when sending email
 

@@ -57,6 +57,7 @@ search_keymap = {
   '<enter>':    ('open thread', lambda p: p.open_current_thread()),
   'a':          ('archive', lambda p: p.archive_thread()),
   'd':          ('delete', lambda p: p.delete_thread()),
+  'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
   '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
@@ -106,7 +107,8 @@ thread_keymap = {
   'r':          ('reply to all', lambda p: p.reply(to_all=True)),
   'R':          ('reply', lambda p: p.reply(to_all=False)),
   'C-f':        ('forward', lambda p: p.forward()),
-  'A':          ('show attachments in file browser', lambda p: p.open_attachments()),
+  'A':          ('archive to local', lambda p: p.archive_to_local()),
+  'O':          ('show attachments in file browser', lambda p: p.open_attachments()),
 }
 """The local keymap for thread panels
 
@@ -142,6 +144,7 @@ dashboard_keymap = {
   '<enter>':    ('open thread', lambda p: p.open_current_thread()),
   'a':          ('archive', lambda p: p.archive_thread()),
   'd':          ('delete', lambda p: p.delete_thread()),
+  'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
   '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
