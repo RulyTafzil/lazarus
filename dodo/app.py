@@ -253,6 +253,13 @@ class Dodo(QApplication):
             w.toggle_thread_tag('marked')
             w.next_thread()
 
+    def delegate_to_list(self, method: str) -> None:
+        """Call *method* on the current list panel, even if thread
+        preview has focus.  Silently no-ops if not applicable."""
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, method):
+            getattr(w, method)()
+
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
         """Add a panel to the tab view
 
