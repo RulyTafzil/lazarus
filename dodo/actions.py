@@ -115,6 +115,9 @@ def move_to_trash(notmuch_query: str) -> int:
         trash_dir = _find_trash_dir(account)
         basename = _strip_uid_annotation(os.path.basename(f))
         dest = os.path.join(trash_dir, basename)
+        if not os.path.exists(f):
+            logger.debug('trash skip (already moved): %s', f)
+            continue
         try:
             os.rename(f, dest)
             moved += 1
@@ -153,6 +156,9 @@ def move_to_archive(notmuch_query: str) -> int:
         seen.add(f)
         basename = _strip_uid_annotation(os.path.basename(f))
         dest = os.path.join(archive_cur, basename)
+        if not os.path.exists(f):
+            logger.debug('archive skip (already moved): %s', f)
+            continue
         try:
             os.rename(f, dest)
             moved += 1
