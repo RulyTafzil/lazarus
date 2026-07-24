@@ -51,6 +51,8 @@ navigation_keymap = {
   '<enter>':   ('open thread / next message', lambda a: None),
   '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
   '<space> / -': ('page down / up', lambda a: None),
+  's':         ('mark thread for mass edit', lambda a: None),
+  't m':       ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 
 search_keymap = {
@@ -72,6 +74,7 @@ search_keymap = {
   'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
+  's':          ('toggle marked', lambda p: p.toggle_thread_tag('marked')),
   '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
 """The local keymap for search panels
@@ -107,12 +110,11 @@ thread_keymap = {
   'G':          ('bottom of message', lambda p: p.scroll_message(pos='bottom')),
   '<pageup>':   ('page up', lambda p: p.scroll_message(pages=-1)),
   '<pagedown>': ('page down', lambda p: p.scroll_message(pages=1)),
-  'C-d':        ('scroll down more', lambda p: p.scroll_message(lines=10)),
-  'C-u':        ('scroll up more', lambda p: p.scroll_message(lines=-10)),
   '<space>':    ('page down', lambda p: p.scroll_message(pages=1)),
   '-':          ('page up', lambda p: p.scroll_message(pages=-1)),
   'u':          ('toggle unread', lambda p: p.toggle_message_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_message_tag('flagged')),
+  's':          ('toggle marked', lambda p: p.toggle_message_tag('marked')),
   'H':          ('toggle HTML', lambda p: p.toggle_html()),
   'd':          ('delete', lambda p: p.delete_message()),
   'M':          ('toggle thread list mode', lambda p: p.toggle_list_mode()),
@@ -159,6 +161,7 @@ dashboard_keymap = {
   'A':          ('archive to local', lambda p: p.archive_to_local()),
   'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
+  's':          ('toggle marked', lambda p: p.toggle_thread_tag('marked')),
   '<space>':    ('toggle marked', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
 """The local keymap for the dashboard panel
