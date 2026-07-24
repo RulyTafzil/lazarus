@@ -454,10 +454,18 @@ class SearchPanel(panel.Panel):
         if mode == 'tag':
             thread_id = self.model.thread_id(self.tree.currentIndex())
             if thread_id:
-                subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
+                r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id],
+                                   capture_output=True, text=True)
+                if r.returncode != 0:
+                    self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                    return
                 self.app.update_single_thread(thread_id)
         elif mode == 'tag marked':
-            subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked','--', f'tag:marked AND ({self.q})'])
+            r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked','--', f'tag:marked AND ({self.q})'],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.refresh_panels()
 
     def archive_thread(self) -> None:
@@ -468,8 +476,12 @@ class SearchPanel(panel.Panel):
             ['notmuch', 'count', '--output=threads', marked_query],
             capture_output=True, text=True).stdout.strip() or '0')
         if count > 0:
-            subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
-                           '-marked', '--', marked_query])
+            r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
+                               '-marked', '--', marked_query],
+                              capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.refresh_panels()
             self.app.status_message('Archived marked', 'info')
             return
@@ -482,7 +494,11 @@ class SearchPanel(panel.Panel):
             return
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if thread_id:
-            subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+            r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id],
+                              capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.update_single_thread(thread_id)
 
     def delete_thread(self) -> None:

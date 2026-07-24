@@ -139,7 +139,11 @@ class Dodo(QApplication):
         # find a load config.py
         self.config_file = QStandardPaths.locate(QStandardPaths.StandardLocation.ConfigLocation, 'dodo/config.py')
         if self.config_file:
-            exec(open(self.config_file).read())
+            try:
+                exec(open(self.config_file).read())
+            except Exception as e:
+                print(f'Error loading config file {self.config_file}: {e}', file=sys.stderr)
+                sys.exit(1)
         else:
             config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
             print('No config.py found in:\n' + '\n'.join([f'  {d}/dodo' for d in config_locs]))
