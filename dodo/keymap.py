@@ -20,6 +20,8 @@ global_keymap = {
   '?':       ('show help', lambda a: a.show_help()),
   'Q':       ('quit', lambda a: a.prompt_quit()),
   '`':       ('sync mail', lambda a: a.sync_mail(quiet=False)),
+  'j':       ('next thread', lambda a: a.navigate_list('next')),
+  'k':       ('previous thread', lambda a: a.navigate_list('previous')),
   'l':       ('next panel', lambda a: a.next_panel()),
   'h':       ('previous panel', lambda a: a.previous_panel()),
   'x':       ('close panel', lambda a: a.close_panel()),
@@ -44,12 +46,11 @@ local keymaps.
 # Split-pane navigation hints — displayed in help but these keys are
 # actually handled by the local keymaps (dashboard/search/thread).
 navigation_keymap = {
-  'j / k':     ('next / previous thread', lambda a: None),
+  'j / k':     ('next / previous thread (always)', lambda a: None),
   'J / K':     ('next / previous message', lambda a: None),
   '<enter>':   ('open thread / next message', lambda a: None),
   '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
-  '<space>':   ('page down', lambda a: None),
-  '-':         ('page up', lambda a: None),
+  '<space> / -': ('page down / up', lambda a: None),
 }
 
 search_keymap = {
@@ -106,8 +107,6 @@ thread_keymap = {
   'G':          ('bottom of message', lambda p: p.scroll_message(pos='bottom')),
   '<pageup>':   ('page up', lambda p: p.scroll_message(pages=-1)),
   '<pagedown>': ('page down', lambda p: p.scroll_message(pages=1)),
-  'j':          ('scroll down', lambda p: p.scroll_message(lines=1)),
-  'k':          ('scroll up', lambda p: p.scroll_message(lines=-1)),
   'C-d':        ('scroll down more', lambda p: p.scroll_message(lines=10)),
   'C-u':        ('scroll up more', lambda p: p.scroll_message(lines=-10)),
   '<space>':    ('page down', lambda p: p.scroll_message(pages=1)),

@@ -221,6 +221,18 @@ class Dodo(QApplication):
         """Show a transient status bar message."""
         self.main_window.show_status(message, kind, duration)
 
+    def navigate_list(self, direction: str) -> None:
+        """Navigate the current list panel's thread selection.
+
+        Always targets the list side, even when the thread preview has focus.
+        """
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'next_thread') and hasattr(w, 'previous_thread'):
+            if direction == 'next':
+                w.next_thread()
+            elif direction == 'previous':
+                w.previous_thread()
+
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
         """Add a panel to the tab view
 
