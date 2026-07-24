@@ -350,7 +350,12 @@ class ThreadPanel(panel.Panel):
             inactive.page().setUrl(QUrl('message:plain'))
 
     def _on_load_finished(self, ok: bool) -> None:
-        """Swap to the freshly loaded view — instant, no compositor gap."""
+        """Schedule the swap after Chromium has painted a frame.
+
+        loadFinished fires when the DOM is ready, but Chromium hasn't
+        composited a frame yet.  Deferring the swap by one event-loop
+        cycle lets the renderer paint before we reveal the view.
+        """
         view = self.sender()
         if not isinstance(view, QWebEngineView):
             return
@@ -358,12 +363,15 @@ class ThreadPanel(panel.Panel):
             view.loadFinished.disconnect(self._on_load_finished)
         except TypeError:
             pass
+        # Defer swap to let Chromium paint its first frame
+        QTimer.singleShot(0, self._do_swap)
+
+    def _do_swap(self) -> None:
+        """Raise the freshly loaded view after Chromium has painted."""
         old = self._active_view
         self._active_view = 1 - old
-        # Old view: transparent to mouse so it doesn't intercept clicks
         self._views[old].setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        # New view: opaque to mouse, raised to top
         self._views[self._active_view].setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self._views[self._active_view].raise_()
