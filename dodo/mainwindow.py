@@ -151,15 +151,17 @@ class MainWindow(QMainWindow):
 
     def _save_splitter_state(self) -> None:
         conf = QSettings('dodo', 'dodo')
-        conf.setValue("main_splitter_state", self.main_splitter.saveState())
+        key = f"main_splitter_state_{settings.thread_pane_position}"
+        conf.setValue(key, self.main_splitter.saveState())
 
     def _restore_splitter_state(self) -> None:
         conf = QSettings('dodo', 'dodo')
-        state = conf.value("main_splitter_state")
+        key = f"main_splitter_state_{settings.thread_pane_position}"
+        state = conf.value(key)
         if state:
             self.main_splitter.restoreState(state)
         else:
-            # Sensible default: list gets ~55% of width
+            # Sensible default: list gets ~55% of available space
             total = (self.width() if self.main_splitter.orientation()
                      == Qt.Orientation.Horizontal else self.height())
             self.main_splitter.setSizes(
