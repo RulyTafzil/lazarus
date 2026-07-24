@@ -169,7 +169,9 @@ def move_to_trash(notmuch_query: str) -> int:
 
     subprocess.run(
         ['notmuch', 'tag', '+deleted', '-inbox', '-unread',
-         '-marked', '--', notmuch_query])
+         '-marked', '--', notmuch_query],
+        capture_output=True, text=True)
+    # Errors here are non-fatal — file moves proceed regardless
 
     moves: List[Tuple[str, str]] = []
     found = 0
@@ -210,7 +212,9 @@ def move_to_archive(notmuch_query: str) -> int:
 
     subprocess.run(
         ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
-         notmuch_query])
+         notmuch_query],
+        capture_output=True, text=True)
+    # Errors here are non-fatal — file moves proceed regardless
 
     archive_cur = _find_archive_dir()
 

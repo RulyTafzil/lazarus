@@ -353,13 +353,21 @@ class DashboardPanel(panel.Panel):
 
         if mode == 'tag marked':
             # Tag all marked threads across all dashboard sections
-            subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked', '--', 'tag:marked'])
+            r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked', '--', 'tag:marked'],
+                              capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.refresh_panels()
         else:
             thread_id = self.model.thread_id(self.tree.currentIndex())
             if not thread_id:
                 return
-            subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
+            r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id],
+                              capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.update_single_thread(thread_id)
 
     def archive_thread(self) -> None:
@@ -368,8 +376,12 @@ class DashboardPanel(panel.Panel):
             ['notmuch', 'count', '--output=threads', 'tag:marked'],
             capture_output=True, text=True).stdout.strip() or '0')
         if count > 0:
-            subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
-                           '-marked', '--', 'tag:marked'])
+            r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
+                               '-marked', '--', 'tag:marked'],
+                              capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
+                return
             self.app.refresh_panels()
             self.app.status_message('Archived marked', 'info')
             return
@@ -384,7 +396,11 @@ class DashboardPanel(panel.Panel):
         if actions.check_archive_refused(set(data.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return
-        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+        r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id],
+                          capture_output=True, text=True)
+        if r.returncode != 0:
+            self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
+            return
         self.app.update_single_thread(thread_id)
 
     def delete_thread(self) -> None:

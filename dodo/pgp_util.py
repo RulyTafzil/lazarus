@@ -28,9 +28,19 @@ from . import util
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
     import gnupg
-    Gpg = gnupg.GPG(gnupghome=settings.gnupg_home, use_agent=True)
 except (ImportError, NameError):
-    Gpg = None
+    gnupg = None  # type: ignore
+
+_gpg_instance = None
+
+
+def _get_gpg():
+    """Lazily initialise the GPG instance so settings.gnupg_home can be
+    configured via config.py before the first GPG operation."""
+    global _gpg_instance
+    if _gpg_instance is None and gnupg is not None:
+        _gpg_instance = gnupg.GPG(gnupghome=settings.gnupg_home, use_agent=True)
+    return _gpg_instance
 
 
 class GpgError(Exception):
@@ -38,7 +48,7 @@ class GpgError(Exception):
 
 
 def ensure_gpg():
-    if Gpg is None:
+    if _get_gpg() is None:
         raise GpgError("python-gnupg is needed to sign/encrypt")
 
 
@@ -63,7 +73,8 @@ def raise_for_status(result: GpgResult) -> None:
 
 def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMessage:
     ensure_gpg()
-    assert Gpg is not None  # for mypy
+    gpg = _get_gpg()
+    assert gpg is not None  # for mypy
 
     RFC4880_HASH_ALGO = {'1': "MD5", '2': "SHA1", '3': "RIPEMD160",
                          '8': "SHA256", '9': "SHA384", '10': "SHA512",
@@ -89,7 +100,7 @@ def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMess
     # Attach the message to be signed
     signed_mail.attach(msg_to_sign)
     # Create the signature
-    sig = Gpg.sign(msg_to_sign.as_string(), keyid=keyid, detach=True)
+    sig = gpg.sign(msg_to_sign.as_string(), keyid=keyid, detach=True)
     raise_for_status(sig)
     # Attach the ASCII representation (as per rfc) of the signature, note that
     # set_content with contaent-type other then text requires a bytes object
@@ -103,7 +114,8 @@ def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMess
 
 def encrypt(msg: email.message.EmailMessage) -> email.message.EmailMessage:
     ensure_gpg()
-    assert Gpg is not None  # for mypy
+    gpg = _get_gpg()
+    assert gpg is not None  # for mypy
 
     # Always also encrypt with the key corresponding to the From address in order to
     # be able to decrypt the mail that has been sent.
@@ -112,7 +124,7 @@ def encrypt(msg: email.message.EmailMessage) -> email.message.EmailMessage:
             val for key, val in msg.items() if key in ['From', 'To', 'Cc']
         ])
     ]
-    recipients_keys = [key['fingerprint'] for key in Gpg.list_keys()
+    recipients_keys = [key['fingerprint'] for key in gpg.list_keys()
                        if any(addr == util.strip_email_address(uid)
                            for uid in key['uids'] for addr in recipients)]
     # Generate a copy of the message, by working on the copy we leave
@@ -136,7 +148,7 @@ def encrypt(msg: email.message.EmailMessage) -> email.message.EmailMessage:
     encrypted_mail.attach(control_part)
 
     # Encrypt the parts of the original message (with non-content headers removed)
-    encrypted_contents = Gpg.encrypt(msg_to_encrypt.as_bytes(), recipients_keys,
+    encrypted_contents = gpg.encrypt(msg_to_encrypt.as_bytes(), recipients_keys,
                                      extra_args=['--emit-version'])
     raise_for_status(encrypted_contents)
 

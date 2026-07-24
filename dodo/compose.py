@@ -281,7 +281,8 @@ class ComposePanel(panel.Panel):
 
     def account_name(self) -> str:
         """Return the name of the current SMTP account"""
-
+        if not settings.smtp_accounts:
+            return 'default'
         return settings.smtp_accounts[self.current_account]
 
     def email_address(self) -> str:
