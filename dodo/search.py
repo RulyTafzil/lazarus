@@ -464,7 +464,7 @@ class SearchPanel(panel.Panel):
         """Archive current thread, or all marked threads if any are marked."""
         if self._has_marked():
             subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '-marked',
-                           '--', 'tag:marked'])
+                           '--', f'tag:marked AND ({self.q})'])
             self.app.refresh_panels()
             self.app.status_message('Archived marked', 'info')
         else:
@@ -482,9 +482,9 @@ class SearchPanel(panel.Panel):
     def delete_thread(self) -> None:
         """Delete current thread, or all marked threads if any are marked."""
         if self._has_marked():
-            actions.move_to_trash('tag:marked')
+            actions.move_to_trash(f'tag:marked AND ({self.q})')
             subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           'tag:marked'])
+                           f'tag:marked AND ({self.q})'])
             self.app.refresh_panels()
             self.app.status_message('Deleted marked', 'info')
         else:
@@ -498,9 +498,9 @@ class SearchPanel(panel.Panel):
     def archive_to_local(self) -> None:
         """Archive-to-local current thread, or all marked if any are marked."""
         if self._has_marked():
-            actions.move_to_archive('tag:marked')
+            actions.move_to_archive(f'tag:marked AND ({self.q})')
             subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           'tag:marked'])
+                           f'tag:marked AND ({self.q})'])
             self.app.refresh_panels()
             self.app.status_message('Archived marked to local', 'info')
         else:
@@ -518,9 +518,13 @@ class SearchPanel(panel.Panel):
             self.app.status_message('Archived to local', 'info')
 
     def _has_marked(self) -> bool:
-        """Check if any threads anywhere are marked."""
+        """Check if any threads in the current view are marked."""
+        query = f'tag:marked AND ({self.q})'
         r = subprocess.run(
-            ['notmuch', 'count', '--output=threads', 'tag:marked'],
+            ['notmuch', 'count', '--output=threads', query],
             capture_output=True, text=True)
-        return r.returncode == 0 and int(r.stdout.strip() or '0') > 0
+        if r.returncode != 0:
+            logger.warning('_has_marked query failed: %s', r.stderr)
+            return False
+        return int(r.stdout.strip() or '0') > 0
 
