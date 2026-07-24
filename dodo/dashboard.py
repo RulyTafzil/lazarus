@@ -19,7 +19,7 @@
 from __future__ import annotations
 from typing import Optional, Any, List, Tuple, Literal
 
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings, QTimer
 from PyQt6.QtWidgets import QTreeView, QHeaderView
 from PyQt6.QtGui import QFont, QColor
 
@@ -236,6 +236,12 @@ class DashboardPanel(panel.Panel):
 
         self.layout().addWidget(self.tree)
 
+        # Debounce dashboard refreshes — avoid N notmuch calls on rapid tag changes
+        self._refresh_timer = QTimer()
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(500)
+        self._refresh_timer.timeout.connect(self._debounced_refresh)
+
         # Select first selectable row
         self._select_first_thread()
         self._span_headers()
@@ -293,10 +299,18 @@ class DashboardPanel(panel.Panel):
         super().refresh()
 
     def update_thread(self, thread_id: str, msg_id: Optional[str] = None) -> None:
+        """Schedule a debounced refresh — avoids N notmuch calls on rapid changes."""
         if self.hasFocus():
-            self.refresh()
+            self._refresh_timer.start()
         else:
             self.dirty = True
+
+    def _debounced_refresh(self) -> None:
+        """Perform the actual refresh after the debounce period."""
+        self.model.refresh()
+        # Restore approximate selection position
+        self._select_first_thread()
+        self.has_refreshed.emit()
 
     def _next_row(self, current: int) -> int:
         """Find the next non-header row after current."""
@@ -341,10 +355,19 @@ class DashboardPanel(panel.Panel):
         """Open the currently selected thread."""
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if thread_id:
-            # Find which section's query to use
-            # Use the first section query as context; not ideal but functional
-            query = self.queries[0][1] if self.queries else ''
+            # Look up the section query this thread belongs to
+            query = self._section_query_for_row(self.tree.currentIndex().row())
             self.app.open_thread(thread_id, query)
+
+    def _section_query_for_row(self, row: int) -> str:
+        """Return the query string for the section containing the given row."""
+        for r in range(row, -1, -1):
+            if self.model.is_header(r):
+                _, data = self.model.rows[r]
+                if isinstance(data, tuple) and len(data) >= 2:
+                    return data[1].q
+                break
+        return self.queries[0][1] if self.queries else ''
 
     def tag_thread(self, tag_expr: str, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
         """Apply a tag expression to the current thread or all marked threads."""

@@ -303,25 +303,22 @@ class SearchPanel(panel.Panel):
     def save_tree_geometry(self):
         self.conf.setValue("search_tree_geometry", self.tree.header().saveState())
 
-    def snapshot_index(self) -> tuple[str|None, int]:
-        current = self.tree.currentIndex()
-        return self.model.thread_id(current), current.row()
-
-    def restore_index(self, thread_id:str|None, fallback_row: int):
-        thread_row = self.model.threads.get(thread_id, None)
-        if thread_row is not None:
-            index = self.model.index(thread_row, 0)
-        else:
-            index = self.model.index(max(0, min(self.model.num_threads-1, fallback_row)), 0)
-        self.tree.setCurrentIndex(index)
+    def _select_first_row(self) -> None:
+        """Select the first row in the tree view."""
+        if self.model.rowCount() > 0:
+            self.tree.setCurrentIndex(self.model.index(0, 0))
 
     def refresh(self) -> None:
-        """Refresh the search listing and restore the selection, if possible."""
-        current_id, current_row = self.snapshot_index()
+        """Refresh the search listing and restore the selection by thread ID."""
+        current_id = self.model.thread_id(self.tree.currentIndex())
         self.model.refresh()
         self.restore_tree_geometry()
-        self.restore_index(current_id, current_row)
-
+        # Restore by thread ID first (precise), fall back to row position
+        if current_id and current_id in self.model.threads:
+            self.tree.setCurrentIndex(
+                self.model.index(self.model.threads[current_id], 0))
+        else:
+            self._select_first_row()
         super().refresh()
 
     def update_thread(self, thread_id: str, msg_id: str|None= None) -> None:
