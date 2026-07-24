@@ -67,13 +67,8 @@ class _BulkMoveWorker(QThread):
             try:
                 item = self.queue.get(timeout=30)
             except queue.Empty:
-                # Idle timeout — exit if no work for 30s
                 return
             if item is None:
-                # End of batch: sync notmuch
-                subprocess.run(
-                    ['notmuch', 'new', '--no-hooks'],
-                    capture_output=True)
                 self._batches_pending -= 1
                 self.batch_done.emit()
                 continue
@@ -194,6 +189,8 @@ def move_to_trash(notmuch_query: str) -> int:
 
     if moves:
         _get_worker().enqueue(moves)
+        subprocess.run(['notmuch', 'new', '--no-hooks'],
+                       capture_output=True)
     return found
 
 
@@ -230,4 +227,6 @@ def move_to_archive(notmuch_query: str) -> int:
 
     if moves:
         _get_worker().enqueue(moves)
+        subprocess.run(['notmuch', 'new', '--no-hooks'],
+                       capture_output=True)
     return found
