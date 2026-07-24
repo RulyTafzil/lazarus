@@ -139,9 +139,6 @@ class ThreadPanel(panel.Panel):
         view.setStyleSheet(
             f'background-color: {settings.theme["bg"]};')
         view.page().setBackgroundColor(QColor(settings.theme['bg']))
-        # Preload a dark empty page so the view is never white
-        view.setHtml(
-            f'<body style="background:{settings.theme["bg"]}"></body>')
         return view
 
     @property
