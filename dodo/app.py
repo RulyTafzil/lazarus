@@ -19,10 +19,6 @@
 from __future__ import annotations
 import os
 
-# Tell Chromium to use a dark color scheme so any unpainted frame
-# matches our theme instead of flashing white.
-os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--force-dark-mode')
-
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
@@ -148,6 +144,14 @@ class Dodo(QApplication):
             config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
             print('No config.py found in:\n' + '\n'.join([f'  {d}/dodo' for d in config_locs]))
             sys.exit(1)
+
+        # Apply dark-mode Chromium flag if configured (must be set
+        # before any QWebEngineView loads content)
+        if settings.force_dark_mode:
+            flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
+            if '--force-dark-mode' not in flags:
+                flags = f'{flags} --force-dark-mode'.strip()
+                os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = flags
 
         # construct help window
         self.help_window = helpwindow.HelpWindow()

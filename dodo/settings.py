@@ -207,6 +207,11 @@ Valid values: ``'right'``, ``'left'``, ``'below'``, ``'above'``.
 The thread pane is always visible alongside the list tabs.
 """
 
+force_dark_mode = True
+"""Pass ``--force-dark-mode`` to Chromium so empty render surfaces
+match the theme instead of flashing white.
+"""
+
 archive_dir = '~/Mail/Archive'
 """Path to a local-only Maildir where ``A`` hotkey moves archived emails.
 
