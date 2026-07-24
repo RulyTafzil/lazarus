@@ -488,7 +488,9 @@ class SearchPanel(panel.Panel):
     def delete_thread(self) -> None:
         """Delete current thread, or all marked threads in this view."""
         marked_query = f'tag:marked AND ({self.q})'
+        logger.info('delete_thread: trying marked query: %s', marked_query)
         moved = actions.move_to_trash(marked_query)
+        logger.info('delete_thread: moved=%d from marked query', moved)
         if moved > 0:
             subprocess.run(['notmuch', 'tag', '-marked', '--', marked_query])
             self.app.refresh_panels()
