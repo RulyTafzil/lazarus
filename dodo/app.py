@@ -41,8 +41,7 @@ from . import commandbar
 from . import helpwindow
 from . import panel
 from . import mainwindow
-
-LOCAL_PROTOCOLS = ['cid', 'message']
+from .webengine import LOCAL_PROTOCOLS
 
 class SyncMailThread(QThread):
     """A QThread used for syncing local Maildir and notmuch with IMAP

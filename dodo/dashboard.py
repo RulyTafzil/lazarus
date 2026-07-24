@@ -24,12 +24,14 @@ from PyQt6.QtWidgets import QTreeView, QHeaderView
 from PyQt6.QtGui import QFont, QColor
 
 import logging
+import subprocess
 
 from . import app
 from . import settings
 from . import keymap
 from . import panel
-from .search import SearchModel, columns
+from . import actions
+from .search import SearchModel, columns, render_thread_cell
 
 logger = logging.getLogger(__name__)
 
@@ -155,52 +157,7 @@ class DashboardModel(QAbstractItemModel):
                 return QColor(settings.theme['fg_bright'])
 
         else:  # thread
-            thread_d = data
-            col = columns[col_idx]
-
-            if role == Qt.ItemDataRole.DisplayRole:
-                if col == 'date':
-                    return thread_d['date_relative']
-                elif col == 'from':
-                    return thread_d['authors']
-                elif col == 'subject':
-                    return thread_d['subject']
-                elif col == 'tags':
-                    tag_icons = []
-                    for t in thread_d['tags']:
-                        if t not in settings.hide_tags:
-                            tag_icons.append(settings.tag_icons[t] if t in settings.tag_icons else f'[{t}]')
-                    return ' '.join(tag_icons)
-                elif col == '#':
-                    total = thread_d.get('total', 1)
-                    return f'\uf086 {total}' if total > 1 else ''
-            elif role == Qt.ItemDataRole.FontRole:
-                if col == 'tags':
-                    font = QFont(settings.tag_font, settings.tag_font_size)
-                else:
-                    font = QFont(settings.search_font, settings.search_font_size)
-                if 'unread' in thread_d['tags'] or 'flagged' in thread_d['tags']:
-                    font.setBold(True)
-                return font
-            elif role == Qt.ItemDataRole.ForegroundRole:
-                for tag in settings.search_color_overrides.keys() & thread_d['tags']:
-                    if col in settings.search_color_overrides[tag]:
-                        return QColor(settings.search_color_overrides[tag][col])
-                color = 'fg_' + col
-                unread_color = 'fg_' + col + '_unread'
-                flagged_color = 'fg_' + col + '_flagged'
-                if 'unread' in thread_d['tags'] and unread_color in settings.theme:
-                    return QColor(settings.theme[unread_color])
-                elif 'flagged' in thread_d['tags'] and flagged_color in settings.theme:
-                    return QColor(settings.theme[flagged_color])
-                elif color in settings.theme:
-                    return QColor(settings.theme[color])
-                else:
-                    return QColor(settings.theme['fg'])
-            elif role == Qt.ItemDataRole.ToolTipRole and col == 'tags':
-                return ' '.join(thread_d['tags'])
-
-        return None
+            return render_thread_cell(data, columns[col_idx], role)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         global columns
@@ -390,8 +347,6 @@ class DashboardPanel(panel.Panel):
 
     def tag_thread(self, tag_expr: str, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
         """Apply a tag expression to the current thread or all marked threads."""
-        import subprocess
-
         if not ('+' in tag_expr or '-' in tag_expr):
             tag_expr = '+' + tag_expr
 
@@ -408,7 +363,6 @@ class DashboardPanel(panel.Panel):
 
     def archive_thread(self) -> None:
         """Archive the current thread, but only if it has tags beyond inbox/unread."""
-        import subprocess
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
@@ -416,92 +370,39 @@ class DashboardPanel(panel.Panel):
         typ, data = self.model.rows[row]
         if typ != 'thread':
             return
-        other_tags = set(data.get('tags', [])) - {'inbox', 'unread'}
-        if not other_tags:
+        if actions.check_archive_refused(set(data.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-            return  # refuse: thread has no categorizing tags
+            return
         subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
         self.app.update_single_thread(thread_id)
 
     def delete_thread(self) -> None:
         """Move the current thread to Trash: tag +deleted and move files to Trash folder."""
-        import subprocess
-        import os
-        import re
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        # Tag in notmuch
-        subprocess.run(['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--', 'thread:' + thread_id])
-        # Move files to Trash folder (Thunderbird/neomutt approach)
-        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
-                          capture_output=True, text=True)
-        for f in r.stdout.strip().split('\n'):
-            if not f:
-                continue
-            # Determine Trash path from the file's current location
-            parts = f.split('/Mail/', 1)
-            if len(parts) != 2:
-                continue
-            account, rest = parts[1].split('/', 1)
-            folder = rest.split('/', 1)[0] if '/' in rest else rest
-            # Gmail uses [Gmail]/Trash, standard IMAP uses Trash
-            trash_dir = os.path.join('/home/rulyt/Mail', account, '[Gmail]', 'Trash', 'cur')
-            if not os.path.isdir(trash_dir):
-                trash_dir = os.path.join('/home/rulyt/Mail', account, 'Trash', 'cur')
-            if not os.path.isdir(trash_dir):
-                os.makedirs(trash_dir, exist_ok=True)
-            basename = os.path.basename(f)
-            # Strip mbsync UID annotation to avoid duplicate UID errors
-            basename = re.sub(r',U=\d+', '', basename)
-            dest = os.path.join(trash_dir, basename)
-            try:
-                os.rename(f, dest)
-            except OSError as e:
-                logger.warning('trash move failed: %s', e)
+        actions.move_to_trash('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Moved to trash', 'info')
 
     def archive_to_local(self) -> None:
         """Move the current thread to the local Archive Maildir."""
-        import subprocess
-        import os
-        import re
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        # Check refusal condition: must have categorizing tags
         row = self.tree.currentIndex().row()
         typ, data = self.model.rows[row]
         if typ != 'thread':
             return
-        other_tags = set(data.get('tags', [])) - {'inbox', 'unread'}
-        if not other_tags:
+        if actions.check_archive_refused(set(data.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return
-        # Move files to archive
-        archive_path = os.path.expanduser(settings.archive_dir)
-        archive_cur = os.path.join(archive_path, 'cur')
-        os.makedirs(archive_cur, exist_ok=True)
-        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
-        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
-                          capture_output=True, text=True)
-        for f in r.stdout.strip().split('\n'):
-            if not f:
-                continue
-            basename = os.path.basename(f)
-            basename = re.sub(r',U=\d+', '', basename)
-            dest = os.path.join(archive_cur, basename)
-            try:
-                os.rename(f, dest)
-            except OSError as e:
-                logger.warning('archive move failed: %s', e)
+        actions.move_to_archive('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Archived to local', 'info')
 
     def toggle_thread_tag(self, tag: str) -> None:
         """Toggle the given tag on the current thread."""
-        import subprocess
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return

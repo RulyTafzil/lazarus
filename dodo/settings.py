@@ -193,6 +193,13 @@ dashboard_max_items = None
 Set to None to show all matching threads, or an integer to limit each section.
 """
 
+mail_root = '~/Mail'
+"""Root directory of the local Maildir.
+
+This is used by delete/archive operations to locate per-account Trash
+folders and the local Archive.  Change this if your mail lives elsewhere.
+"""
+
 archive_dir = '~/Mail/Archive'
 """Path to a local-only Maildir where ``A`` hotkey moves archived emails.
 

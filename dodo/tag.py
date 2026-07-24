@@ -28,7 +28,6 @@ import json
 from . import app
 from . import settings
 from . import keymap
-from . import thread
 from . import panel
 
 columns = ['date', 'from', 'subject', 'tags']

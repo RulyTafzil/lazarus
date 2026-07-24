@@ -29,12 +29,85 @@ import logging
 from . import app
 from . import settings
 from . import keymap
-from . import thread
 from . import panel
+from . import actions
 
 logger = logging.getLogger(__name__)
 
 columns = ['date', '#', 'from', 'subject', 'tags']
+
+
+def render_thread_cell(thread_d: dict, col: str, role: int,
+                       hide_tags: set | None = None,
+                       hide_query: str = '') -> Any:
+    """Render a single cell for a thread in a search or dashboard view.
+
+    Shared by :class:`SearchModel` and :class:`~dodo.dashboard.DashboardModel`
+    to avoid duplicating the display logic for thread rows.
+
+    :param thread_d: thread JSON dict from notmuch
+    :param col: column name (``'date'``, ``'#'``, ``'from'``, ``'subject'``, ``'tags'``)
+    :param role: Qt ``ItemDataRole``
+    :param hide_tags: tags to suppress in the tag column (defaults to
+                      ``settings.hide_tags``)
+    :param hide_query: if non-empty, a ``'tag:X'``-style query whose tag
+                       should be hidden (used by search panels)
+    """
+    if hide_tags is None:
+        hide_tags = settings.hide_tags
+
+    if role == Qt.ItemDataRole.DisplayRole:
+        if col == 'date':
+            return thread_d['date_relative']
+        elif col == 'from':
+            return thread_d['authors']
+        elif col == 'subject':
+            return thread_d['subject']
+        elif col == 'tags':
+            tag_icons = []
+            for t in thread_d['tags']:
+                if t in hide_tags:
+                    continue
+                if hide_query and hide_query == 'tag:' + t:
+                    continue
+                tag_icons.append(
+                    settings.tag_icons[t] if t in settings.tag_icons
+                    else f'[{t}]')
+            return ' '.join(tag_icons)
+        elif col == '#':
+            total = thread_d.get('total', 1)
+            return f'\uf086 {total}' if total > 1 else ''
+
+    elif role == Qt.ItemDataRole.FontRole:
+        if col == 'tags':
+            font = QFont(settings.tag_font, settings.tag_font_size)
+        else:
+            font = QFont(settings.search_font, settings.search_font_size)
+        if 'unread' in thread_d['tags'] or 'flagged' in thread_d['tags']:
+            font.setBold(True)
+        return font
+
+    elif role == Qt.ItemDataRole.ForegroundRole:
+        for tag in settings.search_color_overrides.keys() & thread_d['tags']:
+            if col in settings.search_color_overrides[tag]:
+                return QColor(settings.search_color_overrides[tag][col])
+        color = 'fg_' + col
+        unread_color = 'fg_' + col + '_unread'
+        flagged_color = 'fg_' + col + '_flagged'
+        if 'unread' in thread_d['tags'] and unread_color in settings.theme:
+            return QColor(settings.theme[unread_color])
+        elif 'flagged' in thread_d['tags'] and flagged_color in settings.theme:
+            return QColor(settings.theme[flagged_color])
+        elif color in settings.theme:
+            return QColor(settings.theme[color])
+        else:
+            return QColor(settings.theme['fg'])
+
+    elif role == Qt.ItemDataRole.ToolTipRole and col == 'tags':
+        return ' '.join(thread_d['tags'])
+
+    return None
+
 
 class SearchModel(QAbstractItemModel):
     """A model containing the results of a search"""
@@ -135,52 +208,7 @@ class SearchModel(QAbstractItemModel):
 
         thread_d = self.d[index.row()]
         col = columns[index.column()]
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            if col == 'date':
-                return thread_d['date_relative']
-            elif col == 'from':
-                return thread_d['authors']
-            elif col == 'subject':
-                return thread_d['subject']
-            elif col == 'tags':
-                tag_icons = []
-                for t in thread_d['tags']:
-                    # don't bother showing TAG if it is in settings.hide_tags or the query is specifically 'tag:TAG'
-                    if t not in settings.hide_tags and self.q != 'tag:' + t:
-                        tag_icons.append(settings.tag_icons[t] if t in settings.tag_icons else f'[{t}]')
-                return ' '.join(tag_icons)
-            elif col == '#':
-                total = thread_d.get('total', 1)
-                return f' {total}' if total > 1 else ''
-        elif role == Qt.ItemDataRole.FontRole:
-            if col == 'tags':
-                font = QFont(settings.tag_font, settings.tag_font_size)
-            else:
-                font = QFont(settings.search_font, settings.search_font_size)
-
-            if 'unread' in thread_d['tags'] or 'flagged' in thread_d['tags']:
-                font.setBold(True)
-            return font
-        elif role == Qt.ItemDataRole.ForegroundRole:
-            for tag in settings.search_color_overrides.keys() & thread_d['tags']:
-                if col in settings.search_color_overrides[tag]:
-                    color = settings.search_color_overrides[tag][col]
-                    return QColor(color)
-
-            color = 'fg_' + col
-            unread_color = 'fg_' + col + '_unread'
-            flagged_color = 'fg_' + col + '_flagged'
-            if 'unread' in thread_d['tags'] and unread_color in settings.theme:
-                return QColor(settings.theme[unread_color])
-            elif 'flagged' in thread_d['tags'] and flagged_color in settings.theme:
-                return QColor(settings.theme[flagged_color])
-            elif color in settings.theme:
-                return QColor(settings.theme[color])
-            else:
-                return QColor(settings.theme['fg'])
-        elif role == Qt.ItemDataRole.ToolTipRole and col == 'tags':
-            return ' '.join(thread_d['tags'])
+        return render_thread_cell(thread_d, col, role, hide_query=self.q)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         """Overrides `QAbstractItemModel.headerData` to populate a view with column names"""
@@ -436,10 +464,9 @@ class SearchPanel(panel.Panel):
         thread = self.model.thread_json(self.tree.currentIndex())
         if not thread:
             return
-        other_tags = set(thread.get('tags', [])) - {'inbox', 'unread'}
-        if not other_tags:
+        if actions.check_archive_refused(set(thread.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-            return  # refuse: thread has no categorizing tags
+            return
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if thread_id:
             subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
@@ -447,69 +474,25 @@ class SearchPanel(panel.Panel):
 
     def delete_thread(self) -> None:
         """Move the current thread to Trash: tag +deleted and move files to Trash folder."""
-        import subprocess
-        import os
-        import re
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        subprocess.run(['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--', 'thread:' + thread_id])
-        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
-                          capture_output=True, text=True)
-        for f in r.stdout.strip().split('\n'):
-            if not f:
-                continue
-            parts = f.split('/Mail/', 1)
-            if len(parts) != 2:
-                continue
-            account, rest = parts[1].split('/', 1)
-            trash_dir = os.path.join('/home/rulyt/Mail', account, '[Gmail]', 'Trash', 'cur')
-            if not os.path.isdir(trash_dir):
-                trash_dir = os.path.join('/home/rulyt/Mail', account, 'Trash', 'cur')
-            if not os.path.isdir(trash_dir):
-                os.makedirs(trash_dir, exist_ok=True)
-            basename = os.path.basename(f)
-            # Strip mbsync UID annotation to avoid duplicate UID errors
-            basename = re.sub(r',U=\d+', '', basename)
-            dest = os.path.join(trash_dir, basename)
-            try:
-                os.rename(f, dest)
-            except OSError as e:
-                logger.warning('trash move failed: %s', e)
+        actions.move_to_trash('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Moved to trash', 'info')
 
     def archive_to_local(self) -> None:
         """Move the current thread to the local Archive Maildir."""
-        import subprocess
-        import os
-        import re
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
         thread = self.model.thread_json(self.tree.currentIndex())
         if not thread:
             return
-        other_tags = set(thread.get('tags', [])) - {'inbox', 'unread'}
-        if not other_tags:
+        if actions.check_archive_refused(set(thread.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return
-        archive_path = os.path.expanduser(settings.archive_dir)
-        archive_cur = os.path.join(archive_path, 'cur')
-        os.makedirs(archive_cur, exist_ok=True)
-        subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
-        r = subprocess.run(['notmuch', 'search', '--exclude=false', '--output=files', '--', 'thread:' + thread_id],
-                          capture_output=True, text=True)
-        for f in r.stdout.strip().split('\n'):
-            if not f:
-                continue
-            basename = os.path.basename(f)
-            basename = re.sub(r',U=\d+', '', basename)
-            dest = os.path.join(archive_cur, basename)
-            try:
-                os.rename(f, dest)
-            except OSError as e:
-                logger.warning('archive move failed: %s', e)
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        actions.move_to_archive('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Archived to local', 'info')
 

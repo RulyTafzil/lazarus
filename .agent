@@ -49,13 +49,16 @@ QMainWindow
 | `mainwindow.py` | `MainWindow`: tabs, command bar, status bar with auto-hide |
 | `panel.py` | `Panel(QWidget)`: keychord handling, dirty tracking, temp dir cleanup |
 | `dashboard.py` | `DashboardPanel` + `DashboardModel`: multi-section inbox view |
-| `search.py` | `SearchPanel` + `SearchModel`: thread listing with `#` count column |
-| `thread.py` | `ThreadPanel` + `ThreadModel` + URL scheme handlers |
+| `search.py` | `SearchPanel` + `SearchModel` + `render_thread_cell()`: thread listing with `#` count column |
+| `thread.py` | `ThreadPanel`: message viewer, reply/forward, attachments |
+| `thread_model.py` | `ThreadModel` + `ThreadItem` + helpers: thread-tree data model (extracted from thread.py) |
+| `webengine.py` | `MessagePage` + `MessageHandler` + `EmbeddedImageHandler` + `RemoteBlockingUrlRequestInterceptor` (extracted from thread.py) |
+| `actions.py` | `move_to_trash()`, `move_to_archive()`, `check_archive_refused()`: shared delete/archive logic |
 | `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread` |
 | `tag.py` | `TagPanel` + `TagModel`: tag browser with counts |
 | `commandbar.py` | `CommandBar(QLineEdit)`: tag autocomplete + command history |
 | `keymap.py` | All keymaps (global, dashboard, search, thread, compose, tag, command_bar) |
-| `settings.py` | Config defaults incl. `dashboard_queries`, `dashboard_max_items` |
+| `settings.py` | Config defaults incl. `mail_root`, `dashboard_queries`, `dashboard_max_items` |
 | `themes.py` | Theme dicts + `apply_theme()` |
 | `util.py` | HTML/text helpers, case-insensitive email matching, key parsing |
 | `helpwindow.py` | `HelpWindow`: three-column keybinding layout |
@@ -67,7 +70,8 @@ QMainWindow
 3. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list + QWebEngineView (via custom URL scheme `message:`)
 4. **Compose**: raw email string → external editor → `SendmailThread` pipes to msmtp → saved to Maildir sent folder
 5. **Sync**: `SyncMailThread` runs `mbsync -a -V`, streams output to status bar via `progress` signal, then `notmuch new`
-6. **Delete**: `d` → `+deleted` tag + move file to Trash folder (Thunderbird/neomutt approach)
+6. **Delete**: `d` → `+deleted` tag + move file to Trash folder (Thunderbird/neomutt approach) — centralized in `actions.py`
+7. **Archive-to-local**: `A` → `-inbox -unread` + move file to local Archive Maildir — centralized in `actions.py`
 
 ### Sync Flow (Ruly's Setup)
 - `mbsync -a -V`: syncs Gmail (`RulyTafzil@gmail.com/`) and contact (`contact@RulyTafzil.com/`)
@@ -145,6 +149,12 @@ QMainWindow
 - Trash folder auto-detected per account (`[Gmail]/Trash` or `Trash`)
 - Post-new hook strips inbox/unread from Trash folder files
 - Two-stage: soft-delete to Trash (recoverable), empty trash later for expunge
+- Centralized in `dodo/actions.py` → `move_to_trash()`
+
+### Archive-to-Local Workflow
+- `A` moves files to local-only Archive Maildir (outside synced IMAP folders)
+- Refuses threads without categorizing tags
+- Centralized in `dodo/actions.py` → `move_to_archive()`
 
 ### Sync Progress
 - `SyncMailThread.progress` signal emits per-mailbox status during sync
@@ -153,14 +163,23 @@ QMainWindow
 - Uses `mbsync -a -V` (verbose) for detailed output
 
 ### Other Changes
-- Thread count column (`#`): shows fa-comments icon + count for multi-message threads
-- Plaintext fallback: HTML mode degrades to plaintext when no HTML part exists
-- Case-insensitive email matching: `email_is_me` and `email_smtp_account_index`
-- Compose background fix: no white flash when switching accounts
-- Three-column help window layout
-- Column order: `date | # | from | subject | tags`
-- Archive refuses threads without categorizing tags (not just inbox/unread)
+- **Thread count column** (`#`): shows fa-comments icon + count for multi-message threads
+- **Plaintext fallback**: HTML mode degrades to plaintext when no HTML part exists
+- **Case-insensitive email matching**: `email_is_me` and `email_smtp_account_index`
+- **Compose background fix**: no white flash when switching accounts
+- **Three-column help window** layout
+- **Column order**: `date | # | from | subject | tags`
+- **Archive refuses** threads without categorizing tags (not just inbox/unread)
 - `deleted`/`killed`/`spam` excluded from searches by default
+- **`mail_root` setting**: configurable Maildir root (default `~/Mail`)
+- **Shared rendering**: `render_thread_cell()` in search.py eliminates duplication between SearchModel and DashboardModel
+
+### Refactoring (2025)
+- **`dodo/actions.py`**: shared delete/archive/move logic extracted from 3 panels
+- **`dodo/webengine.py`**: `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor` extracted from thread.py
+- **`dodo/thread_model.py`**: `ThreadModel`, `ThreadItem`, `EmptyThreadError`, helpers extracted from thread.py
+- **`render_thread_cell()`**: shared thread-row rendering in search.py, used by both SearchModel and DashboardModel
+- Hardcoded `/home/rulyt/Mail/` paths replaced with `settings.mail_root`
 
 ## Ruly's Configuration
 - **Mail**: `~/Mail/` with Gmail and contact Maildir accounts
