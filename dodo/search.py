@@ -252,6 +252,8 @@ class SearchPanel(panel.Panel):
     This is used as the main entry point for the GUI, i.e. a search for "tag:inbox"."""
 
     def __init__(self, a: app.Dodo, q: str, keep_open: bool=False, parent: Optional[QWidget]=None):
+        self._dirty_content = False
+        self._dirty_title = False
         super().__init__(a, keep_open, parent)
         self.set_keymap(keymap.search_keymap)
         self.q = q

@@ -18,9 +18,8 @@
 
 from __future__ import annotations
 from typing import Optional, List, Set
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QKeyEvent
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFocusEvent, QFont, QKeyEvent
 from PyQt6.QtWidgets import *
 import shutil
 import logging
@@ -97,7 +96,7 @@ class Panel(QWidget):
         if hasattr(self, 'open_current_thread'):
             self.open_current_thread()
 
-    def focusInEvent(self, event: PyQt6.QWidget.QFocusEvent):
+    def focusInEvent(self, event: QFocusEvent):
         super().focusInEvent(event)
         if self.dirty:
             self.refresh()

@@ -23,7 +23,6 @@ from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
 import sys
-import os
 import signal
 import fcntl
 import subprocess
