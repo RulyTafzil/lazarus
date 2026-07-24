@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QIcon, QCloseEvent
 import logging
 import os
+from typing import Optional
 
 from . import app
 from . import commandbar
@@ -30,6 +31,21 @@ from . import settings
 from . import themes
 
 logger = logging.getLogger(__name__)
+
+
+def _position_to_orientation(
+    position: str,
+) -> tuple[Qt.Orientation, bool]:
+    """Return (splitter_orientation, list_is_first) for a pane position."""
+    if position == 'right':
+        return Qt.Orientation.Horizontal, True
+    elif position == 'left':
+        return Qt.Orientation.Horizontal, False
+    elif position == 'below':
+        return Qt.Orientation.Vertical, True
+    else:  # 'above'
+        return Qt.Orientation.Vertical, False
+
 
 class MainWindow(QMainWindow):
     def __init__(self, a: app.Dodo):
@@ -45,34 +61,68 @@ class MainWindow(QMainWindow):
         w = QWidget(self)
         w.setLayout(QVBoxLayout())
         self.setCentralWidget(w)
-        w.layout().setContentsMargins(0,0,0,0)
+        w.layout().setContentsMargins(0, 0, 0, 0)
         w.layout().setSpacing(0)
         self.resize(1600, 800)
-        
-        geom = conf.value("main_window_geometry")
-        if geom: self.restoreGeometry(geom)
 
+        geom = conf.value("main_window_geometry")
+        if geom:
+            self.restoreGeometry(geom)
+
+        # -- Splitter: list tabs | thread preview ---------------------------
+        orientation, list_first = _position_to_orientation(
+            settings.thread_pane_position)
+        self.main_splitter = QSplitter(orientation)
+        self.main_splitter.setChildrenCollapsible(False)
+        w.layout().addWidget(self.main_splitter)
+
+        # List side: tabs (dashboard, searches, compose, tags)
         self.tabs = QTabWidget()
         self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # self.tabs.resize(1600, 800)
-        w.layout().addWidget(self.tabs)
 
+        # Thread preview side
+        self.thread_container = QStackedWidget()
+        self.thread_container.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._thread_placeholder = QLabel(
+            "Select a thread to view  ·  ? for help")
+        self._thread_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._thread_placeholder.setStyleSheet(
+            f'color: {settings.theme["fg_dim"]}; '
+            f'font-family: {settings.search_font}; '
+            f'font-size: {settings.search_font_size}pt;')
+        self.thread_container.addWidget(self._thread_placeholder)
+        self._active_thread: Optional[panel.Panel] = None
+
+        # Add to splitter in correct order
+        if list_first:
+            self.main_splitter.addWidget(self.tabs)
+            self.main_splitter.addWidget(self.thread_container)
+        else:
+            self.main_splitter.addWidget(self.thread_container)
+            self.main_splitter.addWidget(self.tabs)
+
+        # Restore splitter state
+        self._restore_splitter_state()
+        self.main_splitter.splitterMoved.connect(self._save_splitter_state)
+
+        # Tab focus tracking
         def panel_focused(i: int) -> None:
             logger.info('Focusing panel %d', i)
-            w = self.tabs.widget(i)
-            if w and isinstance(w, panel.Panel):
-                if w in self.app.panel_history:
-                    self.app.panel_history.remove(w)
-                self.app.panel_history.append(w)
-                # print("saving " + repr(w) + " to history")
-                w.setFocus()
+            pw = self.tabs.widget(i)
+            if pw and isinstance(pw, panel.Panel):
+                if pw in self.app.panel_history:
+                    self.app.panel_history.remove(pw)
+                self.app.panel_history.append(pw)
+                pw.setFocus()
 
         self.tabs.currentChanged.connect(panel_focused)
         self.show()
 
+        # -- Command bar ----------------------------------------------------
         command_area = QWidget(self)
         command_label = QLabel("search", command_area)
-        self.command_bar = commandbar.CommandBar(self.app, command_label, command_area)
+        self.command_bar = commandbar.CommandBar(
+            self.app, command_label, command_area)
         self.command_bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         command_area.setLayout(QHBoxLayout())
@@ -82,7 +132,7 @@ class MainWindow(QMainWindow):
         w.layout().addWidget(command_area)
         command_area.setVisible(False)
 
-        # Status bar for transient messages
+        # -- Status bar -----------------------------------------------------
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setVisible(False)
@@ -91,15 +141,80 @@ class MainWindow(QMainWindow):
 
         self.status_timer = QTimer()
         self.status_timer.setSingleShot(True)
-        self.status_timer.timeout.connect(lambda: self.status_label.setVisible(False))
+        self.status_timer.timeout.connect(
+            lambda: self.status_label.setVisible(False))
 
-    def show_status(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
-        """Show a transient status message at the bottom of the window.
+    # -- splitter persistence -----------------------------------------------
 
-        :param message: Text to display
-        :param kind: 'info', 'warning', or 'error' — controls text color
-        :param duration: Auto-hide after this many milliseconds (0 = stay until replaced)
-        """
+    def _save_splitter_state(self) -> None:
+        conf = QSettings('dodo', 'dodo')
+        conf.setValue("main_splitter_state", self.main_splitter.saveState())
+
+    def _restore_splitter_state(self) -> None:
+        conf = QSettings('dodo', 'dodo')
+        state = conf.value("main_splitter_state")
+        if state:
+            self.main_splitter.restoreState(state)
+        else:
+            # Sensible default: list gets ~55% of width
+            total = (self.width() if self.main_splitter.orientation()
+                     == Qt.Orientation.Horizontal else self.height())
+            self.main_splitter.setSizes(
+                [int(total * 0.55), int(total * 0.45)])
+
+    # -- thread preview pane ------------------------------------------------
+
+    def show_thread(self, thread_panel: panel.Panel) -> None:
+        """Replace the thread preview with *thread_panel* and focus it."""
+        # Detach previous thread panel
+        if self._active_thread is not None:
+            self._active_thread.before_close()
+            idx = self.thread_container.indexOf(self._active_thread)
+            if idx >= 0:
+                self.thread_container.removeWidget(self._active_thread)
+            self._active_thread.deleteLater()
+            self._active_thread = None
+
+        self._active_thread = thread_panel
+        self.thread_container.addWidget(thread_panel)
+        self.thread_container.setCurrentWidget(thread_panel)
+        thread_panel.has_refreshed.connect(self._on_thread_refreshed)
+        thread_panel.setFocus()
+
+    def _on_thread_refreshed(self) -> None:
+        """Update window title when the active thread refreshes."""
+        pass  # title updates handled by refresh_tab_titles / panel itself
+
+    def focus_list(self) -> None:
+        """Move keyboard focus back to the current list tab."""
+        w = self.tabs.currentWidget()
+        if w:
+            w.setFocus()
+
+    def has_thread_preview(self) -> bool:
+        """Return True if a thread is currently shown in the preview pane."""
+        return self._active_thread is not None
+
+    def active_thread(self) -> Optional[panel.Panel]:
+        """Return the currently displayed thread panel, or None."""
+        return self._active_thread
+
+    def clear_thread(self) -> None:
+        """Remove the current thread preview and show the placeholder."""
+        if self._active_thread is not None:
+            self._active_thread.before_close()
+            idx = self.thread_container.indexOf(self._active_thread)
+            if idx >= 0:
+                self.thread_container.removeWidget(self._active_thread)
+            self._active_thread.deleteLater()
+            self._active_thread = None
+        self.thread_container.setCurrentWidget(self._thread_placeholder)
+
+    # -- status bar ---------------------------------------------------------
+
+    def show_status(self, message: str, kind: str = 'info',
+                    duration: int = 3000) -> None:
+        """Show a transient status message at the bottom of the window."""
         colors = {
             'info': settings.theme.get('fg_good', settings.theme['fg']),
             'warning': settings.theme.get('fg_bad', settings.theme['fg']),
@@ -119,14 +234,23 @@ class MainWindow(QMainWindow):
         else:
             self.status_timer.stop()
 
+    # -- close --------------------------------------------------------------
+
+    def before_close_all(self) -> bool:
+        """Run before_close on all panels.  Returns False if any cancelled."""
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, panel.Panel) and not w.before_close():
+                return False
+        if self._active_thread is not None:
+            if not self._active_thread.before_close():
+                return False
+        return True
+
     def closeEvent(self, e: QCloseEvent) -> None:
         conf = QSettings('dodo', 'dodo')
         conf.setValue("main_window_geometry", self.saveGeometry())
-        for i in range(self.tabs.count()):
-            w = self.tabs.widget(i)
-
-            if isinstance(w, panel.Panel) and not w.before_close():
-                e.ignore()
-                return
-
-        e.accept()
+        if self.before_close_all():
+            e.accept()
+        else:
+            e.ignore()

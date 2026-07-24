@@ -252,8 +252,17 @@ class Dodo(QApplication):
     def close_panel(self, to_close: int|panel.Panel|None=None) -> None:
         """Close the panel at `index` (if provided) or the current panel
 
-        If `index` is not provided, close the current panel. This will only close
-        panels whose `keep_open` property is False."""
+        Only closes panels in the tab bar, never the thread preview pane.
+        If the panel to close is the active thread preview, it is
+        cleared (replaced with placeholder) instead.
+        """
+
+        if isinstance(to_close, panel.Panel):
+            # Check if it's the thread preview pane
+            if to_close is self.main_window.active_thread():
+                self.main_window.clear_thread()
+                self.main_window.focus_list()
+                return
 
         if not to_close:
             index = self.tabs.currentIndex()
@@ -293,19 +302,12 @@ class Dodo(QApplication):
         self.add_panel(p)
 
     def open_thread(self, thread_id: str, query: str) -> None:
-        """Open a thread panel with the given thread_id
+        """Open a thread in the persistent preview pane.
 
-        If a panel with this thread_id is already open, switch to it rather than
-        opening another copy."""
-
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, thread.ThreadPanel) and (w.thread_id, w.query) == (thread_id, query):
-                self.tabs.setCurrentIndex(i)
-                return
-
+        Replaces any previously shown thread.  Does NOT create a tab.
+        """
         p = thread.ThreadPanel(self, thread_id, query)
-        self.add_panel(p)
+        self.main_window.show_thread(p)
 
     def open_compose(self, mode: str='', msg: Optional[dict]=None) -> None:
         """Open a compose panel
@@ -454,7 +456,14 @@ class Dodo(QApplication):
                 w.dirty = True
 
         w = self.tabs.currentWidget()
-        if w and isinstance(w, panel.Panel): w.refresh()
+        if w and isinstance(w, panel.Panel):
+            w.refresh()
+
+        # Also mark the thread preview dirty
+        tp = self.main_window.active_thread()
+        if tp is not None:
+            tp.dirty = True
+            tp.refresh()
 
     def update_single_thread(self, thread_id: str, msg_id: str|None=None):
         current = self.tabs.currentWidget()
@@ -464,6 +473,13 @@ class Dodo(QApplication):
                 w.update_thread(thread_id, msg_id=msg_id)
                 if w == current and w.dirty:
                     w.refresh()
+
+        # Also update the thread preview if it shows this thread
+        tp = self.main_window.active_thread()
+        if tp is not None:
+            if isinstance(tp, thread.ThreadPanel) and tp.thread_id == thread_id:
+                tp.update_thread(thread_id, msg_id=msg_id)
+                tp.refresh()
 
     def _cleanup_sync(self) -> None:
         """Stop the sync timer and terminate any running sync thread"""

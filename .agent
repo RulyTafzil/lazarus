@@ -25,6 +25,28 @@ email indexer.
 
 ## Architecture
 
+### Layout (Split-Pane UX)
+```
+┌─────────────────────────────────────────────────────────┐
+│ MainWindow (QSplitter)                                  │
+│ ┌───────────────────────┐ ┌───────────────────────────┐ │
+│ │ QTabWidget (list)     │ │ Thread Preview (persistent)│ │
+│ │ ┌───────────────────┐ │ │                           │ │
+│ │ │ DashboardPanel    │ │ │ ThreadPanel               │ │
+│ │ │ SearchPanel       │ │ │ (message list + viewer)   │ │
+│ │ │ ComposePanel      │ │ │                           │ │
+│ │ │ TagPanel          │ │ │                           │ │
+│ │ └───────────────────┘ │ │                           │ │
+│ └───────────────────────┘ └───────────────────────────┘ │
+│ CommandBar / StatusBar                                   │
+└─────────────────────────────────────────────────────────┘
+```
+- Thread preview is always visible (configurable: right/left/below/above)
+- `Enter` on a thread → swaps preview content in-place; no thread tabs
+- `Escape` in preview → focus back to list
+- `h`/`l` navigate list tabs only
+- `j`/`k` in list: navigate threads; `J`/`K` in thread: navigate messages
+
 ### Class Hierarchy
 ```
 QApplication
@@ -48,7 +70,7 @@ QMainWindow
 | File | Purpose |
 |------|---------|
 | `app.py` | `Dodo(QApplication)`, `SyncMailThread` (with live progress signal), `main()` |
-| `mainwindow.py` | `MainWindow`: tabs, command bar, status bar with auto-hide |
+| `mainwindow.py` | `MainWindow`: split-pane layout (tabs + persistent thread preview), command bar, status bar |
 | `panel.py` | `Panel(QWidget)`: keychord handling, dirty tracking, temp dir cleanup |
 | `dashboard.py` | `DashboardPanel` + `DashboardModel`: multi-section inbox view |
 | `search.py` | `SearchPanel` + `SearchModel` + `render_thread_cell()`: thread listing with `#` count column |
@@ -115,6 +137,7 @@ QMainWindow
 |-----|--------|
 | `J/K` | Next/previous message |
 | `j/k` | Scroll down/up |
+| `<escape>` | Focus back to list |
 | `H` | Toggle HTML/plaintext |
 | `r/R` | Reply / reply all |
 | `C-f` | Forward |
@@ -165,6 +188,7 @@ QMainWindow
 - Uses `mbsync -a -V` (verbose) for detailed output
 
 ### Other Changes
+- **Split-pane UX**: persistent thread preview (configurable via `thread_pane_position`)
 - **Thread count column** (`#`): shows fa-comments icon + count for multi-message threads
 - **Plaintext fallback**: HTML mode degrades to plaintext when no HTML part exists
 - **Case-insensitive email matching**: `email_is_me` and `email_smtp_account_index`

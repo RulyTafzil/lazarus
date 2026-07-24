@@ -200,6 +200,13 @@ This is used by delete/archive operations to locate per-account Trash
 folders and the local Archive.  Change this if your mail lives elsewhere.
 """
 
+thread_pane_position: Literal['right', 'left', 'below', 'above'] = 'right'
+"""Where to place the persistent thread preview pane.
+
+Valid values: ``'right'``, ``'left'``, ``'below'``, ``'above'``.
+The thread pane is always visible alongside the list tabs.
+"""
+
 archive_dir = '~/Mail/Archive'
 """Path to a local-only Maildir where ``A`` hotkey moves archived emails.
 

@@ -86,6 +86,7 @@ taking :class:`~dodo.search.TagPanel` as input.
 """
 
 thread_keymap = {
+  '<escape>':  ('focus list', lambda p: p.app.main_window.focus_list()),
   'J':          ('next message', lambda p: p.next_message()),
   'K':          ('previous message', lambda p: p.previous_message()),
   'U':          ('next matching unread message', lambda p: p.next_unread()),
