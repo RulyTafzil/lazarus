@@ -464,7 +464,7 @@ class SearchPanel(panel.Panel):
         """Archive current thread, or all marked threads if any are marked."""
         if self._has_marked():
             subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '-marked',
-                           '--', f'tag:marked AND ({self.q})'])
+                           '--', 'tag:marked'])
             self.app.refresh_panels()
             self.app.status_message('Archived marked', 'info')
         else:
@@ -482,9 +482,9 @@ class SearchPanel(panel.Panel):
     def delete_thread(self) -> None:
         """Delete current thread, or all marked threads if any are marked."""
         if self._has_marked():
-            actions.move_to_trash(f'tag:marked AND ({self.q})')
+            actions.move_to_trash('tag:marked')
             subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           f'tag:marked AND ({self.q})'])
+                           'tag:marked'])
             self.app.refresh_panels()
             self.app.status_message('Deleted marked', 'info')
         else:
@@ -498,9 +498,9 @@ class SearchPanel(panel.Panel):
     def archive_to_local(self) -> None:
         """Archive-to-local current thread, or all marked if any are marked."""
         if self._has_marked():
-            actions.move_to_archive(f'tag:marked AND ({self.q})')
+            actions.move_to_archive('tag:marked')
             subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           f'tag:marked AND ({self.q})'])
+                           'tag:marked'])
             self.app.refresh_panels()
             self.app.status_message('Archived marked to local', 'info')
         else:
@@ -518,10 +518,9 @@ class SearchPanel(panel.Panel):
             self.app.status_message('Archived to local', 'info')
 
     def _has_marked(self) -> bool:
-        """Check if any threads in the current view are marked."""
+        """Check if any threads anywhere are marked."""
         r = subprocess.run(
-            ['notmuch', 'count', '--output=threads',
-             f'tag:marked AND ({self.q})'],
+            ['notmuch', 'count', '--output=threads', 'tag:marked'],
             capture_output=True, text=True)
         return r.returncode == 0 and int(r.stdout.strip() or '0') > 0
 
