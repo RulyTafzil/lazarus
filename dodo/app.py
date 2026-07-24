@@ -30,6 +30,8 @@ import subprocess
 from typing import Optional, Literal
 import logging
 
+logger = logging.getLogger(__name__)
+
 from . import search
 from . import thread
 from . import compose
@@ -257,6 +259,8 @@ class Dodo(QApplication):
         """Call *method* on the current list panel, even if thread
         preview has focus.  Silently no-ops if not applicable."""
         w = self.tabs.currentWidget()
+        logger.info('delegate_to_list: targeting %s.%s',
+                    type(w).__name__, method)
         if w and hasattr(w, method):
             getattr(w, method)()
 
