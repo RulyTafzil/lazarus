@@ -204,6 +204,9 @@ class Dodo(QApplication):
             for query in settings.init_queries:
                 self.open_search(query, keep_open=True)
 
+        # Restore search panels from previous session
+        self._restore_open_searches()
+
     def _handle_signal_wakeup(self) -> None:
         """Called when a Unix signal wakes up the Qt event loop via the pipe"""
         self._signal_notifier.setEnabled(False)
@@ -520,7 +523,26 @@ class Dodo(QApplication):
     def prompt_quit(self) -> None:
         """A 'soft' quit function, which gives each open tab the opportunity to prompt
         the user and possible cancel closing."""
+        self._save_open_searches()
         self.main_window.close()
+
+    def _save_open_searches(self) -> None:
+        """Save non-keep-open search queries to QSettings."""
+        conf = QSettings('dodo', 'dodo')
+        queries = []
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, search.SearchPanel) and not w.keep_open:
+                queries.append(w.q)
+        conf.setValue('open_searches', queries)
+
+    def _restore_open_searches(self) -> None:
+        """Restore search panels from the previous session."""
+        conf = QSettings('dodo', 'dodo')
+        queries = conf.value('open_searches')
+        if queries:
+            for q in queries:
+                self.open_search(q)
 
 
 def main() -> None:
