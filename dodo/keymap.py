@@ -22,6 +22,7 @@ global_keymap = {
   '`':       ('sync mail', lambda a: a.sync_mail(quiet=False)),
   'j':       ('next thread', lambda a: a.navigate_list('next')),
   'k':       ('previous thread', lambda a: a.navigate_list('previous')),
+  's':       ('mark and advance', lambda a: a.mark_and_advance()),
   'l':       ('next panel', lambda a: a.next_panel()),
   'h':       ('previous panel', lambda a: a.previous_panel()),
   'x':       ('close panel', lambda a: a.close_panel()),

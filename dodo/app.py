@@ -243,6 +243,13 @@ class Dodo(QApplication):
             elif direction == 'previous':
                 w.previous_thread()
 
+    def mark_and_advance(self) -> None:
+        """Toggle marked on the current thread and advance, list-side."""
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'toggle_thread_tag') and hasattr(w, 'next_thread'):
+            w.toggle_thread_tag('marked')
+            w.next_thread()
+
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
         """Add a panel to the tab view
 
