@@ -1,0 +1,309 @@
+# PLAN: Account-aware backend routing for dodo (notmuch/mbsync/lieer)
+
+## Context
+
+dodo (https://github.com/akissinger/dodo) is a PyQt6 email client built on
+notmuch. It currently supports multiple *sending* accounts via dicts in
+`config.py` (`smtp_accounts`, `email_address`, `sent_dir`), and recommends
+syncing all incoming accounts into subdirectories of one notmuch database
+root (`For multiple incoming mail accounts, just sync all accounts into
+subdirectories of a single directory and point notmuch to the main
+directory`).
+
+It does NOT currently distinguish accounts for read-side actions like
+archive/delete/trash. Two incoming accounts are in use:
+
+- `work`  — plain IMAP, synced via `mbsync`. Delete = move message file into
+  the account's Trash maildir folder + tag, then mbsync expunges on next run.
+- `gmail` — synced via `lieer` (`gmi`), which talks to the Gmail API directly
+  and does two-way tag <-> label sync. There is no folder-per-label and no
+  user-controlled expunge step. Gmail label semantics apply:
+    - the local tag name for trashing must be lowercase `trash` (not
+      `deleted`/`Trash` — those are reserved/invalid and won't push)
+    - only one of `inbox` / `spam` / `trash` may be present on a message at
+      once, so trashing must also strip `inbox`
+    - archiving = removing the `inbox` tag, not a folder move
+    - "trash" only maps to Gmail's own soft-delete (~30 day recoverable
+      Trash); there is no forced/immediate permanent delete exposed by lieer
+      or the Gmail API path it uses. This is a hard limitation, not a bug to
+      fix — the plan below should not attempt to fake an immediate expunge
+      for the gmail account.
+
+Goal: give dodo a single, config-driven concept of "which account does this
+message belong to, and what backend handles it", and route
+archive/trash/sync actions through that, instead of hardcoding IMAP-style
+folder-move logic for both accounts.
+
+## Non-goals
+
+- Do not try to implement immediate/forced permanent deletion for the gmail
+  account. Trash = soft delete there, full stop.
+- Do not change dodo's sending-side multi-account support
+  (`smtp_accounts`/`email_address`/`sent_dir`) — that already works and is
+  orthogonal to this.
+- Do not attempt automatic backend detection by sniffing the filesystem
+  (e.g. looking for a `.lieer`/`.gmailieer` state dir). Make it an explicit
+  config field. Simpler, and won't break if a second gmail-like account is
+  added later.
+
+## Step 1 — Tag every message with its account at ingest time
+
+Add a notmuch hook that tags new mail with `acct:<name>` based on Maildir
+subpath, immediately after `notmuch new` assigns the default `new` tag.
+Scope the query to `tag:new` so it's cheap and idempotent on every run.
+
+File: `~/.notmuch/hooks/post-new`
+
+```bash
+#!/bin/bash
+# Tag newly-arrived mail with its account, based on Maildir subpath.
+# Adjust paths to match the actual subdirectories under the notmuch
+# database root (see [database].path in ~/.notmuch-config).
+
+notmuch tag +acct:work  -- tag:new and path:Work/**
+notmuch tag +acct:gmail -- tag:new and path:Gmail/**
+```
+
+Make sure the file is executable (`chmod +x`).
+
+One-time backfill for existing mail (run once, by hand, not part of the
+hook):
+
+```bash
+notmuch tag +acct:work  -- path:Work/**
+notmuch tag +acct:gmail -- path:Gmail/**
+```
+
+Acceptance check: `notmuch search tag:acct:gmail | wc -l` and
+`notmuch search tag:acct:work | wc -l` should roughly match the message
+counts you'd expect from each account, with no untagged overlap:
+`notmuch count -- not tag:acct:work and not tag:acct:gmail` should be 0 (or
+only match genuinely out-of-band mail, e.g. locally-created drafts).
+
+## Step 2 — Declare accounts + backends in `~/.config/dodo/config.py`
+
+Add a new settings dict, `dodo.settings.accounts`, keyed by the same account
+name used in the `acct:<name>` tag. This is the single source of truth the
+rest of the feature reads from.
+
+```python
+dodo.settings.accounts = {
+    'work': {
+        'backend':   'imap',
+        'root':      '/home/user/mail/Work',   # maildir root for this account
+        'trash_dir': 'Trash',                  # relative to root
+        'sync_cmd':  'mbsync work',
+    },
+    'gmail': {
+        'backend':  'lieer',
+        'root':     '/home/user/mail/Gmail',
+        'sync_cmd': 'gmi sync',
+    },
+}
+```
+
+Required keys per backend:
+- `imap`:  `backend`, `root`, `trash_dir`, `sync_cmd`
+- `lieer`: `backend`, `root`, `sync_cmd`
+
+Validate at startup (or lazily on first use) that every account referenced
+by a `sync_cmd` exists, and log a clear error if a message has an `acct:`
+tag with no matching entry in `dodo.settings.accounts`, rather than silently
+no-op'ing.
+
+## Step 3 — Backend-abstraction module
+
+New file: `dodo/account_actions.py`
+
+Responsibilities:
+- resolve a message's account from its `acct:*` tag
+- perform backend-correct trash/archive tagging
+- trigger the right sync command afterward, without blocking the UI thread
+
+```python
+from __future__ import annotations
+from PyQt6.QtCore import QProcess
+import subprocess
+from typing import Optional
+
+import dodo.settings as settings
+
+
+def account_for_message(msg) -> Optional[str]:
+    """Return the account name for a notmuch message, based on its acct: tag."""
+    for t in msg.get_tags():
+        if t.startswith('acct:'):
+            return t[len('acct:'):]
+    return None
+
+
+def _account_cfg(account: str) -> dict:
+    cfg = settings.accounts.get(account)
+    if cfg is None:
+        raise KeyError(
+            f"No entry in dodo.settings.accounts for account '{account}'. "
+            f"Check the acct:{account} tag and your config.py."
+        )
+    return cfg
+
+
+def _notmuch_tag(msg_id: str, *tag_ops: str) -> None:
+    subprocess.run(['notmuch', 'tag', *tag_ops, '--', f'id:{msg_id}'], check=True)
+
+
+def _run_sync(account: str) -> None:
+    cmd = _account_cfg(account)['sync_cmd']
+    # Fire-and-forget so the UI doesn't stall on mbsync/gmi.
+    # Swap for a tracked QProcess + status-bar signal if you want
+    # visible sync progress/errors instead of pure fire-and-forget.
+    QProcess.startDetached('/bin/sh', ['-c', cmd])
+
+
+def trash_message(msg) -> None:
+    account = account_for_message(msg)
+    if account is None:
+        raise ValueError(f"Message {msg.get_message_id()} has no acct: tag")
+    backend = _account_cfg(account)['backend']
+    msg_id = msg.get_message_id()
+
+    if backend == 'imap':
+        _notmuch_tag(msg_id, '+deleted', '+expunge')
+        # physical move of the message file into <root>/<trash_dir>
+        # happens here or in the existing expunge step — reuse whatever
+        # dodo/mbsync already does today for the work account.
+    elif backend == 'lieer':
+        _notmuch_tag(msg_id, '+trash', '-inbox')
+    else:
+        raise ValueError(f"Unknown backend '{backend}' for account '{account}'")
+
+    _run_sync(account)
+
+
+def archive_message(msg) -> None:
+    account = account_for_message(msg)
+    if account is None:
+        raise ValueError(f"Message {msg.get_message_id()} has no acct: tag")
+    backend = _account_cfg(account)['backend']
+    msg_id = msg.get_message_id()
+
+    if backend == 'imap':
+        _notmuch_tag(msg_id, '-inbox')
+        # existing physical move-out-of-Inbox-folder logic, if any, goes here
+    elif backend == 'lieer':
+        _notmuch_tag(msg_id, '-inbox')
+    else:
+        raise ValueError(f"Unknown backend '{backend}' for account '{account}'")
+
+    _run_sync(account)
+```
+
+Notes for whoever implements this:
+- Keep `trash_message`/`archive_message` operating on a single message, not
+  a thread. See Step 5.
+- The IMAP branch above is a stub — port in dodo's actual existing
+  move-to-Trash-folder / expunge-tag logic from whatever currently
+  implements it (likely inline in `keymap.py` or `search.py` today);
+  this file should become the *only* place that logic lives.
+
+## Step 4 — Wire into keymap
+
+In `config.py` (or directly in `dodo/keymap.py` if upstreaming), replace
+whatever currently implements delete/archive/trash keybindings with calls
+into `dodo.account_actions`. Exact integration depends on dodo's current
+`SearchPanel`/`ThreadPanel` API for iterating selected/marked messages —
+inspect `dodo/keymap.py`, `dodo/search.py`, and `dodo/thread.py` for the
+existing `tag_thread`/`toggle_thread_tag`-style methods before writing this
+part, since the message-vs-thread iteration helpers already exist and
+should be reused rather than reinvented.
+
+Sketch:
+
+```python
+import dodo.account_actions as account_actions
+
+def trash_selected(panel):
+    for msg in panel.selected_messages():   # use whatever dodo's real API is
+        account_actions.trash_message(msg)
+    panel.refresh()
+
+def archive_selected(panel):
+    for msg in panel.selected_messages():
+        account_actions.archive_message(msg)
+    panel.refresh()
+
+dodo.keymap.search_keymap['d'] = ('trash', trash_selected)
+dodo.keymap.search_keymap['A'] = ('archive', archive_selected)
+```
+
+## Step 5 — Mixed-account thread handling
+
+Dispatch per-message, never per-thread, for anything backend-sensitive
+(trash, archive). A thread can legitimately contain messages from both
+accounts (e.g. a CC'd conversation). Backend-agnostic tags with no remote
+implications (`flagged`, custom user tags, `zzz-` snooze tags, etc.) can
+stay thread-wide as before — only trash/archive need the per-message split.
+
+If dodo's existing UI-level "act on this thread" keybindings currently
+resolve to a single message id, this is low-risk. If they already fan out
+over every message in a thread, make sure that fan-out calls
+`account_actions.trash_message`/`archive_message` per message rather than
+issuing one notmuch command with a combined query — that's what makes the
+per-message backend lookup work correctly instead of applying one backend's
+tag semantics to the whole thread.
+
+## Step 6 — Sync trigger and UI feedback
+
+`QProcess.startDetached` in the sketch above is deliberately minimal
+(fire-and-forget, no error surfacing). Before calling this done, decide
+whether to upgrade to:
+
+- a tracked `QProcess` per sync command with a `finished` signal that
+  updates dodo's status bar (success/failure, exit code), OR
+- leaving sync entirely to an external timer (systemd/cron running
+  `mbsync` + `gmi sync` on a schedule) and just letting notmuch's tag state
+  be the eventually-consistent source of truth, with dodo's own periodic
+  refresh picking it up.
+
+If dodo already has a `SyncMailThread` / `sync_mail_command` concept (it
+does — see `dodo/app.py`), check whether that can be generalized to take a
+per-account command instead of a single global one, rather than building a
+fully separate sync path in `account_actions.py`. Reusing that
+infrastructure is preferable to introducing a second, parallel sync
+mechanism if it's not much extra work.
+
+## Step 7 — Testing checklist
+
+- [ ] New mail in the Work maildir gets `acct:work` after `notmuch new`.
+- [ ] New mail in the Gmail maildir gets `acct:gmail` after `notmuch new`.
+- [ ] Trashing a `work` message: file moves to Trash folder, `deleted`
+      and `expunge` tags applied, `mbsync work` fires, message is
+      eventually gone after next full sync.
+- [ ] Trashing a `gmail` message: `trash` tag applied, `inbox` removed,
+      `gmi sync` fires, message shows up in Gmail's Trash label
+      remotely within one sync cycle. Confirm it does NOT disappear from
+      local disk immediately (expected — soft delete only).
+- [ ] Archiving a `work` message behaves as before.
+- [ ] Archiving a `gmail` message removes `inbox` and nothing else breaks
+      (message keeps its other Gmail labels/tags).
+- [ ] A thread containing both a `work` and a `gmail` message: trashing
+      one message in the thread does not affect the other account's
+      message.
+- [ ] A message with no `acct:*` tag (e.g. a locally created draft, or a
+      backfill gap) raises a clear, visible error rather than silently
+      doing nothing or crashing.
+- [ ] Adding a third account later requires touching only
+      `dodo.settings.accounts` + one line in `post-new` — no changes to
+      `account_actions.py` or the keymap wiring.
+
+## Open questions for implementer to resolve against actual current dodo code
+
+1. What does dodo currently call to move a message file for the `work`
+   account's delete flow, and where does that logic live today? Port it
+   into `account_actions._imap_trash` rather than duplicating it.
+2. What's the actual message/thread selection API in `SearchPanel` /
+   `ThreadPanel` (`dodo/search.py`, `dodo/thread.py`) — confirm exact
+   method names before writing Step 4/5 against them.
+3. Does `dodo/app.py`'s existing `SyncMailThread` / sync_mail_command
+   setting generalize easily to per-account commands, or is a new,
+   separate mechanism (as sketched in Step 3) cleaner? Decide before
+   implementing Step 6.

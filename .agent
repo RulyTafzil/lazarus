@@ -1,12 +1,14 @@
-# Project: mydodo (Dodo Mail Client)
+# Project: mydodo (Lazarus Mail Client)
 
 ## Identity
-- **Name**: Dodo (`dodo-mail` on PyPI, v0.2)
-- **Author**: Aleks Kissinger <aleks0@gmail.com>
+- **Name**: Lazarus — a fork of [Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger
+- **Package**: `dodo-mail` on PyPI (v0.2, upstream)
+- **Original Author**: Aleks Kissinger <aleks0@gmail.com>
+- **Fork Maintainer**: Ruly Tafzil
 - **License**: GPLv3
-- **Repo**: https://github.com/akissinger/dodo
+- **Upstream Repo**: https://github.com/akissinger/dodo
 - **Docs**: https://dodomail.readthedocs.io/en/latest/
-- **Local dir**: `~/Projects/mydodo` (forked from upstream `dodo`, customized for Ruly)
+- **Local dir**: `~/Projects/mydodo`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/mydodo.git`
 
 ## What It Is

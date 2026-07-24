@@ -1,9 +1,9 @@
-#     Dodo - A graphical, hackable email client based on notmuch
+#     Lazarus - A fork of Dodo, a graphical, hackable email client based on notmuch
 #     Copyright (C) 2025 - Ruly Tafzil
 #
-# This file is part of Dodo
+# This file is part of Lazarus
 #
-# Dodo is free software: you can redistribute it and/or modify
+# Lazarus is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
@@ -14,7 +14,7 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with Dodo. If not, see <https://www.gnu.org/licenses/>.
+# along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 
 """Thread model, thread-item tree, and helpers.
 
