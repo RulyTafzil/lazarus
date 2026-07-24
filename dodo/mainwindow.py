@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
             settings.thread_pane_position)
         self.main_splitter = QSplitter(orientation)
         self.main_splitter.setChildrenCollapsible(False)
-        w.layout().addWidget(self.main_splitter)
+        w.layout().addWidget(self.main_splitter, stretch=1)
 
         # List side: tabs (dashboard, searches, compose, tags)
         self.tabs = QTabWidget()
@@ -137,6 +137,9 @@ class MainWindow(QMainWindow):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setVisible(False)
         self.status_label.setContentsMargins(8, 2, 8, 2)
+        self.status_label.setFixedHeight(24)
+        self.status_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         w.layout().addWidget(self.status_label)
 
         self.status_timer = QTimer()
