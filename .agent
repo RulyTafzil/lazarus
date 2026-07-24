@@ -119,31 +119,31 @@ QMainWindow
 | `x/X` | Close panel / close all |
 | `c` | Compose |
 | `I/U/F/T` | Show inbox / unread / flagged / tags |
+| `j/k` | Next/previous thread (always, even from preview) |
+| `s` | Mark thread and advance |
+| `a` | Archive (current or all marked) |
+| `d` | Delete (current or all marked) |
+| `A` | Archive to local (current or all marked) |
 
 ### Dashboard & Search
 | Key | Action |
 |-----|--------|
 | `j/k` | Next/previous thread (auto-opens in preview) |
 | `<enter>` | Open/focus thread preview |
-| `a` | Archive (refuses if no categorizing tag) |
-| `d` | Delete (move to Trash folder) |
 | `u/f` | Toggle unread/flagged |
-| `<space>` | Toggle marked + advance |
-| `g g/G` | First/last |
+| `g g/G` | First/last thread |
 | `C-d/C-u` | Page down/up |
 
 ### Thread View
 | Key | Action |
 |-----|--------|
 | `J/K` or `<enter>` | Next/previous message |
-| `j/k` | Scroll down/up |
 | `<escape>` | Focus back to list |
 | `<space>` / `-` | Page down/up |
 | `H` | Toggle HTML/plaintext |
 | `r/R` | Reply / reply all |
 | `C-f` | Forward |
-| `d` | Delete current message |
-| `A` | Open attachments |
+| `O` | Open attachments |
 
 ### Compose
 | Key | Action |
@@ -152,7 +152,7 @@ QMainWindow
 | `S` | Send |
 | `a` | Attach file |
 | `[/]` | Cycle SMTP accounts |
-| `s/e` | Toggle PGP sign/encrypt |
+| `p/e` | Toggle PGP sign/encrypt |
 
 ## Custom Features (Deviations from Upstream)
 
@@ -190,6 +190,16 @@ QMainWindow
 
 ### Other Changes
 - **Split-pane UX**: persistent thread preview (configurable via `thread_pane_position`)
+- **Thread auto-open**: `j`/`k` navigation auto-opens selected thread after 150ms debounce
+- **Neomutt-style nav**: `j`/`k`/`s`/`a`/`d`/`A` are global — work from thread preview too
+- **Marked-thread bulk actions**: `s` marks threads, then `d`/`a`/`A` operate on all marked in view
+- **Bulk file moves**: background `QThread` serialises file I/O, `notmuch new` runs synchronously
+- **Persistent search tabs**: open searches saved/restored across sessions
+- **`force_dark_mode` setting**: passes `--force-dark-mode` to Chromium (default on)
+- **Double-buffered views**: `QStackedLayout(StackAll)` keeps both QWebEngineViews compositing
+- **Navigation help section**: split-pane keys shown in `?` help modal
+- **Fixed flagged icon**: `⚑` (standard Unicode) replaces broken NerdFont glyph
+- **Fixed post-new hook**: `/**` path wildcards, `[Gmail]` bracket fix, `tag:deleted` Trash cleanup
 - **Thread count column** (`#`): shows fa-comments icon + count for multi-message threads
 - **Plaintext fallback**: HTML mode degrades to plaintext when no HTML part exists
 - **Case-insensitive email matching**: `email_is_me` and `email_smtp_account_index`
@@ -202,11 +212,16 @@ QMainWindow
 - **Shared rendering**: `render_thread_cell()` in search.py eliminates duplication between SearchModel and DashboardModel
 
 ### Refactoring (2025)
-- **`dodo/actions.py`**: shared delete/archive/move logic extracted from 3 panels
+- **`dodo/actions.py`**: shared delete/archive/move logic extracted from 3 panels; `_BulkMoveWorker` QThread for background file I/O
 - **`dodo/webengine.py`**: `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor` extracted from thread.py
 - **`dodo/thread_model.py`**: `ThreadModel`, `ThreadItem`, `EmptyThreadError`, helpers extracted from thread.py
 - **`render_thread_cell()`**: shared thread-row rendering in search.py, used by both SearchModel and DashboardModel
 - Hardcoded `/home/rulyt/Mail/` paths replaced with `settings.mail_root`
+- **Split-pane layout**: `MainWindow` uses `QSplitter` with persistent thread preview
+- **Auto-open**: `Panel._setup_auto_open()` debounces selection changes to swap preview
+- **Double-buffered views**: `QStackedLayout(StackAll)` in `ThreadPanel` for flash-free loads
+- **Global delegate keys**: `j/k/s/a/d/A` in `global_keymap` route to `Dodo` methods targeting list panel
+- **Post-new hook**: fixed `/**` path wildcards and `[Gmail]` escaping
 
 ## Ruly's Configuration
 - **Mail**: `~/Mail/` with Gmail and contact Maildir accounts
