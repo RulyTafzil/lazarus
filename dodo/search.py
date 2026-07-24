@@ -461,70 +461,67 @@ class SearchPanel(panel.Panel):
             self.app.refresh_panels()
 
     def archive_thread(self) -> None:
-        """Archive current thread, or all marked threads if any are marked."""
-        if self._has_marked():
-            subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '-marked',
-                           '--', f'tag:marked AND ({self.q})'])
+        """Archive current thread, or all marked threads in this view."""
+        # Always try marked first — same pattern as t m
+        marked_query = f'tag:marked AND ({self.q})'
+        count = int(subprocess.run(
+            ['notmuch', 'count', '--output=threads', marked_query],
+            capture_output=True, text=True).stdout.strip() or '0')
+        if count > 0:
+            subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
+                           '-marked', '--', marked_query])
             self.app.refresh_panels()
             self.app.status_message('Archived marked', 'info')
-        else:
-            thread = self.model.thread_json(self.tree.currentIndex())
-            if not thread:
-                return
-            if actions.check_archive_refused(set(thread.get('tags', []))):
-                self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-                return
-            thread_id = self.model.thread_id(self.tree.currentIndex())
-            if thread_id:
-                subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
-                self.app.update_single_thread(thread_id)
+            return
+        # Fall back to current thread
+        thread = self.model.thread_json(self.tree.currentIndex())
+        if not thread:
+            return
+        if actions.check_archive_refused(set(thread.get('tags', []))):
+            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
+            return
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if thread_id:
+            subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id])
+            self.app.update_single_thread(thread_id)
 
     def delete_thread(self) -> None:
-        """Delete current thread, or all marked threads if any are marked."""
-        if self._has_marked():
-            actions.move_to_trash(f'tag:marked AND ({self.q})')
-            subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           f'tag:marked AND ({self.q})'])
+        """Delete current thread, or all marked threads in this view."""
+        marked_query = f'tag:marked AND ({self.q})'
+        moved = actions.move_to_trash(marked_query)
+        if moved > 0:
+            subprocess.run(['notmuch', 'tag', '-marked', '--', marked_query])
             self.app.refresh_panels()
             self.app.status_message('Deleted marked', 'info')
-        else:
-            thread_id = self.model.thread_id(self.tree.currentIndex())
-            if not thread_id:
-                return
-            actions.move_to_trash('thread:' + thread_id)
-            self.app.update_single_thread(thread_id)
-            self.app.status_message('Moved to trash', 'info')
+            return
+        # Fall back to current thread
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        actions.move_to_trash('thread:' + thread_id)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Moved to trash', 'info')
 
     def archive_to_local(self) -> None:
-        """Archive-to-local current thread, or all marked if any are marked."""
-        if self._has_marked():
-            actions.move_to_archive(f'tag:marked AND ({self.q})')
-            subprocess.run(['notmuch', 'tag', '-marked', '--',
-                           f'tag:marked AND ({self.q})'])
+        """Archive-to-local current thread, or all marked in this view."""
+        marked_query = f'tag:marked AND ({self.q})'
+        moved = actions.move_to_archive(marked_query)
+        if moved > 0:
+            subprocess.run(['notmuch', 'tag', '-marked', '--', marked_query])
             self.app.refresh_panels()
             self.app.status_message('Archived marked to local', 'info')
-        else:
-            thread = self.model.thread_json(self.tree.currentIndex())
-            if not thread:
-                return
-            if actions.check_archive_refused(set(thread.get('tags', []))):
-                self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-                return
-            thread_id = self.model.thread_id(self.tree.currentIndex())
-            if not thread_id:
-                return
-            actions.move_to_archive('thread:' + thread_id)
-            self.app.update_single_thread(thread_id)
-            self.app.status_message('Archived to local', 'info')
-
-    def _has_marked(self) -> bool:
-        """Check if any threads in the current view are marked."""
-        query = f'tag:marked AND ({self.q})'
-        r = subprocess.run(
-            ['notmuch', 'count', '--output=threads', query],
-            capture_output=True, text=True)
-        if r.returncode != 0:
-            logger.warning('_has_marked query failed: %s', r.stderr)
-            return False
-        return int(r.stdout.strip() or '0') > 0
+            return
+        # Fall back to current thread
+        thread = self.model.thread_json(self.tree.currentIndex())
+        if not thread:
+            return
+        if actions.check_archive_refused(set(thread.get('tags', []))):
+            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
+            return
+        thread_id = self.model.thread_id(self.tree.currentIndex())
+        if not thread_id:
+            return
+        actions.move_to_archive('thread:' + thread_id)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Archived to local', 'info')
 
