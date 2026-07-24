@@ -111,6 +111,16 @@ class DashboardModel(QAbstractItemModel):
             return data['thread']
         return None
 
+    def thread_data(self, index: QModelIndex) -> Optional[dict]:
+        """Return the thread dict for the row at index, or None if it is a header."""
+        if not index.isValid():
+            return None
+        row = index.row()
+        if row < 0 or row >= len(self.rows):
+            return None
+        typ, data = self.rows[row]
+        return data if typ == 'thread' else None
+
     def is_header(self, row: int) -> bool:
         """Check if the given row is a section header."""
         if row < 0 or row >= len(self.rows):
@@ -408,11 +418,10 @@ class DashboardPanel(panel.Panel):
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        row = self.tree.currentIndex().row()
-        typ, data = self.model.rows[row]
-        if typ != 'thread':
+        thread_d = self.model.thread_data(self.tree.currentIndex())
+        if thread_d is None:
             return
-        if actions.check_archive_refused(set(data.get('tags', []))):
+        if actions.check_archive_refused(set(thread_d.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return
         r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id],
@@ -448,11 +457,10 @@ class DashboardPanel(panel.Panel):
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        row = self.tree.currentIndex().row()
-        typ, data = self.model.rows[row]
-        if typ != 'thread':
+        thread_d = self.model.thread_data(self.tree.currentIndex())
+        if thread_d is None:
             return
-        if actions.check_archive_refused(set(data.get('tags', []))):
+        if actions.check_archive_refused(set(thread_d.get('tags', []))):
             self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
             return
         actions.move_to_archive('thread:' + thread_id)
@@ -464,16 +472,9 @@ class DashboardPanel(panel.Panel):
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if not thread_id:
             return
-        row = self.tree.currentIndex().row()
-        typ, data = self.model.rows[row]
-        if typ != 'thread':
+        thread_d = self.model.thread_data(self.tree.currentIndex())
+        if thread_d is None:
             return
-        thread_d = data
-        if tag in thread_d.get('tags', []):
-            tag_expr = '-' + tag
-        else:
-            tag_expr = '+' + tag
-        if not ('+' in tag_expr or '-' in tag_expr):
-            tag_expr = '+' + tag_expr
+        tag_expr = ('-' + tag) if tag in thread_d.get('tags', []) else ('+' + tag)
         subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
         self.app.update_single_thread(thread_id)
