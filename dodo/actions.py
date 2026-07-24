@@ -103,9 +103,11 @@ def move_to_trash(notmuch_query: str) -> int:
          notmuch_query])
 
     moved = 0
+    seen = set()
     for f in r.stdout.strip().split('\n'):
-        if not f:
+        if not f or f in seen:
             continue
+        seen.add(f)
         result = _mail_file_account(f)
         if result is None:
             continue
@@ -143,9 +145,11 @@ def move_to_archive(notmuch_query: str) -> int:
     archive_cur = _find_archive_dir()
 
     moved = 0
+    seen = set()
     for f in r.stdout.strip().split('\n'):
-        if not f:
+        if not f or f in seen:
             continue
+        seen.add(f)
         basename = _strip_uid_annotation(os.path.basename(f))
         dest = os.path.join(archive_cur, basename)
         try:
