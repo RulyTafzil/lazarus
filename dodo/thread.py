@@ -112,14 +112,19 @@ class ThreadPanel(panel.Panel):
         self.message_profile.setUrlRequestInterceptor(self.url_interceptor)
 
         # Double-buffered views to prevent white flash during page loads.
-        # The inactive view loads in the background; on loadFinished we
-        # swap to it atomically via QStackedWidget.
+        # QStackedLayout in StackAll mode keeps both views compositing
+        # continuously — the inactive view is never hidden, just covered,
+        # so Chromium keeps it painted and swaps are instant.
         self._views = [self._make_view(), self._make_view()]
         self._active_view = 0
+        self._views[1].setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        self._view_stack = QStackedWidget()
+        self._view_container = QWidget()
+        self._view_stack = QStackedLayout()
+        self._view_stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self._view_stack.addWidget(self._views[0])
         self._view_stack.addWidget(self._views[1])
+        self._view_container.setLayout(self._view_stack)
 
         self.layout_panel()
 
@@ -134,6 +139,9 @@ class ThreadPanel(panel.Panel):
         view.setStyleSheet(
             f'background-color: {settings.theme["bg"]};')
         view.page().setBackgroundColor(QColor(settings.theme['bg']))
+        # Preload a dark empty page so the view is never white
+        view.setHtml(
+            f'<body style="background:{settings.theme["bg"]}"></body>')
         return view
 
     @property
@@ -208,7 +216,7 @@ class ThreadPanel(panel.Panel):
         info_area.addWidget(self.thread_list)
         info_area.addWidget(self.message_info)
         splitter.addWidget(info_area)
-        splitter.addWidget(self._view_stack)
+        splitter.addWidget(self._view_container)
         self.layout().addWidget(splitter)
 
         # save splitter positions
@@ -345,7 +353,7 @@ class ThreadPanel(panel.Panel):
             inactive.page().setUrl(QUrl('message:plain'))
 
     def _on_load_finished(self, ok: bool) -> None:
-        """Swap to the freshly loaded view and scroll to top."""
+        """Swap to the freshly loaded view — instant, no compositor gap."""
         view = self.sender()
         if not isinstance(view, QWebEngineView):
             return
@@ -353,8 +361,15 @@ class ThreadPanel(panel.Panel):
             view.loadFinished.disconnect(self._on_load_finished)
         except TypeError:
             pass
-        self._active_view = 1 - self._active_view
-        self._view_stack.setCurrentIndex(self._active_view)
+        old = self._active_view
+        self._active_view = 1 - old
+        # Old view: transparent to mouse so it doesn't intercept clicks
+        self._views[old].setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # New view: opaque to mouse, raised to top
+        self._views[self._active_view].setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self._views[self._active_view].raise_()
         self.scroll_message(pos='top')
 
     def update_thread(self, thread_id: str,
