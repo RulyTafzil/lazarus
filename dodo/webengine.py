@@ -169,6 +169,12 @@ class MessagePage(QWebEnginePage):
         self._app = a
         self.newWindowRequested.connect(self._on_new_window_requested)
 
+    def javaScriptConsoleMessage(
+            self, level: QWebEnginePage.JavaScriptConsoleMessageLevel,
+            message: str, line: int, source: str) -> None:
+        """Suppress JS console noise from malformed email HTML."""
+        pass
+
     def _on_new_window_requested(
             self, req: QWebEngineNewWindowRequest) -> None:
         self._handle_link(req.requestedUrl())
