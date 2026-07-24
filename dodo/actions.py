@@ -21,6 +21,10 @@
 This module centralises delete, archive, and file-move operations that
 were previously duplicated across SearchPanel, DashboardPanel, and
 ThreadPanel.
+
+File moves run on a background ``QThread`` so rapid successive bulk
+actions queue up instead of interrupting each other.  Tagging and
+notmuch queries stay synchronous so the UI reflects changes instantly.
 """
 
 from __future__ import annotations
@@ -28,17 +32,76 @@ import os
 import re
 import subprocess
 import logging
-import threading
-from typing import Set, Optional
+import queue
+from typing import Set, Optional, List, Tuple
+
+from PyQt6.QtCore import QThread, pyqtSignal
 
 from . import settings
 
 logger = logging.getLogger(__name__)
 
-# Prevent concurrent bulk move operations (they'd step on each other's
-# notmuch database state).
-_move_lock = threading.Lock()
+# ---------------------------------------------------------------------------
+# Background worker for file moves
+# ---------------------------------------------------------------------------
 
+class _BulkMoveWorker(QThread):
+    """Serialises file moves and runs ``notmuch new`` after each batch."""
+
+    batch_done = pyqtSignal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.queue: queue.Queue[Tuple[str, str] | None] = queue.Queue()
+        self._batches_pending = 0
+
+    def enqueue(self, moves: List[Tuple[str, str]]) -> None:
+        """Push a batch of (src, dst) moves, followed by a sentinel."""
+        self._batches_pending += 1
+        for src, dst in moves:
+            self.queue.put((src, dst))
+        self.queue.put(None)  # sentinel marking end of batch
+
+    def run(self) -> None:
+        while True:
+            try:
+                item = self.queue.get(timeout=30)
+            except queue.Empty:
+                # Idle timeout — exit if no work for 30s
+                return
+            if item is None:
+                # End of batch: sync notmuch
+                subprocess.run(
+                    ['notmuch', 'new', '--no-hooks'],
+                    capture_output=True)
+                self._batches_pending -= 1
+                self.batch_done.emit()
+                continue
+            src, dst = item
+            if not os.path.exists(src):
+                logger.debug('skip (already moved): %s', src)
+                continue
+            try:
+                os.rename(src, dst)
+            except OSError as e:
+                logger.warning('move failed: %s → %s: %s', src, dst, e)
+
+
+# Singleton worker, started on first use
+_worker: _BulkMoveWorker | None = None
+
+
+def _get_worker() -> _BulkMoveWorker:
+    global _worker
+    if _worker is None or not _worker.isRunning():
+        _worker = _BulkMoveWorker()
+        _worker.start()
+    return _worker
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def check_archive_refused(tags: Set[str]) -> bool:
     """Return True if archiving should be refused.
@@ -58,7 +121,6 @@ def _mail_file_account(filepath: str) -> Optional[tuple[str, str]]:
     if filepath.startswith(mail_root + '/'):
         rel = filepath[len(mail_root) + 1:]
     elif '/Mail/' in filepath:
-        # Fallback for hardcoded paths that predate the mail_root setting.
         _, rel = filepath.split('/Mail/', 1)
     else:
         return None
@@ -91,90 +153,81 @@ def _strip_uid_annotation(filename: str) -> str:
     return re.sub(r',U=\d+', '', filename)
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def move_to_trash(notmuch_query: str) -> int:
     """Tag ``+deleted`` and move matching files to the Trash folder.
 
-    Returns the number of files successfully moved.
+    Tagging is synchronous (instant UI feedback).  File moves are
+    enqueued to a background thread so rapid successive calls don't
+    interrupt each other.
+
+    Returns the number of *files found* (moves happen asynchronously).
     """
-    _move_lock.acquire()
-    try:
-        # Search BEFORE tagging — tag changes may alter query matching.
-        r = subprocess.run(
-            ['notmuch', 'search', '--exclude=false', '--output=files',
-             '--', notmuch_query],
-            capture_output=True, text=True)
+    # Search BEFORE tagging — tag changes may alter query matching.
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', notmuch_query],
+        capture_output=True, text=True)
 
-        subprocess.run(
-            ['notmuch', 'tag', '+deleted', '-inbox', '-unread',
-             '-marked', '--', notmuch_query])
+    subprocess.run(
+        ['notmuch', 'tag', '+deleted', '-inbox', '-unread',
+         '-marked', '--', notmuch_query])
 
-        moved = 0
-        seen = set()
-        for f in r.stdout.strip().split('\n'):
-            if not f or f in seen:
-                continue
-            seen.add(f)
-            result = _mail_file_account(f)
-            if result is None:
-                continue
-            account, _ = result
-            trash_dir = _find_trash_dir(account)
-            basename = _strip_uid_annotation(os.path.basename(f))
-            dest = os.path.join(trash_dir, basename)
-            if not os.path.exists(f):
-                logger.debug('trash skip (already moved): %s', f)
-                continue
-            try:
-                os.rename(f, dest)
-                moved += 1
-            except OSError as e:
-                logger.warning('trash move failed: %s', e)
-        if moved:
-            subprocess.run(['notmuch', 'new', '--no-hooks'],
-                           capture_output=True)
-        return moved
-    finally:
-        _move_lock.release()
+    moves: List[Tuple[str, str]] = []
+    found = 0
+    seen = set()
+    for f in r.stdout.strip().split('\n'):
+        if not f or f in seen:
+            continue
+        seen.add(f)
+        found += 1
+        result = _mail_file_account(f)
+        if result is None:
+            continue
+        account, _ = result
+        trash_dir = _find_trash_dir(account)
+        basename = _strip_uid_annotation(os.path.basename(f))
+        moves.append((f, os.path.join(trash_dir, basename)))
+
+    if moves:
+        _get_worker().enqueue(moves)
+    return found
 
 
 def move_to_archive(notmuch_query: str) -> int:
-    """Tag ``-inbox -unread`` and move matching files to the local Archive.
+    """Tag ``-inbox -unread`` and move matching files to local Archive.
 
-    Returns the number of files successfully moved.
+    Tagging is synchronous.  File moves are enqueued to a background
+    thread.
+
+    Returns the number of *files found*.
     """
-    _move_lock.acquire()
-    try:
-        # Search BEFORE tagging — tag removal may alter query matching.
-        r = subprocess.run(
-            ['notmuch', 'search', '--exclude=false', '--output=files',
-             '--', notmuch_query],
-            capture_output=True, text=True)
+    # Search BEFORE tagging — tag removal may alter query matching.
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', notmuch_query],
+        capture_output=True, text=True)
 
-        subprocess.run(
-            ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
-             notmuch_query])
+    subprocess.run(
+        ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
+         notmuch_query])
 
-        archive_cur = _find_archive_dir()
+    archive_cur = _find_archive_dir()
 
-        moved = 0
-        seen = set()
-        for f in r.stdout.strip().split('\n'):
-            if not f or f in seen:
-                continue
-            seen.add(f)
-            basename = _strip_uid_annotation(os.path.basename(f))
-            dest = os.path.join(archive_cur, basename)
-            if not os.path.exists(f):
-                logger.debug('archive skip (already moved): %s', f)
-                continue
-            try:
-                os.rename(f, dest)
-                moved += 1
-            except OSError as e:
-                logger.warning('archive move failed: %s', e)
-        if moved:
-            subprocess.run(['notmuch', 'new', '--no-hooks'],
-                           capture_output=True)
-        return moved
-    finally:
-        _move_lock.release()
+    moves: List[Tuple[str, str]] = []
+    found = 0
+    seen = set()
+    for f in r.stdout.strip().split('\n'):
+        if not f or f in seen:
+            continue
+        seen.add(f)
+        found += 1
+        basename = _strip_uid_annotation(os.path.basename(f))
+        moves.append((f, os.path.join(archive_cur, basename)))
+
+    if moves:
+        _get_worker().enqueue(moves)
+    return found
