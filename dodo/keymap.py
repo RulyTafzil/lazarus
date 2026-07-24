@@ -51,7 +51,7 @@ navigation_keymap = {
   '<enter>':   ('open thread / next message', lambda a: None),
   '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
   '<space> / -': ('page down / up', lambda a: None),
-  's':         ('mark thread and advance', lambda a: None),
+  's':         ('mark and advance', lambda a: None),
   't m':       ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 
@@ -113,7 +113,6 @@ thread_keymap = {
   '-':          ('page up', lambda p: p.scroll_message(pages=-1)),
   'u':          ('toggle unread', lambda p: p.toggle_message_tag('unread')),
   'f':          ('toggle flagged', lambda p: p.toggle_message_tag('flagged')),
-  's':          ('toggle marked', lambda p: p.toggle_message_tag('marked')),
   'H':          ('toggle HTML', lambda p: p.toggle_html()),
   'd':          ('delete', lambda p: p.delete_message()),
   'M':          ('toggle thread list mode', lambda p: p.toggle_list_mode()),
@@ -134,7 +133,7 @@ compose_keymap = {
   'S':       ('send', lambda p: p.send()),
   'a':       ('attach file', lambda p: p.attach_file()),
   'e':       ('toggle PGP-encrypt', lambda p: p.toggle_pgp_encrypt()),
-  's':       ('toggle PGP-sign', lambda p: p.toggle_pgp_sign()),
+  'p':       ('toggle PGP-sign', lambda p: p.toggle_pgp_sign()),
   'w':       ('toggle word wrap', lambda p: p.toggle_wrap()),
   ']':       ('next SMTP account', lambda p: p.next_account()),
   '[':       ('previous SMTP account', lambda p: p.previous_account()),
