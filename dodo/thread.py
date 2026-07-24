@@ -35,7 +35,6 @@ from . import keymap
 from . import panel
 from . import actions
 from .webengine import (
-    LOCAL_PROTOCOLS,
     MessagePage,
     MessageHandler,
     EmbeddedImageHandler,
@@ -114,7 +113,7 @@ class ThreadPanel(panel.Panel):
         self.url_interceptor = RemoteBlockingUrlRequestInterceptor()
         self.message_profile.setUrlRequestInterceptor(self.url_interceptor)
 
-        self.message_view = QWebEngineView(self)
+        self.message_view = QWebEngineView()
         page = MessagePage(self.app, self.message_profile, self.message_view)
         self.message_view.setPage(page)
         self.message_view.setZoomFactor(1.2)
@@ -122,6 +121,18 @@ class ThreadPanel(panel.Panel):
             f'background-color: {settings.theme["bg"]};')
         self.message_view.page().setBackgroundColor(
             QColor(settings.theme['bg']))
+        self.message_view.loadFinished.connect(self._on_load_finished)
+
+        # Snapshot overlay to prevent white flash during page loads
+        self._snapshot_label = QLabel()
+        self._snapshot_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._snapshot_label.setStyleSheet(
+            f'background-color: {settings.theme["bg"]};')
+
+        # Stack: view on bottom, snapshot overlay on top
+        self._view_stack = QStackedWidget()
+        self._view_stack.addWidget(self.message_view)    # index 0
+        self._view_stack.addWidget(self._snapshot_label)  # index 1
 
         self.layout_panel()
 
@@ -188,7 +199,7 @@ class ThreadPanel(panel.Panel):
         info_area.addWidget(self.thread_list)
         info_area.addWidget(self.message_info)
         splitter.addWidget(info_area)
-        splitter.addWidget(self.message_view)
+        splitter.addWidget(self._view_stack)
         self.layout().addWidget(splitter)
 
         # save splitter positions
@@ -314,6 +325,10 @@ class ThreadPanel(panel.Panel):
         m = self.current_message
         self.message_handler.message_json = m
 
+        # Snapshot the current view and show it as overlay while loading
+        self._snapshot_label.setPixmap(self.message_view.grab())
+        self._view_stack.setCurrentIndex(1)  # show snapshot
+
         if self.html_mode:
             if 'filename' in m and len(m['filename']) != 0:
                 self.image_handler.set_message(m['filename'][0])
@@ -321,6 +336,10 @@ class ThreadPanel(panel.Panel):
         else:
             self.message_view.page().setUrl(QUrl('message:plain'))
         self.scroll_message(pos='top')
+
+    def _on_load_finished(self, ok: bool) -> None:
+        """Swap back to the message view once the page has rendered."""
+        self._view_stack.setCurrentIndex(0)  # show message view
 
     def update_thread(self, thread_id: str,
                       msg_id: str | None = None) -> None:
