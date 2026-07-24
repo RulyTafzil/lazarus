@@ -99,7 +99,7 @@ def move_to_trash(notmuch_query: str) -> int:
         capture_output=True, text=True)
 
     subprocess.run(
-        ['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--',
+        ['notmuch', 'tag', '+deleted', '-inbox', '-unread', '-marked', '--',
          notmuch_query])
 
     moved = 0
@@ -140,7 +140,8 @@ def move_to_archive(notmuch_query: str) -> int:
         capture_output=True, text=True)
 
     subprocess.run(
-        ['notmuch', 'tag', '-inbox', '-unread', '--', notmuch_query])
+        ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
+         notmuch_query])
 
     archive_cur = _find_archive_dir()
 

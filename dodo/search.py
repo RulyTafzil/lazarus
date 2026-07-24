@@ -439,8 +439,6 @@ class SearchPanel(panel.Panel):
                 tag_expr = '-' + tag
             else:
                 tag_expr = '+' + tag
-            logger.info('toggle_thread_tag: %s on thread %s',
-                        tag_expr, thread.get('thread'))
             self.tag_thread(tag_expr)
 
 
@@ -490,11 +488,8 @@ class SearchPanel(panel.Panel):
     def delete_thread(self) -> None:
         """Delete current thread, or all marked threads in this view."""
         marked_query = f'tag:marked AND ({self.q})'
-        logger.info('delete_thread: trying marked query: %s', marked_query)
         moved = actions.move_to_trash(marked_query)
-        logger.info('delete_thread: moved=%d from marked query', moved)
         if moved > 0:
-            subprocess.run(['notmuch', 'tag', '-marked', '--', marked_query])
             self.app.refresh_panels()
             self.app.status_message('Deleted marked', 'info')
             return
@@ -509,11 +504,8 @@ class SearchPanel(panel.Panel):
     def archive_to_local(self) -> None:
         """Archive-to-local current thread, or all marked in this view."""
         marked_query = f'tag:marked AND ({self.q})'
-        logger.info('archive_to_local: trying marked query: %s', marked_query)
         moved = actions.move_to_archive(marked_query)
-        logger.info('archive_to_local: moved=%d from marked query', moved)
         if moved > 0:
-            subprocess.run(['notmuch', 'tag', '-marked', '--', marked_query])
             self.app.refresh_panels()
             self.app.status_message('Archived marked to local', 'info')
             return

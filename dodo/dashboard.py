@@ -391,7 +391,6 @@ class DashboardPanel(panel.Panel):
         """Delete current thread, or all marked threads (dashboard-wide)."""
         moved = actions.move_to_trash('tag:marked')
         if moved > 0:
-            subprocess.run(['notmuch', 'tag', '-marked', '--', 'tag:marked'])
             self.app.refresh_panels()
             self.app.status_message('Deleted marked', 'info')
             return
@@ -407,7 +406,6 @@ class DashboardPanel(panel.Panel):
         """Archive-to-local current thread, or all marked (dashboard)."""
         moved = actions.move_to_archive('tag:marked')
         if moved > 0:
-            subprocess.run(['notmuch', 'tag', '-marked', '--', 'tag:marked'])
             self.app.refresh_panels()
             self.app.status_message('Archived marked to local', 'info')
             return
