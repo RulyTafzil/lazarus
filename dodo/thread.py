@@ -33,7 +33,6 @@ from . import settings
 from . import util
 from . import keymap
 from . import panel
-from . import actions
 from .webengine import (
     MessagePage,
     MessageHandler,
@@ -436,28 +435,6 @@ class ThreadPanel(panel.Panel):
 
     def tag_message(self, tag_expr: str) -> None:
         return self.model.tag_message(self.current_index, tag_expr)
-
-    def delete_message(self) -> None:
-        """Move the current message to Trash."""
-        msg = self.current_message
-        msg_id = msg['id']
-        actions.move_to_trash('id:' + msg_id)
-        self.app.update_single_thread(self.thread_id, msg_id=msg_id)
-        self.next_message()
-        self.app.status_message('Moved to trash', 'info')
-
-    def archive_to_local(self) -> None:
-        """Move the current message to the local Archive Maildir."""
-        msg = self.current_message
-        msg_id = msg['id']
-        if actions.check_archive_refused(set(msg.get('tags', []))):
-            self.app.status_message(
-                'Archive refused: no tags beyond inbox/unread', 'warning')
-            return
-        actions.move_to_archive('id:' + msg_id)
-        self.app.update_single_thread(self.thread_id, msg_id=msg_id)
-        self.next_message()
-        self.app.status_message('Archived to local', 'info')
 
     def toggle_html(self) -> None:
         """Toggle between HTML and plain text message view."""

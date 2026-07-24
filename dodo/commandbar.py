@@ -184,7 +184,7 @@ class CommandBar(QLineEdit):
             QtCore.Qt.Key.Key_Backtab,
             QtCore.Qt.Key.Key_Escape,
         ]:
-            # ingnore keymaps if the popup is shown!
+            # ignore keymaps if the popup is shown!
             e.ignore()
             return
 

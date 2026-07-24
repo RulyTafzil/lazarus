@@ -65,17 +65,9 @@ class DashboardModel(QAbstractItemModel):
     def refresh(self) -> None:
         """Refresh all section models and rebuild rows."""
         self.beginResetModel()
-        # Refresh each section's underlying SearchModel
         for _, _, model in self.sections:
             model.refresh()
-        # Rebuild the flat row list
-        new_rows: List[Tuple[str, Any]] = []
-        for label, query_str, model in self.sections:
-            new_rows.append(('header', (label, model)))
-            items = model.d[:self.max_items] if self.max_items else model.d
-            for thread in items:
-                new_rows.append(('thread', thread))
-        self.rows = new_rows
+        self.rows = self._rebuild_rows()
         self.endResetModel()
 
     def refresh_thread(self, thread_id: str) -> None:
@@ -91,16 +83,20 @@ class DashboardModel(QAbstractItemModel):
         for _, _, model in self.sections:
             model.refresh_num_threads()
 
+    def _rebuild_rows(self) -> List[Tuple[str, Any]]:
+        """Rebuild the flat row list from section models without re-querying."""
+        rows: List[Tuple[str, Any]] = []
+        for label, _, model in self.sections:
+            rows.append(('header', (label, model)))
+            items = model.d[:self.max_items] if self.max_items else model.d
+            for thread in items:
+                rows.append(('thread', thread))
+        return rows
+
     def _rebuild_from_sections(self) -> None:
         """Rebuild rows from section models without re-querying."""
         self.beginResetModel()
-        new_rows: List[Tuple[str, Any]] = []
-        for label, _, model in self.sections:
-            new_rows.append(('header', (label, model)))
-            items = model.d[:self.max_items] if self.max_items else model.d
-            for thread in items:
-                new_rows.append(('thread', thread))
-        self.rows = new_rows
+        self.rows = self._rebuild_rows()
         self.endResetModel()
 
     def thread_id(self, index: QModelIndex) -> Optional[str]:
