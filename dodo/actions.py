@@ -91,14 +91,16 @@ def move_to_trash(notmuch_query: str) -> int:
 
     Returns the number of files successfully moved.
     """
-    subprocess.run(
-        ['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--',
-         notmuch_query])
-
+    # Search for files BEFORE tagging — tag changes may alter whether
+    # messages still match the query (e.g. tag:inbox queries).
     r = subprocess.run(
         ['notmuch', 'search', '--exclude=false', '--output=files', '--',
          notmuch_query],
         capture_output=True, text=True)
+
+    subprocess.run(
+        ['notmuch', 'tag', '+deleted', '-inbox', '-unread', '--',
+         notmuch_query])
 
     moved = 0
     for f in r.stdout.strip().split('\n'):
@@ -129,14 +131,16 @@ def move_to_archive(notmuch_query: str) -> int:
 
     Returns the number of files successfully moved.
     """
-    subprocess.run(
-        ['notmuch', 'tag', '-inbox', '-unread', '--', notmuch_query])
-
-    archive_cur = _find_archive_dir()
+    # Search BEFORE tagging — tag removal may alter query matching.
     r = subprocess.run(
         ['notmuch', 'search', '--exclude=false', '--output=files', '--',
          notmuch_query],
         capture_output=True, text=True)
+
+    subprocess.run(
+        ['notmuch', 'tag', '-inbox', '-unread', '--', notmuch_query])
+
+    archive_cur = _find_archive_dir()
 
     moved = 0
     for f in r.stdout.strip().split('\n'):
