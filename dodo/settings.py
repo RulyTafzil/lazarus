@@ -177,9 +177,9 @@ Set this to ``[]`` when using a dashboard as the default view.
 
 dashboard_queries = [
   ('inbox', 'tag:inbox'),
-  ('urgent', 'tag:urgent'),
-  ('todo', 'tag:todo'),
-  ('waiting', 'tag:waiting'),
+  ('urgent', 'tag:Urgent'),
+  ('todo', 'tag:ToDo'),
+  ('waiting', 'tag:Waiting'),
 ]
 """List of (label, query) tuples shown in the dashboard panel.
 
