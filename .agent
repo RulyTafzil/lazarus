@@ -6,107 +6,167 @@
 - **License**: GPLv3
 - **Repo**: https://github.com/akissinger/dodo
 - **Docs**: https://dodomail.readthedocs.io/en/latest/
-- **Local dir**: `~/Projects/mydodo` (likely a fork or personal copy — upstream is `dodo`)
+- **Local dir**: `~/Projects/mydodo` (forked from upstream `dodo`, customized for Ruly)
+- **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/mydodo.git`
 
 ## What It Is
 Dodo is a graphical, hackable email client built in Python/PyQt6. It provides a
 vim-like, keyboard-driven interface on top of the [notmuch](https://notmuchmail.org/)
-email indexer. It's inspired by alot and astroid (two other notmuch-based clients).
+email indexer.
 
 ## Core Philosophy
 - Keyboard-oriented with keychord support (e.g. `g g` for top, `t m` to tag marked)
-- UNIX philosophy: offloads work to battle-tested CLI tools
+- UNIX philosophy: offloads work to battle-tested CLI tools (notmuch, mbsync, msmtp, w3m)
 - Text-first by default; HTML view is one keystroke away (`H`)
-- Fully configurable: `~/.config/dodo/config.py` is exec'd Python that can override
-  settings, keymaps, themes, layouts, message filters, and add custom commands
-- Non-destructive: all operations go through notmuch tags; no email is ever lost
+- Fully configurable via `~/.config/dodo/config.py` (exec'd Python)
+- Non-destructive: all operations go through notmuch tags; no email is lost
 
 ## Architecture
-
-### Entry Point
-`dodo/__main__.py` → `dodo/app.py:main()` → creates `Dodo(QApplication)`, calls `.exec()`
 
 ### Class Hierarchy
 ```
 QApplication
- └── Dodo (app.py) — owns everything, holds global commands
+ └── Dodo (app.py) — global commands, sync, status bar messages
 
 QMainWindow
  └── MainWindow (mainwindow.py)
       ├── QTabWidget (tabs)
-      │    └── Panel (panel.py) — base class for all panels
-      │         ├── SearchPanel (search.py) — search results via notmuch query
-      │         ├── ThreadPanel (thread.py) — single thread view
+      │    └── Panel (panel.py) — base class
+      │         ├── DashboardPanel (dashboard.py) — multi-query inbox dashboard
+      │         ├── SearchPanel (search.py) — notmuch query results
+      │         ├── ThreadPanel (thread.py) — single thread + message viewer
       │         ├── ComposePanel (compose.py) — compose/reply/forward
       │         └── TagPanel (tag.py) — tag browser
-      ├── CommandBar (commandbar.py) — bottom command input with tag completion
-      └── HelpWindow (helpwindow.py) — keybinding reference (? key)
-
-QAbstractItemModel
- ├── SearchModel (search.py) — wraps `notmuch search --format=json`
- ├── ThreadModel (thread.py) — wraps `notmuch show --format=json`
- └── TagModel (tag.py) — wraps `notmuch search --output=tags`
+      ├── CommandBar (commandbar.py) — search/tag input with autocomplete
+      ├── StatusBar (status_label) — transient messages (sync progress, errors)
+      └── HelpWindow (helpwindow.py) — three-column keybinding reference
 ```
 
 ### Module Map
 | File | Purpose |
 |------|---------|
-| `app.py` | `Dodo(QApplication)`, `SyncMailThread`, `main()` |
-| `mainwindow.py` | `MainWindow`: tabs, command bar, window geometry save/restore |
-| `panel.py` | `Panel(QWidget)`: base class with keychord handling, dirty tracking, temp dir cleanup |
-| `search.py` | `SearchPanel` + `SearchModel`: list threads matching a notmuch query |
-| `thread.py` | `ThreadPanel` + `ThreadModel` + message handlers: view a thread's messages |
-| `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread`: compose/reply/forward |
-| `tag.py` | `TagPanel` + `TagModel`: browse all notmuch tags with message counts |
-| `commandbar.py` | `CommandBar(QLineEdit)`: search/tag input with tag autocomplete and history |
-| `keymap.py` | Global + per-view keymaps (`global_keymap`, `search_keymap`, `thread_keymap`, `compose_keymap`, `tag_keymap`, `command_bar_keymap`) |
-| `settings.py` | All configurable settings with defaults and docstrings |
-| `themes.py` | Theme dicts (Nord, Solarized light/dark, Catppuccin macchiato, Gruvbox light/dark/hard/soft) + `apply_theme()` |
-| `util.py` | HTML/text helpers, key string parsing, attachment I/O, message wrapping, CSS generation |
-| `helpwindow.py` | `HelpWindow`: renders all keybindings as HTML |
-| `pgp_util.py` | PGP/MIME signing and encryption via python-gnupg |
+| `app.py` | `Dodo(QApplication)`, `SyncMailThread` (with live progress signal), `main()` |
+| `mainwindow.py` | `MainWindow`: tabs, command bar, status bar with auto-hide |
+| `panel.py` | `Panel(QWidget)`: keychord handling, dirty tracking, temp dir cleanup |
+| `dashboard.py` | `DashboardPanel` + `DashboardModel`: multi-section inbox view |
+| `search.py` | `SearchPanel` + `SearchModel`: thread listing with `#` count column |
+| `thread.py` | `ThreadPanel` + `ThreadModel` + URL scheme handlers |
+| `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread` |
+| `tag.py` | `TagPanel` + `TagModel`: tag browser with counts |
+| `commandbar.py` | `CommandBar(QLineEdit)`: tag autocomplete + command history |
+| `keymap.py` | All keymaps (global, dashboard, search, thread, compose, tag, command_bar) |
+| `settings.py` | Config defaults incl. `dashboard_queries`, `dashboard_max_items` |
+| `themes.py` | Theme dicts + `apply_theme()` |
+| `util.py` | HTML/text helpers, case-insensitive email matching, key parsing |
+| `helpwindow.py` | `HelpWindow`: three-column keybinding layout |
+| `pgp_util.py` | PGP/MIME signing and encryption |
 
 ### Data Flow
-1. **Search**: `notmuch search --format=json` → `SearchModel` → `QTreeView` (4 cols: date, from, subject, tags)
-2. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list (QTreeView) + message body (QWebEngineView via custom URL scheme `message:`)
-3. **Compose**: raw email string → external editor (via `EditorThread`) → `SendmailThread` pipes to sendmail command → saved to Maildir sent folder
-4. **Sync**: `SyncMailThread` runs `offlineimap` then `notmuch new` on a timer
+1. **Search**: `notmuch search --format=json` → `SearchModel` → `QTreeView` (5 cols: date, #, from, subject, tags)
+2. **Dashboard**: multiple `SearchModel` instances → `DashboardModel` (flat model with section headers) → single QTreeView
+3. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list + QWebEngineView (via custom URL scheme `message:`)
+4. **Compose**: raw email string → external editor → `SendmailThread` pipes to msmtp → saved to Maildir sent folder
+5. **Sync**: `SyncMailThread` runs `mbsync -a -V`, streams output to status bar via `progress` signal, then `notmuch new`
+6. **Delete**: `d` → `+deleted` tag + move file to Trash folder (Thunderbird/neomutt approach)
 
-### Custom URL Schemes
-- `message:html` / `message:plain` — serves message body to embedded QWebEngineView
-- `cid:<content-id>` — serves embedded images from MIME parts
-- `mailto:` — intercepted to open compose panel
+### Sync Flow (Ruly's Setup)
+- `mbsync -a -V`: syncs Gmail (`RulyTafzil@gmail.com/`) and contact (`contact@RulyTafzil.com/`)
+- `notmuch new`: indexes new mail, applies `unread;inbox;` tags
+- `post-new` hook: maps Maildir folders → notmuch tags, strips inbox/unread from Trash
+- `synchronize_flags=true`: D/F/P/R/S flag sync (not T — deletion uses folder move instead)
 
-### Configuration System
-- Defaults in `dodo/settings.py` (module-level variables with docstrings)
-- User overrides in `~/.config/dodo/config.py` (exec'd at startup)
-- PyQt6.QtCore and PyQt6.QtWidgets are already imported in config.py scope
-- Can override: settings, theme, keymaps, layouts, message2html filters, command bar modes
+## Key Bindings
 
-### External Tools Required
-- `notmuch` — email indexing and searching
-- `offlineimap` or `mbsync` — IMAP to Maildir sync
-- `msmtp` — SMTP sendmail-compatible client
-- `w3m` — HTML to plaintext conversion
-- `python-gnupg` (optional) — PGP/MIME signing/encryption
+### Global
+| Key | Action |
+|-----|--------|
+| `?` | Help (three-column layout) |
+| `D` | Open/re-focus dashboard |
+| `/` | Search bar |
+| `t t` | Tag current thread |
+| `t m` | Tag all marked threads |
+| `` ` `` | Manual sync |
+| `Q` | Quit |
+| `h/l` | Previous/next tab |
+| `x/X` | Close panel / close all |
+| `c` | Compose |
+| `I/U/F/T` | Show inbox / unread / flagged / tags |
 
-### Python Dependencies
-- PyQt6 >= 6.2
-- PyQt6-WebEngine >= 6.2
-- bleach >= 5.0
-- setuptools >= 42 (build only)
+### Dashboard & Search
+| Key | Action |
+|-----|--------|
+| `j/k` | Next/previous thread |
+| `<enter>` | Open thread |
+| `a` | Archive (refuses if no categorizing tag) |
+| `d` | Delete (move to Trash folder) |
+| `u/f` | Toggle unread/flagged |
+| `<space>` | Toggle marked + advance |
+| `g g/G` | First/last |
+| `C-d/C-u` | Page down/up |
 
-### Build Output
-A pre-existing build exists in `build/lib/dodo/` — the package has been installed
-from this directory via `pip install .`
+### Thread View
+| Key | Action |
+|-----|--------|
+| `J/K` | Next/previous message |
+| `j/k` | Scroll down/up |
+| `H` | Toggle HTML/plaintext |
+| `r/R` | Reply / reply all |
+| `C-f` | Forward |
+| `d` | Delete current message |
+| `A` | Open attachments |
 
-## Key Bindings (Summary)
-- `?` — help
-- `h/l` — previous/next tab
-- `x/X` — close panel / close all
-- `c` — compose
-- `/` — search bar
-- `t t` / `t m` — tag / tag marked
-- `I/U/F/T` — inbox / unread / flagged / tags view
-- Vim-style navigation: `j/k`, `C-d/C-u`, `g g/G`, `<space>` to mark+advance
-- Thread view: `r/R` reply, `C-f` forward, `H` toggle HTML, `M` toggle list mode
+### Compose
+| Key | Action |
+|-----|--------|
+| `<enter>` | Edit in external editor |
+| `S` | Send |
+| `a` | Attach file |
+| `[/]` | Cycle SMTP accounts |
+| `s/e` | Toggle PGP sign/encrypt |
+
+## Custom Features (Deviations from Upstream)
+
+### Dashboard Panel
+- Multi-section inbox view: queries configured via `dashboard_queries` setting
+- Section headers span all columns, non-selectable
+- Unified scroll with j/k navigation skipping headers
+- Column widths persist via QSettings
+- Auto-opens on startup (replaces `init_queries`)
+
+### Status Bar
+- `MainWindow.show_status(message, kind, duration)` — supported kinds: info/warning/error
+- `duration=0` keeps message until replaced (used for sync progress)
+- `Dodo.status_message()` convenience method callable from any panel
+- Used for: sync progress, archive refusal, delete confirmations, errors
+
+### Delete Workflow
+- `d` moves files to Trash folder (matching Thunderbird/neomutt)
+- Strips mbsync UID annotations to avoid duplicate UID errors
+- Trash folder auto-detected per account (`[Gmail]/Trash` or `Trash`)
+- Post-new hook strips inbox/unread from Trash folder files
+- Two-stage: soft-delete to Trash (recoverable), empty trash later for expunge
+
+### Sync Progress
+- `SyncMailThread.progress` signal emits per-mailbox status during sync
+- Status bar shows real-time: "Syncing: gmail... INBOX Finances ..."
+- Final summary parsed from mbsync output: "Sync: +3 new, 2 flagged"
+- Uses `mbsync -a -V` (verbose) for detailed output
+
+### Other Changes
+- Thread count column (`#`): shows fa-comments icon + count for multi-message threads
+- Plaintext fallback: HTML mode degrades to plaintext when no HTML part exists
+- Case-insensitive email matching: `email_is_me` and `email_smtp_account_index`
+- Compose background fix: no white flash when switching accounts
+- Three-column help window layout
+- Column order: `date | # | from | subject | tags`
+- Archive refuses threads without categorizing tags (not just inbox/unread)
+- `deleted`/`killed`/`spam` excluded from searches by default
+
+## Ruly's Configuration
+- **Mail**: `~/Mail/` with Gmail and contact Maildir accounts
+- **Sync**: `mbsync -a -V` (both accounts via IMAP, no lieer/gmi)
+- **Send**: msmtp with `gmail` and `contact` accounts, auto-select on reply
+- **Theme**: Nord
+- **Editor**: neovim in kitty
+- **Notmuch hooks**: `~/.config/notmuch/default/hooks/post-new` — folder→tag mapping + Trash cleanup
+- **Install**: `pipx install -e ~/Projects/mydodo` (editable)

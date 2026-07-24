@@ -49,12 +49,15 @@ class SyncMailThread(QThread):
 
     Called by the :func:`~dodo.app.Dodo.sync_mail` method."""
 
+    progress = pyqtSignal(str)
+
     def __init__(self, parent: QObject=None) -> None:
         super().__init__(parent)
         self._proc: subprocess.Popen | None = None
         self._stopping = False
         self.sync_stderr: str = ''
         self.sync_rc: int = 0
+        self.sync_summary: str = ''
         self.notmuch_stderr: str = ''
         self.notmuch_rc: int = 0
 
@@ -62,19 +65,42 @@ class SyncMailThread(QThread):
         """Run :func:`~dodo.settings.sync_mail_command` then `notmuch new`"""
         self._proc = subprocess.Popen(settings.sync_mail_command, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE,
-                                      shell=True, start_new_session=True)
-        _, self.sync_stderr = self._proc.communicate()
+                                      shell=True, start_new_session=True,
+                                      universal_newlines=True)
+        assert self._proc.stdout
+        for line in self._proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            # Emit progress: show mailbox names as they sync
+            if line.startswith('Channel '):
+                self.progress.emit(f'Syncing: {line[8:]}...')
+            elif line.startswith('Opening far side box '):
+                box = line[21:].rstrip('...')
+                self.progress.emit(f'  {box}')
+            elif line.startswith('Channels:'):
+                self.sync_summary = line
+        self._proc.wait()
         self.sync_rc = self._proc.returncode
-        self.sync_stderr = self.sync_stderr.decode('utf-8', errors='replace').strip()
+        if self._proc.stderr:
+            self.sync_stderr = self._proc.stderr.read().strip()
         self._proc = None
         if self._stopping:
             return
+        self.progress.emit('Indexing...')
         self._proc = subprocess.Popen(['notmuch', 'new'], stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE,
-                                      start_new_session=True)
-        _, self.notmuch_stderr = self._proc.communicate()
+                                      start_new_session=True,
+                                      universal_newlines=True)
+        assert self._proc.stdout
+        for line in self._proc.stdout:
+            line = line.strip()
+            if line.startswith('Processed'):
+                self.progress.emit(line)
+        self._proc.wait()
         self.notmuch_rc = self._proc.returncode
-        self.notmuch_stderr = self.notmuch_stderr.decode('utf-8', errors='replace').strip()
+        if self._proc.stderr:
+            self.notmuch_stderr = self._proc.stderr.read().strip()
         self._proc = None
 
     def _kill_proc(self) -> None:
@@ -356,7 +382,7 @@ class Dodo(QApplication):
         def done() -> None:
             self.refresh_panels()
             self.refresh_tab_titles()
-            # Report sync errors via status bar
+            # Parse mbsync summary for status bar
             if t.sync_rc != 0:
                 msg = f'Sync error (exit {t.sync_rc})'
                 if t.sync_stderr:
@@ -368,7 +394,27 @@ class Dodo(QApplication):
                     msg += f': {t.notmuch_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
             else:
-                self.status_message('Sync complete', 'info')
+                # Parse Far: +N *N #N -N from mbsync summary
+                import re
+                summary = t.sync_summary
+                parts = {}
+                if summary:
+                    m = re.search(r'Far:\s*\+(\d+)\s*\*(\d+)\s*#(\d+)\s*-(\d+)', summary)
+                    if m:
+                        new, flagged, expunged, deleted = m.groups()
+                        bits = []
+                        if new != '0': bits.append(f'+{new} new')
+                        if flagged != '0': bits.append(f'*{flagged} flagged')
+                        if expunged != '0': bits.append(f'{expunged} cleaned')
+                        if deleted != '0': bits.append(f'{deleted} deleted')
+                        if bits:
+                            self.status_message('Sync: ' + ', '.join(bits), 'info')
+                        else:
+                            self.status_message('Sync: up to date', 'info')
+                    else:
+                        self.status_message('Sync complete', 'info')
+                else:
+                    self.status_message('Sync complete', 'info')
             if not quiet:
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
@@ -377,6 +423,7 @@ class Dodo(QApplication):
             t.deleteLater()
 
         self.status_message('Syncing...', 'info')
+        t.progress.connect(lambda msg: self.status_message(msg, 'info', duration=0))
         if not quiet:
             title = self.main_window.windowTitle()
             self.main_window.setWindowTitle(title + ' [syncing]')

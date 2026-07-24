@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
 
         :param message: Text to display
         :param kind: 'info', 'warning', or 'error' — controls text color
-        :param duration: Auto-hide after this many milliseconds
+        :param duration: Auto-hide after this many milliseconds (0 = stay until replaced)
         """
         colors = {
             'info': settings.theme.get('fg_good', settings.theme['fg']),
@@ -114,7 +114,10 @@ class MainWindow(QMainWindow):
         )
         self.status_label.setText(message)
         self.status_label.setVisible(True)
-        self.status_timer.start(duration)
+        if duration > 0:
+            self.status_timer.start(duration)
+        else:
+            self.status_timer.stop()
 
     def closeEvent(self, e: QCloseEvent) -> None:
         conf = QSettings('dodo', 'dodo')
