@@ -1,5 +1,5 @@
 #     Dodo - A graphical, hackable email client based on notmuch
-#     Copyright (C) 2021 - Aleks Kissinger
+#     Copyright (C) 2025 - Ruly Tafzil
 #
 # This file is part of Dodo
 #
