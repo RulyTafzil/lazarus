@@ -28,11 +28,16 @@ import os
 import re
 import subprocess
 import logging
+import threading
 from typing import Set, Optional
 
 from . import settings
 
 logger = logging.getLogger(__name__)
+
+# Prevent concurrent bulk move operations (they'd step on each other's
+# notmuch database state).
+_move_lock = threading.Lock()
 
 
 def check_archive_refused(tags: Set[str]) -> bool:
@@ -91,44 +96,45 @@ def move_to_trash(notmuch_query: str) -> int:
 
     Returns the number of files successfully moved.
     """
-    # Search for files BEFORE tagging — tag changes may alter whether
-    # messages still match the query (e.g. tag:inbox queries).
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files', '--',
-         notmuch_query],
-        capture_output=True, text=True)
+    _move_lock.acquire()
+    try:
+        # Search BEFORE tagging — tag changes may alter query matching.
+        r = subprocess.run(
+            ['notmuch', 'search', '--exclude=false', '--output=files',
+             '--', notmuch_query],
+            capture_output=True, text=True)
 
-    subprocess.run(
-        ['notmuch', 'tag', '+deleted', '-inbox', '-unread', '-marked', '--',
-         notmuch_query])
+        subprocess.run(
+            ['notmuch', 'tag', '+deleted', '-inbox', '-unread',
+             '-marked', '--', notmuch_query])
 
-    moved = 0
-    seen = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
-            continue
-        seen.add(f)
-        result = _mail_file_account(f)
-        if result is None:
-            continue
-        account, _ = result
-        trash_dir = _find_trash_dir(account)
-        basename = _strip_uid_annotation(os.path.basename(f))
-        dest = os.path.join(trash_dir, basename)
-        if not os.path.exists(f):
-            logger.debug('trash skip (already moved): %s', f)
-            continue
-        try:
-            os.rename(f, dest)
-            moved += 1
-        except OSError as e:
-            logger.warning('trash move failed: %s', e)
-    if moved:
-        # Update notmuch's file index so subsequent queries don't
-        # reference the old (now-missing) paths.
-        subprocess.run(['notmuch', 'new', '--no-hooks'],
-                       capture_output=True)
-    return moved
+        moved = 0
+        seen = set()
+        for f in r.stdout.strip().split('\n'):
+            if not f or f in seen:
+                continue
+            seen.add(f)
+            result = _mail_file_account(f)
+            if result is None:
+                continue
+            account, _ = result
+            trash_dir = _find_trash_dir(account)
+            basename = _strip_uid_annotation(os.path.basename(f))
+            dest = os.path.join(trash_dir, basename)
+            if not os.path.exists(f):
+                logger.debug('trash skip (already moved): %s', f)
+                continue
+            try:
+                os.rename(f, dest)
+                moved += 1
+            except OSError as e:
+                logger.warning('trash move failed: %s', e)
+        if moved:
+            subprocess.run(['notmuch', 'new', '--no-hooks'],
+                           capture_output=True)
+        return moved
+    finally:
+        _move_lock.release()
 
 
 def move_to_archive(notmuch_query: str) -> int:
@@ -136,35 +142,39 @@ def move_to_archive(notmuch_query: str) -> int:
 
     Returns the number of files successfully moved.
     """
-    # Search BEFORE tagging — tag removal may alter query matching.
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files', '--',
-         notmuch_query],
-        capture_output=True, text=True)
+    _move_lock.acquire()
+    try:
+        # Search BEFORE tagging — tag removal may alter query matching.
+        r = subprocess.run(
+            ['notmuch', 'search', '--exclude=false', '--output=files',
+             '--', notmuch_query],
+            capture_output=True, text=True)
 
-    subprocess.run(
-        ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
-         notmuch_query])
+        subprocess.run(
+            ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
+             notmuch_query])
 
-    archive_cur = _find_archive_dir()
+        archive_cur = _find_archive_dir()
 
-    moved = 0
-    seen = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
-            continue
-        seen.add(f)
-        basename = _strip_uid_annotation(os.path.basename(f))
-        dest = os.path.join(archive_cur, basename)
-        if not os.path.exists(f):
-            logger.debug('archive skip (already moved): %s', f)
-            continue
-        try:
-            os.rename(f, dest)
-            moved += 1
-        except OSError as e:
-            logger.warning('archive move failed: %s', e)
-    if moved:
-        subprocess.run(['notmuch', 'new', '--no-hooks'],
-                       capture_output=True)
-    return moved
+        moved = 0
+        seen = set()
+        for f in r.stdout.strip().split('\n'):
+            if not f or f in seen:
+                continue
+            seen.add(f)
+            basename = _strip_uid_annotation(os.path.basename(f))
+            dest = os.path.join(archive_cur, basename)
+            if not os.path.exists(f):
+                logger.debug('archive skip (already moved): %s', f)
+                continue
+            try:
+                os.rename(f, dest)
+                moved += 1
+            except OSError as e:
+                logger.warning('archive move failed: %s', e)
+        if moved:
+            subprocess.run(['notmuch', 'new', '--no-hooks'],
+                           capture_output=True)
+        return moved
+    finally:
+        _move_lock.release()
