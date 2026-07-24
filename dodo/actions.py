@@ -116,6 +116,11 @@ def move_to_trash(notmuch_query: str) -> int:
             moved += 1
         except OSError as e:
             logger.warning('trash move failed: %s', e)
+    if moved:
+        # Update notmuch's file index so subsequent queries don't
+        # reference the old (now-missing) paths.
+        subprocess.run(['notmuch', 'new', '--no-hooks'],
+                       capture_output=True)
     return moved
 
 
@@ -144,4 +149,7 @@ def move_to_archive(notmuch_query: str) -> int:
             moved += 1
         except OSError as e:
             logger.warning('archive move failed: %s', e)
+    if moved:
+        subprocess.run(['notmuch', 'new', '--no-hooks'],
+                       capture_output=True)
     return moved
