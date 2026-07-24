@@ -78,6 +78,25 @@ class Panel(QWidget):
 
         self._prefix_timer.timeout.connect(prefix_timeout)
 
+        # Auto-open thread preview on selection change (debounced)
+        self._auto_open_timer = QTimer()
+        self._auto_open_timer.setSingleShot(True)
+        self._auto_open_timer.setInterval(150)
+        self._auto_open_timer.timeout.connect(self._on_auto_open)
+
+    def _setup_auto_open(self, tree: QTreeView) -> None:
+        """Wire *tree* selection changes to auto-open the thread preview.
+
+        Call this once after creating the panel's QTreeView.
+        """
+        tree.selectionModel().currentChanged.connect(
+            lambda _cur, _prev: self._auto_open_timer.start())
+
+    def _on_auto_open(self) -> None:
+        """Called by the debounce timer to open the selected thread."""
+        if hasattr(self, 'open_current_thread'):
+            self.open_current_thread()
+
     def focusInEvent(self, event: PyQt6.QWidget.QFocusEvent):
         super().focusInEvent(event)
         if self.dirty:

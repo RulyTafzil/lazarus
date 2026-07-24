@@ -266,6 +266,7 @@ class SearchPanel(panel.Panel):
         self.layout().addWidget(self.error_view)
         self.layout().addWidget(self.tree)
         self.tree.doubleClicked.connect(self.open_current_thread)
+        self._setup_auto_open(self.tree)
         if self.tree.model().rowCount() > 0:
             self.tree.setCurrentIndex(self.tree.model().index(0,0))
         self.on_data_refresh()

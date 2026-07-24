@@ -44,12 +44,12 @@ local keymaps.
 # Split-pane navigation hints — displayed in help but these keys are
 # actually handled by the local keymaps (dashboard/search/thread).
 navigation_keymap = {
-  '<enter>':   ('open thread in preview', lambda a: None),
+  'j / k':     ('next / previous thread', lambda a: None),
+  'J / K':     ('next / previous message', lambda a: None),
+  '<enter>':   ('open thread / next message', lambda a: None),
   '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
-  'J':         ('next message (in thread)', lambda a: None),
-  'K':         ('previous message (in thread)', lambda a: None),
-  'j':         ('next thread / scroll msg', lambda a: None),
-  'k':         ('previous thread / scroll msg', lambda a: None),
+  '<space>':   ('page down', lambda a: None),
+  '-':         ('page up', lambda a: None),
 }
 
 search_keymap = {
@@ -65,7 +65,7 @@ search_keymap = {
   'C-u':        ('up 20', lambda p: [p.previous_thread() for i in range(20)]),
   '<pageup>':   ('page up', lambda p: p.prev_page()),
   '<pagedown>': ('page down', lambda p: p.next_page()),
-  '<enter>':    ('open thread', lambda p: p.open_current_thread()),
+  '<enter>':    ('open thread / focus preview', lambda p: p.open_current_thread()),
   'a':          ('archive', lambda p: p.archive_thread()),
   'd':          ('delete', lambda p: p.delete_thread()),
   'A':          ('archive to local', lambda p: p.archive_to_local()),
@@ -98,6 +98,7 @@ taking :class:`~dodo.search.TagPanel` as input.
 
 thread_keymap = {
   '<escape>':  ('focus list', lambda p: p.app.main_window.focus_list()),
+  '<enter>':   ('next message', lambda p: p.next_message()),
   'J':          ('next message', lambda p: p.next_message()),
   'K':          ('previous message', lambda p: p.previous_message()),
   'U':          ('next matching unread message', lambda p: p.next_unread()),
@@ -153,7 +154,7 @@ dashboard_keymap = {
   'G':          ('last thread', lambda p: p.last_thread()),
   'C-d':        ('down 20', lambda p: [p.next_thread() for i in range(20)]),
   'C-u':        ('up 20', lambda p: [p.previous_thread() for i in range(20)]),
-  '<enter>':    ('open thread', lambda p: p.open_current_thread()),
+  '<enter>':    ('open thread / focus preview', lambda p: p.open_current_thread()),
   'a':          ('archive', lambda p: p.archive_thread()),
   'd':          ('delete', lambda p: p.delete_thread()),
   'A':          ('archive to local', lambda p: p.archive_to_local()),

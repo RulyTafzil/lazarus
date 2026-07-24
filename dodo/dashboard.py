@@ -225,6 +225,7 @@ class DashboardPanel(panel.Panel):
         self.model = DashboardModel(queries, max_items)
         self.tree.setModel(self.model)
         self.tree.doubleClicked.connect(self.open_current_thread)
+        self._setup_auto_open(self.tree)
 
         # Span header rows across all columns
         self.tree.model().modelReset.connect(self._span_headers)

@@ -123,8 +123,8 @@ QMainWindow
 ### Dashboard & Search
 | Key | Action |
 |-----|--------|
-| `j/k` | Next/previous thread |
-| `<enter>` | Open thread |
+| `j/k` | Next/previous thread (auto-opens in preview) |
+| `<enter>` | Open/focus thread preview |
 | `a` | Archive (refuses if no categorizing tag) |
 | `d` | Delete (move to Trash folder) |
 | `u/f` | Toggle unread/flagged |
@@ -135,9 +135,10 @@ QMainWindow
 ### Thread View
 | Key | Action |
 |-----|--------|
-| `J/K` | Next/previous message |
+| `J/K` or `<enter>` | Next/previous message |
 | `j/k` | Scroll down/up |
 | `<escape>` | Focus back to list |
+| `<space>` / `-` | Page down/up |
 | `H` | Toggle HTML/plaintext |
 | `r/R` | Reply / reply all |
 | `C-f` | Forward |
