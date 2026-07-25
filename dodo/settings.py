@@ -323,7 +323,7 @@ tag_icons = {
   'attachment': '',
   'sent': '>',
   'replied': '',
-  'flagged': '⚑',
+  'flagged': '󰉀',
   'marked': '',
   'signed': '',
 }
