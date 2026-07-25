@@ -84,9 +84,8 @@ search_keymap = {
   's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
 
-# Add configurable tag hotkeys (1-9) so users can toggle tags with
-# number keys.  Lambdas look up settings at call time so config.py
-# (which runs after imports) can override the defaults.
+# Add configurable tag hotkeys (1-9) to both local and global keymaps
+# so they work from search/dashboard panels AND the thread preview.
 for _k in '123456789':
     def _make_hotkey(k: str):
         def handler(p):
@@ -95,7 +94,12 @@ for _k in '123456789':
             if tag:
                 p.toggle_thread_tag(tag)
         return (f'toggle tag hotkey {k}', handler)
-    search_keymap[_k] = _make_hotkey(_k)
+    entry = _make_hotkey(_k)
+    search_keymap[_k] = entry
+    dashboard_keymap[_k] = entry
+    global_keymap[_k] = (
+        f'toggle tag hotkey {_k}',
+        lambda a, k=_k: a.toggle_tag_hotkey(k))
 
 """The local keymap for search panels
 

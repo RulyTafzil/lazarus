@@ -304,6 +304,16 @@ class Dodo(QApplication):
         if w and hasattr(w, method):
             getattr(w, method)()
 
+    def toggle_tag_hotkey(self, key: str) -> None:
+        """Toggle the tag configured for hotkey *key* on the current
+        list panel's selected thread.  Used by global 1-9 hotkeys."""
+        tag = settings.tag_hotkeys.get(key)
+        if not tag:
+            return
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'toggle_thread_tag'):
+            w.toggle_thread_tag(tag)
+
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
         """Add a panel to the tab view
 
