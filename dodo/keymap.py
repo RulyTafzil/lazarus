@@ -89,8 +89,7 @@ search_keymap = {
 for _k in '123456789':
     search_keymap[_k] = (
         f'toggle tag hotkey {_k}',
-        lambda p, k=_k: p.toggle_thread_tag(
-            settings.tag_hotkeys.get(k, '')) if settings.tag_hotkeys.get(k) else None)
+        lambda p, k=_k: settings.tag_hotkeys.get(k) and p.toggle_thread_tag(settings.tag_hotkeys[k]))
 
 """The local keymap for search panels
 
