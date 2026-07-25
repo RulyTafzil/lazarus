@@ -17,6 +17,7 @@
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
 from . import settings
+import logging
 
 global_keymap = {
   '?':       ('show help', lambda a: a.show_help()),
@@ -87,9 +88,14 @@ search_keymap = {
 # number keys.  Lambdas look up settings at call time so config.py
 # (which runs after imports) can override the defaults.
 for _k in '123456789':
-    search_keymap[_k] = (
-        f'toggle tag hotkey {_k}',
-        lambda p, k=_k: settings.tag_hotkeys.get(k) and p.toggle_thread_tag(settings.tag_hotkeys[k]))
+    def _make_hotkey(k: str):
+        def handler(p):
+            tag = settings.tag_hotkeys.get(k)
+            logging.getLogger(__name__).debug('hotkey %s → tag=%s', k, tag)
+            if tag:
+                p.toggle_thread_tag(tag)
+        return (f'toggle tag hotkey {k}', handler)
+    search_keymap[_k] = _make_hotkey(_k)
 
 """The local keymap for search panels
 
