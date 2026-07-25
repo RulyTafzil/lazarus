@@ -297,6 +297,17 @@ message_font_size = 12
 search_view_padding = 1
 """A bit of spacing around each line in the search panel"""
 
+tag_hotkeys: dict[str, str] = {}
+"""Number keys mapped to tags for quick toggling.
+
+Map key strings (``'1'``-``'9'``) to tag names.  Pressing the key in a
+search or dashboard panel toggles that tag on the selected thread.
+
+Example::
+
+  dodo.settings.tag_hotkeys = {'1': 'Urgent', '2': 'ToDo', '3': 'spam'}
+"""
+
 search_title_format = "{query} [{num_threads}]"
 """A Python format string for the tab title of search panels
 

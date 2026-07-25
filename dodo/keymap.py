@@ -80,6 +80,16 @@ search_keymap = {
   'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
   's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
 }
+
+# Add configurable tag hotkeys (1-9) so users can toggle tags with
+# number keys.  Lambdas look up settings at call time so config.py
+# (which runs after imports) can override the defaults.
+for _k in '123456789':
+    search_keymap[_k] = (
+        f'toggle tag hotkey {_k}',
+        lambda p, k=_k: p.toggle_thread_tag(
+            settings.tag_hotkeys.get(k, '')))
+
 """The local keymap for search panels
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
