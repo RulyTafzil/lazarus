@@ -303,6 +303,16 @@ class MarkableActionsMixin:
         the cursor to advance should override this.
         """
 
+    def _clear_preview_if_showing(self, thread_id: str) -> None:
+        """Close the thread preview if it is showing *thread_id*.
+
+        Prevents a stale or broken refresh when the thread has been
+        archived or deleted from under the preview.
+        """
+        tp = self.app.main_window.active_thread()
+        if tp is not None and hasattr(tp, 'thread_id') and tp.thread_id == thread_id:
+            self.app.main_window.clear_thread()
+
     def tag_thread(self, tag_expr: str,
                    mode: Literal['tag', 'tag marked'] = 'tag') -> None:
         """Apply the given tag expression to the selected thread, or to
@@ -379,6 +389,7 @@ class MarkableActionsMixin:
                 'warning')
             return
         self._advance_selection()
+        self._clear_preview_if_showing(thread_id)
         r = subprocess.run(
             ['notmuch', 'tag', '-inbox', '-unread', '--',
              'thread:' + thread_id],
@@ -387,6 +398,7 @@ class MarkableActionsMixin:
             self.app.status_message(
                 f'Archive error: {r.stderr.strip()[:200]}', 'error')
             return
+        self._clear_preview_if_showing(thread_id)
         self.app.update_single_thread(thread_id)
 
     def delete_thread(self) -> None:
@@ -403,6 +415,7 @@ class MarkableActionsMixin:
         thread_id = self._current_thread_id()
         if not thread_id:
             return
+        self._clear_preview_if_showing(thread_id)
         move_to_trash('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Moved to trash', 'info')
@@ -429,6 +442,7 @@ class MarkableActionsMixin:
                 'warning')
             return
         self._advance_selection()
+        self._clear_preview_if_showing(thread_id)
         move_to_archive('thread:' + thread_id)
         self.app.update_single_thread(thread_id)
         self.app.status_message('Archived to local', 'info')
