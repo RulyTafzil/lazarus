@@ -96,7 +96,6 @@ for _k in '123456789':
         return (f'toggle tag hotkey {k}', handler)
     entry = _make_hotkey(_k)
     search_keymap[_k] = entry
-    dashboard_keymap[_k] = entry
     global_keymap[_k] = (
         f'toggle tag hotkey {_k}',
         lambda a, k=_k: a.toggle_tag_hotkey(k))
