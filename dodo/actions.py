@@ -209,7 +209,7 @@ def _resolve_stale_path(f: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def move_to_trash(notmuch_query: str) -> int:
-    """Tag ``+deleted`` and move matching files to the Trash folder.
+    """Tag ``+trash`` and move matching files to the Trash folder.
 
     Tagging is synchronous (instant UI feedback).  File moves are
     enqueued to a background thread so rapid successive calls don't
@@ -224,7 +224,7 @@ def move_to_trash(notmuch_query: str) -> int:
         capture_output=True, text=True)
 
     subprocess.run(
-        ['notmuch', 'tag', '+deleted', '-inbox', '-unread',
+        ['notmuch', 'tag', '+trash', '-inbox', '-unread',
          '-marked', '--', notmuch_query],
         capture_output=True, text=True)
     # Errors here are non-fatal — file moves proceed regardless
