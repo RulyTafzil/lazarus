@@ -16,6 +16,8 @@
 # You should have received a copy of the GNU General Public License
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
+from . import settings
+
 global_keymap = {
   '?':       ('show help', lambda a: a.show_help()),
   'Q':       ('quit', lambda a: a.prompt_quit()),
@@ -88,7 +90,7 @@ for _k in '123456789':
     search_keymap[_k] = (
         f'toggle tag hotkey {_k}',
         lambda p, k=_k: p.toggle_thread_tag(
-            settings.tag_hotkeys.get(k, '')))
+            settings.tag_hotkeys.get(k, '')) if settings.tag_hotkeys.get(k) else None)
 
 """The local keymap for search panels
 
