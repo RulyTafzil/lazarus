@@ -77,7 +77,7 @@ QMainWindow
 | `thread.py` | `ThreadPanel`: message viewer, reply/forward, attachments |
 | `thread_model.py` | `ThreadModel` + `ThreadItem` + helpers: thread-tree data model (extracted from thread.py) |
 | `webengine.py` | `MessagePage` + `MessageHandler` + `EmbeddedImageHandler` + `RemoteBlockingUrlRequestInterceptor` (extracted from thread.py) |
-| `actions.py` | `move_to_trash()`, `move_to_archive()`, `check_archive_refused()`: shared delete/archive logic |
+| `actions.py` | `move_to_trash()`, `move_to_archive()`, `check_archive_refused()`, `MarkableActionsMixin`: shared delete/archive/tag logic as a panel mixin |
 | `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread` |
 | `tag.py` | `TagPanel` + `TagModel`: tag browser with counts |
 | `commandbar.py` | `CommandBar(QLineEdit)`: tag autocomplete + command history |
@@ -193,12 +193,12 @@ QMainWindow
 - **Thread auto-open**: `j`/`k` navigation auto-opens selected thread after 150ms debounce
 - **Neomutt-style nav**: `j`/`k`/`s`/`a`/`d`/`A` are global — work from thread preview too
 - **Marked-thread bulk actions**: `s` marks threads, then `d`/`a`/`A` operate on all marked in view
-- **Bulk file moves**: background `QThread` serialises file I/O, `notmuch new` runs synchronously
+- **Bulk file moves**: background `QThread` serialises file I/O; `notmuch new` fires via `batch_done` signal AFTER moves land on disk (not before)
 - **Persistent search tabs**: open searches saved/restored across sessions
 - **`force_dark_mode` setting**: passes `--force-dark-mode` to Chromium (default on)
 - **Double-buffered views**: `QStackedLayout(StackAll)` keeps both QWebEngineViews compositing
 - **Navigation help section**: split-pane keys shown in `?` help modal
-- **Fixed flagged icon**: `⚑` (standard Unicode) replaces broken NerdFont glyph
+- **Fixed flagged icon**: `󰉀` (NerdFont) for consistency with other tag icons
 - **Fixed post-new hook**: `/**` path wildcards, `[Gmail]` bracket fix, `tag:deleted` Trash cleanup
 - **Thread count column** (`#`): shows fa-comments icon + count for multi-message threads
 - **Plaintext fallback**: HTML mode degrades to plaintext when no HTML part exists
@@ -211,17 +211,54 @@ QMainWindow
 - **`mail_root` setting**: configurable Maildir root (default `~/Mail`)
 - **Shared rendering**: `render_thread_cell()` in search.py eliminates duplication between SearchModel and DashboardModel
 
-### Refactoring (2025)
-- **`dodo/actions.py`**: shared delete/archive/move logic extracted from 3 panels; `_BulkMoveWorker` QThread for background file I/O
-- **`dodo/webengine.py`**: `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor` extracted from thread.py
-- **`dodo/thread_model.py`**: `ThreadModel`, `ThreadItem`, `EmptyThreadError`, helpers extracted from thread.py
-- **`render_thread_cell()`**: shared thread-row rendering in search.py, used by both SearchModel and DashboardModel
-- Hardcoded `/home/rulyt/Mail/` paths replaced with `settings.mail_root`
-- **Split-pane layout**: `MainWindow` uses `QSplitter` with persistent thread preview
-- **Auto-open**: `Panel._setup_auto_open()` debounces selection changes to swap preview
-- **Double-buffered views**: `QStackedLayout(StackAll)` in `ThreadPanel` for flash-free loads
-- **Global delegate keys**: `j/k/s/a/d/A` in `global_keymap` route to `Dodo` methods targeting list panel
-- **Post-new hook**: fixed `/**` path wildcards and `[Gmail]` escaping
+### Refactoring (2025-07-24)
+- **`dodo/actions.py`**: `MarkableActionsMixin` extracts duplicated tag/archive/delete logic from SearchPanel and DashboardPanel into three abstract hooks (`_marked_query`, `_current_thread_id`, `_current_thread_tags`).  Also:
+  - `_unique_dest()` prevents filename collisions when UID stripping produces duplicate basenames
+  - `_resolve_stale_path()` finds mbsync-renamed files (flag sync changes `:2,` → `:2,S`)
+  - `_advance_selection()` hook called before destructive single-thread actions
+  - `batch_done` signal now correctly fires AFTER file moves land on disk
+- **`dodo/dashboard.py`**: `_advance_past_current()`, `_select_near_row()`, `_select_last_thread()` for selection-on-delete; `_refresh_pending_row` survives debounced refresh
+- **`dodo/search.py`**: `_select_near_row()` fallback in `refresh()` when deleted thread ID is gone
+- **`dodo/keymap.py`**: `dashboard_keymap = dict(search_keymap)` (DRY); configurable tag hotkeys (1-9) via `settings.tag_hotkeys`; hotkeys added to global keymap for thread-preview access
+- **`dodo/thread.py`**: Date shown in local timezone via `email.utils.parsedate_to_datetime().astimezone()`; Message ID hidden from header
+- **`dodo/app.py`**: `Dodo.toggle_tag_hotkey()` for global tag hotkey delegation; two-phase logging setup (early stderr → full config after config.py)
+
+## 2025-07-24 Session — Key Learnings
+
+### mbsync Flag Sync Renames Files
+When `synchronize_flags=true`, mbsync renames Maildir files to reflect flag
+changes (e.g. `:2,` → `:2,S` when Seen flag syncs).  Notmuch still has the old
+path until `notmuch new` runs.  Fix: `_resolve_stale_path()` globs the parent
+directory for the same basename stem.
+
+### Filename Collisions After UID Stripping
+`_strip_uid_annotation` removes `,U=\d+` from mbsync filenames.  Two files from
+the same host with different UIDs produce the same destination basename.
+`_unique_dest()` appends `.1`, `.2`, etc. to prevent silent overwrites.
+
+### Logging
+- `settings.log_level` (DEBUG/INFO/WARNING) and `settings.log_file` (path or '')
+- Minimal stderr logger set up before config.py loads; full reconfiguration after
+- `--verbose` overrides level to INFO for that session
+
+### Selection-on-Delete/Archive
+- DashboardPanel advances selection immediately + saves pending row for debounced refresh
+- SearchPanel relies on `_select_near_row()` fallback in `refresh()` when thread ID is gone
+- Mixin's `_advance_selection()` hook called before destructive single-thread actions
+
+## New Settings
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `tag_hotkeys` | `{}` | Map number keys to tags for quick toggling |
+| `tag_order` | `['marked','Urgent','ToDo','Waiting','Reference','inbox','sent']` | Tag display order in columns |
+| `log_level` | `'WARNING'` | Python logging level |
+| `log_file` | `''` | Optional log file path |
+
+## Post-New Hook
+Located at `~/.config/notmuch/default/hooks/post-new`:
+- Maps `[Gmail]/Spam` → `+spam` tag
+- Strips `inbox`/`unread` from `+deleted` messages
+- Strips `inbox` from `+spam` messages (Gmail mutual exclusivity)
 
 ## Ruly's Configuration
 - **Mail**: `~/Mail/` with Gmail and contact Maildir accounts
