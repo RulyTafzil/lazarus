@@ -130,8 +130,16 @@ class Dodo(QApplication):
 
     def __init__(self) -> None:
         super().__init__(sys.argv)
-        if '--verbose' in sys.argv or '-v' in sys.argv:
-            logging.basicConfig(level=logging.INFO)
+
+        # Minimal stderr logger so early errors are captured.
+        # Full configuration (level + file) happens after config.py loads.
+        logging.basicConfig(
+            level=logging.WARNING,
+            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S',
+            handlers=[logging.StreamHandler(sys.stderr)],
+        )
+
         self.setApplicationName('Dodo')
         self.setDesktopFileName("dodo")
 
@@ -147,6 +155,9 @@ class Dodo(QApplication):
             config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
             print('No config.py found in:\n' + '\n'.join([f'  {d}/dodo' for d in config_locs]))
             sys.exit(1)
+
+        # Reconfigure logging now that user settings are available.
+        self._setup_logging()
 
         # Apply dark-mode Chromium flag if configured (must be set
         # before any QWebEngineView loads content)
@@ -209,6 +220,36 @@ class Dodo(QApplication):
 
         # Restore search panels from previous session
         self._restore_open_searches()
+
+    @staticmethod
+    def _setup_logging() -> None:
+        """Reconfigure logging from settings.
+
+        Called after config.py loads so user-configured ``log_level``
+        and ``log_file`` take effect.  Uses the root logger (already
+        has a stderr handler from early init), just adjusts level and
+        optionally adds a file handler.
+        """
+        level_name = settings.log_level.upper()
+        if '--verbose' in sys.argv or '-v' in sys.argv:
+            level_name = 'INFO'
+        level = getattr(logging, level_name, logging.WARNING)
+
+        root = logging.getLogger()
+        root.setLevel(level)
+
+        if settings.log_file:
+            log_path = os.path.expanduser(settings.log_file)
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            fh = logging.FileHandler(log_path)
+            fh.setFormatter(logging.Formatter(
+                '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'))
+            root.addHandler(fh)
+
+        logger = logging.getLogger(__name__)
+        logger.info('Logging initialised (level=%s, file=%s)',
+                     level_name, settings.log_file or 'stderr only')
 
     def _handle_signal_wakeup(self) -> None:
         """Called when a Unix signal wakes up the Qt event loop via the pipe"""

@@ -146,24 +146,15 @@ A dictionary from key strings to pairs consisting of a short docstring and a fun
 taking :class:`~dodo.compose.ComposePanel` as input.
 """
 
-dashboard_keymap = {
-  'j':          ('next thread', lambda p: p.next_thread()),
-  'k':          ('previous thread', lambda p: p.previous_thread()),
-  '<down>':     ('next thread', lambda p: p.next_thread()),
-  '<up>':       ('previous thread', lambda p: p.previous_thread()),
-  'g g':        ('first thread', lambda p: p.first_thread()),
-  'G':          ('last thread', lambda p: p.last_thread()),
-  'C-d':        ('down 20', lambda p: [p.next_thread() for i in range(20)]),
-  'C-u':        ('up 20', lambda p: [p.previous_thread() for i in range(20)]),
-  '<enter>':    ('open thread / focus preview', lambda p: p.open_current_thread()),
-  'a':          ('archive', lambda p: p.archive_thread()),
-  'd':          ('delete', lambda p: p.delete_thread()),
-  'A':          ('archive to local', lambda p: p.archive_to_local()),
-  'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
-  'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
-  's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
-}
+dashboard_keymap = dict(search_keymap)
 """The local keymap for the dashboard panel
+
+DashboardPanel and SearchPanel share the same bindings and target
+method names (both use dodo.actions.MarkableActionsMixin for
+tag/archive/delete, and implement the same next_thread/previous_thread
+navigation API), so this is a copy of search_keymap rather than a
+second hand-maintained dict. Override entries here (or in config.py)
+for dashboard-specific bindings.
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
 taking :class:`~dodo.dashboard.DashboardPanel` as input.

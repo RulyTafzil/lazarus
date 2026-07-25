@@ -17,14 +17,13 @@
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from typing import Optional, Any, List, Tuple, Literal
+from typing import Optional, Any, List, Tuple, Literal, Set
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings, QTimer
 from PyQt6.QtWidgets import QTreeView, QHeaderView
 from PyQt6.QtGui import QFont, QColor
 
 import logging
-import subprocess
 
 from . import app
 from . import settings
@@ -198,7 +197,7 @@ class DashboardModel(QAbstractItemModel):
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
 
-class DashboardPanel(panel.Panel):
+class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
     """A panel showing multiple search queries in a single scrollable view.
 
     :param a: The Dodo application instance
@@ -247,6 +246,7 @@ class DashboardPanel(panel.Panel):
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(500)
         self._refresh_timer.timeout.connect(self._debounced_refresh)
+        self._refresh_pending_row: int | None = None
 
         # Select first selectable row
         self._select_first_thread()
@@ -274,6 +274,39 @@ class DashboardPanel(panel.Panel):
         """Save geometry before closing."""
         self.save_tree_geometry()
         return super().before_close()
+
+    def _advance_past_current(self) -> int:
+        """Advance selection to the next non-header row and return its
+        row index.  If already on the last item, moves to the previous.
+        """
+        row = self.tree.currentIndex().row()
+        next_r = self._next_row(row)
+        if next_r != row:
+            self.tree.setCurrentIndex(self.model.index(next_r, 0))
+            return next_r
+        prev_r = self._prev_row(row)
+        if prev_r != row:
+            self.tree.setCurrentIndex(self.model.index(prev_r, 0))
+            return prev_r
+        return row
+
+    def _select_near_row(self, target_row: int) -> None:
+        """Select the nearest non-header row at or after *target_row*.
+
+        Falls back to the last thread if *target_row* is out of range.
+        """
+        for r in range(target_row, self.model.rowCount()):
+            if not self.model.is_header(r):
+                self.tree.setCurrentIndex(self.model.index(r, 0))
+                return
+        self._select_last_thread()
+
+    def _select_last_thread(self) -> None:
+        """Select the last non-header row."""
+        for row in range(self.model.rowCount() - 1, -1, -1):
+            if not self.model.is_header(row):
+                self.tree.setCurrentIndex(self.model.index(row, 0))
+                return
 
     def _select_first_thread(self) -> None:
         """Select the first non-header row."""
@@ -314,8 +347,12 @@ class DashboardPanel(panel.Panel):
     def _debounced_refresh(self) -> None:
         """Perform the actual refresh after the debounce period."""
         self.model.refresh()
-        # Restore approximate selection position
-        self._select_first_thread()
+        pending = self._refresh_pending_row
+        self._refresh_pending_row = None
+        if pending is not None:
+            self._select_near_row(pending)
+        else:
+            self._select_first_thread()
         self.has_refreshed.emit()
 
     def _next_row(self, current: int) -> int:
@@ -352,10 +389,7 @@ class DashboardPanel(panel.Panel):
 
     def last_thread(self) -> None:
         """Select the last thread."""
-        for row in range(self.model.rowCount() - 1, -1, -1):
-            if not self.model.is_header(row):
-                self.tree.setCurrentIndex(self.model.index(row, 0))
-                break
+        self._select_last_thread()
 
     def open_current_thread(self) -> None:
         """Open the currently selected thread."""
@@ -375,106 +409,19 @@ class DashboardPanel(panel.Panel):
                 break
         return self.queries[0][1] if self.queries else ''
 
-    def tag_thread(self, tag_expr: str, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
-        """Apply a tag expression to the current thread or all marked threads."""
-        if not ('+' in tag_expr or '-' in tag_expr):
-            tag_expr = '+' + tag_expr
+    # -- MarkableActionsMixin hooks -------------------------------------
+    # tag_thread, toggle_thread_tag, archive_thread, delete_thread, and
+    # archive_to_local are provided by actions.MarkableActionsMixin.
+    # "Marked" is dashboard-wide (not scoped to a single section).
 
-        if mode == 'tag marked':
-            # Tag all marked threads across all dashboard sections
-            r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['-marked', '--', 'tag:marked'],
-                              capture_output=True, text=True)
-            if r.returncode != 0:
-                self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
-                return
-            self.app.refresh_panels()
-        else:
-            thread_id = self.model.thread_id(self.tree.currentIndex())
-            if not thread_id:
-                return
-            r = subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id],
-                              capture_output=True, text=True)
-            if r.returncode != 0:
-                self.app.status_message(f'Tag error: {r.stderr.strip()[:200]}', 'error')
-                return
-            self.app.update_single_thread(thread_id)
+    def _marked_query(self) -> str:
+        return 'tag:marked'
 
-    def archive_thread(self) -> None:
-        """Archive current thread, or all marked threads (dashboard-wide)."""
-        count = int(subprocess.run(
-            ['notmuch', 'count', '--output=threads', 'tag:marked'],
-            capture_output=True, text=True).stdout.strip() or '0')
-        if count > 0:
-            r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread',
-                               '-marked', '--', 'tag:marked'],
-                              capture_output=True, text=True)
-            if r.returncode != 0:
-                self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
-                return
-            self.app.refresh_panels()
-            self.app.status_message('Archived marked', 'info')
-            return
-        # Fall back to current thread
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
-        thread_d = self.model.thread_data(self.tree.currentIndex())
-        if thread_d is None:
-            return
-        if actions.check_archive_refused(set(thread_d.get('tags', []))):
-            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-            return
-        r = subprocess.run(['notmuch', 'tag', '-inbox', '-unread', '--', 'thread:' + thread_id],
-                          capture_output=True, text=True)
-        if r.returncode != 0:
-            self.app.status_message(f'Archive error: {r.stderr.strip()[:200]}', 'error')
-            return
-        self.app.update_single_thread(thread_id)
+    def _current_thread_id(self) -> Optional[str]:
+        return self.model.thread_id(self.tree.currentIndex())
 
-    def delete_thread(self) -> None:
-        """Delete current thread, or all marked threads (dashboard-wide)."""
-        moved = actions.move_to_trash('tag:marked')
-        if moved > 0:
-            self.app.refresh_panels()
-            self.app.status_message('Deleted marked', 'info')
-            return
-        # Fall back to current thread
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
-        actions.move_to_trash('thread:' + thread_id)
-        self.app.update_single_thread(thread_id)
-        self.app.status_message('Moved to trash', 'info')
-
-    def archive_to_local(self) -> None:
-        """Archive-to-local current thread, or all marked (dashboard)."""
-        moved = actions.move_to_archive('tag:marked')
-        if moved > 0:
-            self.app.refresh_panels()
-            self.app.status_message('Archived marked to local', 'info')
-            return
-        # Fall back to current thread
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
-        thread_d = self.model.thread_data(self.tree.currentIndex())
-        if thread_d is None:
-            return
-        if actions.check_archive_refused(set(thread_d.get('tags', []))):
-            self.app.status_message('Archive refused: thread has no tags beyond inbox/unread', 'warning')
-            return
-        actions.move_to_archive('thread:' + thread_id)
-        self.app.update_single_thread(thread_id)
-        self.app.status_message('Archived to local', 'info')
-
-    def toggle_thread_tag(self, tag: str) -> None:
-        """Toggle the given tag on the current thread."""
-        thread_id = self.model.thread_id(self.tree.currentIndex())
-        if not thread_id:
-            return
-        thread_d = self.model.thread_data(self.tree.currentIndex())
-        if thread_d is None:
-            return
-        tag_expr = ('-' + tag) if tag in thread_d.get('tags', []) else ('+' + tag)
-        subprocess.run(['notmuch', 'tag'] + tag_expr.split() + ['--', 'thread:' + thread_id])
-        self.app.update_single_thread(thread_id)
+    def _advance_selection(self) -> None:
+        """Advance the cursor before a destructive action and save the
+        target row so the debounced refresh restores it."""
+        self._advance_past_current()
+        self._refresh_pending_row = self.tree.currentIndex().row()

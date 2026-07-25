@@ -229,6 +229,21 @@ may not wanting to wait for the hooks on each sent email, for example when
 calling mbsync on their notmuch hooks. Other users may set this to False, for
 example when notmuch hooks are used to archive sent mail."""
 
+# logging
+log_level = 'WARNING'
+"""Python logging level for Dodo.
+
+One of ``'DEBUG'``, ``'INFO'``, ``'WARNING'``, ``'ERROR'``, ``'CRITICAL'``.
+Set to ``'DEBUG'`` when troubleshooting, ``'WARNING'`` for normal use.
+"""
+
+log_file = ''
+"""Path to a log file.  If empty, logs go to stderr only.
+
+Set to e.g. ``'~/.local/share/dodo/dodo.log'`` to persist logs across
+sessions for diagnostics.
+"""
+
 # security
 html_block_remote_requests = True
 """Block remote requests for HTML messages

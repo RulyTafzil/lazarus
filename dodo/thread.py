@@ -271,7 +271,7 @@ class ThreadPanel(panel.Panel):
             if 'tags' in m:
                 tags = ' '.join(
                     settings.tag_icons[t] if t in settings.tag_icons
-                    else f'[{t}]' for t in m['tags'])
+                    else f'[{t}]' for t in sorted(m['tags'], key=lambda t: (t != 'marked', t)))
                 header_html += (
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'

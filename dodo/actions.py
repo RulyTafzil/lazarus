@@ -25,6 +25,9 @@ ThreadPanel.
 File moves run on a background ``QThread`` so rapid successive bulk
 actions queue up instead of interrupting each other.  Tagging and
 notmuch queries stay synchronous so the UI reflects changes instantly.
+``notmuch new`` is fired only after a batch of moves has actually
+landed on disk (via the worker's ``batch_done`` signal), not
+immediately after enqueueing, so it never races the renames.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ import re
 import subprocess
 import logging
 import queue
-from typing import Set, Optional, List, Tuple
+from typing import Set, Optional, List, Tuple, Literal
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -86,10 +89,23 @@ class _BulkMoveWorker(QThread):
 _worker: _BulkMoveWorker | None = None
 
 
+def _run_notmuch_new() -> None:
+    """Re-index after a batch of file moves has actually landed on disk.
+
+    Connected to ``_BulkMoveWorker.batch_done`` rather than called right
+    after ``enqueue()`` — the moves happen asynchronously, so calling
+    ``notmuch new`` immediately after enqueueing would usually race ahead
+    of the renames and miss them, silently deferring pickup to the next
+    sync.
+    """
+    subprocess.run(['notmuch', 'new', '--no-hooks'], capture_output=True)
+
+
 def _get_worker() -> _BulkMoveWorker:
     global _worker
     if _worker is None or not _worker.isRunning():
         _worker = _BulkMoveWorker()
+        _worker.batch_done.connect(_run_notmuch_new)
         _worker.start()
     return _worker
 
@@ -148,6 +164,46 @@ def _strip_uid_annotation(filename: str) -> str:
     return re.sub(r',U=\d+', '', filename)
 
 
+def _unique_dest(path: str) -> str:
+    """Return *path* unchanged if it does not exist, otherwise append a
+    counter (``.1``, ``.2``, ...) to make it unique.
+
+    Prevents silent data loss when two source files collide on the same
+    destination basename after UID-stripping.
+    """
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    counter = 1
+    while True:
+        candidate = f'{base}.{counter}{ext}'
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+
+def _resolve_stale_path(f: str) -> Optional[str]:
+    """If *f* doesn't exist on disk, search its parent directory for a
+    file with the same basename stem (mbsync may have renamed it, e.g.
+    ``:2,`` → ``:2,S`` on flag sync).
+
+    Returns the resolved path, or None if no match is found.
+    """
+    if os.path.exists(f):
+        return f
+    parent = os.path.dirname(f)
+    stem = os.path.basename(f)
+    # Strip the :2,... info suffix to get the stable basename
+    stem_base = stem.rsplit(':2,', 1)[0] if ':2,' in stem else stem
+    try:
+        for entry in os.listdir(parent):
+            if entry.startswith(stem_base):
+                return os.path.join(parent, entry)
+    except OSError:
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -181,19 +237,201 @@ def move_to_trash(notmuch_query: str) -> int:
             continue
         seen.add(f)
         found += 1
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('file gone (no match): %s', os.path.basename(f))
+            continue
+        f = resolved
         result = _mail_file_account(f)
         if result is None:
             continue
         account, _ = result
         trash_dir = _find_trash_dir(account)
         basename = _strip_uid_annotation(os.path.basename(f))
-        moves.append((f, os.path.join(trash_dir, basename)))
+        moves.append((f, _unique_dest(os.path.join(trash_dir, basename))))
 
     if moves:
         _get_worker().enqueue(moves)
-        subprocess.run(['notmuch', 'new', '--no-hooks'],
-                       capture_output=True)
     return found
+
+
+# ---------------------------------------------------------------------------
+# Shared panel mixin
+# ---------------------------------------------------------------------------
+
+class MarkableActionsMixin:
+    """Shared "act on marked threads, or fall back to the current thread"
+    logic for :class:`~dodo.search.SearchPanel` and
+    :class:`~dodo.dashboard.DashboardPanel`.
+
+    Both panels previously implemented near-identical copies of
+    ``tag_thread``/``toggle_thread_tag``/``archive_thread``/
+    ``delete_thread``/``archive_to_local``; the only real difference
+    between them was how "marked" is scoped (marked threads within a
+    search's own query vs. marked threads dashboard-wide) and how the
+    currently-selected thread is looked up. That's now factored into
+    three small hooks subclasses must implement:
+
+    - :func:`_marked_query`
+    - :func:`_current_thread_id`
+    - :func:`_current_thread_tags`
+
+    Subclasses may also override :func:`_advance_selection` to move the
+    cursor before a destructive action (delete/archive).
+    """
+
+    app: object  # provided by the concrete panel (dodo.app.Dodo)
+
+    def _marked_query(self) -> str:
+        """Notmuch query matching "marked" threads in this panel's scope."""
+        raise NotImplementedError
+
+    def _current_thread_id(self) -> Optional[str]:
+        """Thread id of the currently selected row, or None."""
+        raise NotImplementedError
+
+    def _current_thread_tags(self) -> Optional[Set[str]]:
+        """Tags of the currently selected thread, or None if unavailable."""
+        raise NotImplementedError
+
+    def _advance_selection(self) -> None:
+        """Move the cursor before a destructive single-thread action.
+
+        Called by ``delete_thread``, ``archive_thread``, and
+        ``archive_to_local`` when operating on the current thread
+        (not a marked batch).  Default is a no-op; panels that want
+        the cursor to advance should override this.
+        """
+
+    def tag_thread(self, tag_expr: str,
+                   mode: Literal['tag', 'tag marked'] = 'tag') -> None:
+        """Apply the given tag expression to the selected thread, or to
+        all marked threads in this panel's scope.
+
+        A tag expression is a string consisting of one more statements
+        of the form "+TAG" or "-TAG" to add or remove TAG, respectively,
+        separated by whitespace.
+        """
+        if not ('+' in tag_expr or '-' in tag_expr):
+            tag_expr = '+' + tag_expr
+
+        if mode == 'tag marked':
+            r = subprocess.run(
+                ['notmuch', 'tag'] + tag_expr.split()
+                + ['-marked', '--', self._marked_query()],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(
+                    f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                return
+            self.app.refresh_panels()
+        else:
+            thread_id = self._current_thread_id()
+            if not thread_id:
+                return
+            r = subprocess.run(
+                ['notmuch', 'tag'] + tag_expr.split()
+                + ['--', 'thread:' + thread_id],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(
+                    f'Tag error: {r.stderr.strip()[:200]}', 'error')
+                return
+            self.app.update_single_thread(thread_id)
+
+    def toggle_thread_tag(self, tag: str) -> None:
+        """Toggle the given tag on the currently selected thread."""
+        tags = self._current_thread_tags()
+        if tags is None:
+            return
+        tag_expr = ('-' + tag) if tag in tags else ('+' + tag)
+        self.tag_thread(tag_expr)
+
+    def archive_thread(self) -> None:
+        """Archive (``-inbox -unread``) all marked threads in this
+        panel's scope, or the current thread if none are marked."""
+        marked_query = self._marked_query()
+        count = int(subprocess.run(
+            ['notmuch', 'count', '--output=threads', marked_query],
+            capture_output=True, text=True).stdout.strip() or '0')
+        if count > 0:
+            r = subprocess.run(
+                ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
+                 marked_query],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                self.app.status_message(
+                    f'Archive error: {r.stderr.strip()[:200]}', 'error')
+                return
+            self.app.refresh_panels()
+            self.app.status_message('Archived marked', 'info')
+            return
+
+        thread_id = self._current_thread_id()
+        if not thread_id:
+            return
+        tags = self._current_thread_tags()
+        if tags is None:
+            return
+        if check_archive_refused(tags):
+            self.app.status_message(
+                'Archive refused: thread has no tags beyond inbox/unread',
+                'warning')
+            return
+        self._advance_selection()
+        r = subprocess.run(
+            ['notmuch', 'tag', '-inbox', '-unread', '--',
+             'thread:' + thread_id],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            self.app.status_message(
+                f'Archive error: {r.stderr.strip()[:200]}', 'error')
+            return
+        self.app.update_single_thread(thread_id)
+
+    def delete_thread(self) -> None:
+        """Move all marked threads in this panel's scope to Trash, or
+        the current thread if none are marked."""
+        marked_query = self._marked_query()
+        moved = move_to_trash(marked_query)
+        if moved > 0:
+            self.app.refresh_panels()
+            self.app.status_message('Deleted marked', 'info')
+            return
+
+        self._advance_selection()
+        thread_id = self._current_thread_id()
+        if not thread_id:
+            return
+        move_to_trash('thread:' + thread_id)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Moved to trash', 'info')
+
+    def archive_to_local(self) -> None:
+        """Move all marked threads in this panel's scope to the local
+        Archive maildir, or the current thread if none are marked."""
+        marked_query = self._marked_query()
+        moved = move_to_archive(marked_query)
+        if moved > 0:
+            self.app.refresh_panels()
+            self.app.status_message('Archived marked to local', 'info')
+            return
+
+        thread_id = self._current_thread_id()
+        if not thread_id:
+            return
+        tags = self._current_thread_tags()
+        if tags is None:
+            return
+        if check_archive_refused(tags):
+            self.app.status_message(
+                'Archive refused: thread has no tags beyond inbox/unread',
+                'warning')
+            return
+        self._advance_selection()
+        move_to_archive('thread:' + thread_id)
+        self.app.update_single_thread(thread_id)
+        self.app.status_message('Archived to local', 'info')
 
 
 def move_to_archive(notmuch_query: str) -> int:
@@ -226,11 +464,14 @@ def move_to_archive(notmuch_query: str) -> int:
             continue
         seen.add(f)
         found += 1
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('file gone (no match): %s', os.path.basename(f))
+            continue
+        f = resolved
         basename = _strip_uid_annotation(os.path.basename(f))
-        moves.append((f, os.path.join(archive_cur, basename)))
+        moves.append((f, _unique_dest(os.path.join(archive_cur, basename))))
 
     if moves:
         _get_worker().enqueue(moves)
-        subprocess.run(['notmuch', 'new', '--no-hooks'],
-                       capture_output=True)
     return found
