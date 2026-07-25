@@ -27,6 +27,7 @@ from PyQt6.QtWebEngineWidgets import *
 
 import subprocess
 import logging
+import email.utils
 
 from . import app
 from . import settings
@@ -262,11 +263,21 @@ class ThreadPanel(panel.Panel):
                 f'font-size: {settings.search_font_size}pt; width:100%">')
             for name in ['Subject', 'Date', 'From', 'To', 'Cc']:
                 if name in m['headers']:
+                    if name == 'Date':
+                        # Convert to local timezone
+                        try:
+                            dt = email.utils.parsedate_to_datetime(
+                                m['headers']['Date'])
+                            value = dt.astimezone().strftime('%c')
+                        except (ValueError, TypeError):
+                            value = m['headers']['Date']
+                    else:
+                        value = util.simple_escape(m['headers'][name])
                     header_html += (
                         f'<tr>'
                         f'<td><b style="color: {settings.theme["fg_bright"]}">'
                         f'{name}:&nbsp;</b></td>'
-                        f'<td>{util.simple_escape(m["headers"][name])}</td>'
+                        f'<td>{value}</td>'
                         f'</tr>')
             if 'tags' in m:
                 tags = ' '.join(
@@ -323,12 +334,6 @@ class ThreadPanel(panel.Panel):
                     f'</tr>')
 
             # Message ID
-            header_html += (
-                f'<tr>'
-                f'<td><b style="color: {settings.theme["fg_bright"]}">'
-                f'Id:&nbsp;</b></td>'
-                f'<td>{util.simple_escape(m["id"])}</td>'
-                f'</tr>')
             header_html += '</table>'
             self.message_info.setHtml(header_html)
         self.has_refreshed.emit()
