@@ -333,6 +333,13 @@ This is a dictionary of substitutions used to abbreviate common tag names as uni
 icons in the search and thread panels.
 """
 
+tag_order: list[str] = ['marked', 'Urgent', 'ToDo', 'Waiting', 'Reference', 'inbox', 'sent']
+"""Tag display order in the tags column.
+
+Tags listed here appear first (in this order).  Any tags not listed
+follow in alphabetical order.  Set to ``[]`` for pure alphabetical.
+"""
+
 hide_tags = ['unread', 'sent']
 """Tags to hide in search panel"""
 

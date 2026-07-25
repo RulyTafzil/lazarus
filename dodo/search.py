@@ -65,9 +65,10 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
             return thread_d['subject']
         elif col == 'tags':
             tag_icons = []
-            # Sort 'marked' first so it's always visible at a glance
+            # Sort by settings.tag_order, then alphabetical for the rest
+            priority = {t: i for i, t in enumerate(settings.tag_order)}
             tags = sorted(thread_d['tags'],
-                          key=lambda t: (t != 'marked', t))
+                          key=lambda t: (priority.get(t, len(settings.tag_order)), t))
             for t in tags:
                 if t in hide_tags:
                     continue
