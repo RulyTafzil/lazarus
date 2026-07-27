@@ -31,16 +31,23 @@ from . import settings
 def _render_keymap(name: str, mp: dict) -> str:
     """Render a single keymap group as an HTML fragment."""
     s = f'<h2 style="margin-top: 0">{name}</h2>\n'
-    s += f'<table style="font-family: {settings.search_font}; font-size: {settings.search_font_size}pt; width: 100%">\n'
+    s += f'<table style="font-family: {settings.search_font}; '
+    s += f'font-size: {settings.search_font_size}pt; width: 100%">\n'
     for key, val in mp.items():
-        if isinstance(val, tuple):
-            desc = val[0]
-        else:
-            desc = '(no description)'
-        s += f'<tr><td width="80" style="color: {settings.theme["fg_bright"]}; white-space: nowrap">{util.simple_escape(key)}</td>\n'
-        s += f'<td style="color: {settings.theme["fg"]}">{desc}</td></tr>\n'
+        desc = val[0] if isinstance(val, tuple) else '(no description)'
+        s += (f'<tr>'
+              f'<td width="80" style="color: {settings.theme["fg_bright"]}; '
+              f'white-space: nowrap">{util.simple_escape(key)}</td>\n'
+              f'<td style="color: {settings.theme["fg"]}">{desc}</td></tr>\n')
     s += '</table><br />\n'
     return s
+
+
+def _split_dict(d: dict) -> tuple[dict, dict]:
+    """Split a dict into two roughly equal halves by key count."""
+    items = list(d.items())
+    mid = len(items) // 2
+    return dict(items[:mid]), dict(items[mid:])
 
 
 class HelpWindow(QWidget):
@@ -55,15 +62,14 @@ class HelpWindow(QWidget):
         layout.setSpacing(12)
         self.setLayout(layout)
 
-        # Split keymaps into three columns
+        global_a, global_b = _split_dict(keymap.global_keymap)
+
         columns = [
             [("Navigation", keymap.navigation_keymap),
-             ("Global", keymap.global_keymap),
-             ("Dashboard", keymap.dashboard_keymap)],
-            [("Search view", keymap.search_keymap),
-             ("Compose view", keymap.compose_keymap)],
-            [("Thread view", keymap.thread_keymap),
+             ("Compose view", keymap.compose_keymap),
              ("Command bar", keymap.command_bar_keymap)],
+            [("Global", global_a)],
+            [("Global", global_b)],
         ]
 
         for col_maps in columns:

@@ -16,95 +16,120 @@
 # You should have received a copy of the GNU General Public License
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
-from . import settings
-import logging
+# ── Consolidated global keymap ────────────────────────────────────────
+#
+# In the split-pane layout the search/dashboard list and the thread
+# preview are always visible.  Every key does exactly one thing,
+# delegating to the list or the thread preview directly — no key
+# changes behaviour depending on focus, and no <escape> preamble is
+# needed.
+#
+# List keys       → Dodo.delegate_to_list()
+# Thread keys     → Dodo.delegate_to_thread()
+# Global keys     → Dodo methods (open_search, sync_mail, …)
 
 global_keymap = {
-  '?':       ('show help', lambda a: a.show_help()),
-  'Q':       ('quit', lambda a: a.prompt_quit()),
-  '`':       ('sync mail', lambda a: a.sync_mail(quiet=False)),
-  'j':       ('next thread', lambda a: a.navigate_list('next')),
-  'k':       ('previous thread', lambda a: a.navigate_list('previous')),
-  's':       ('mark and advance', lambda a: a.mark_and_advance()),
-  'a':       ('archive', lambda a: a.delegate_to_list('archive_thread')),
-  'd':       ('delete', lambda a: a.delegate_to_list('delete_thread')),
-  'A':       ('archive to local', lambda a: a.delegate_to_list('archive_to_local')),
-  'l':       ('next panel', lambda a: a.next_panel()),
-  'h':       ('previous panel', lambda a: a.previous_panel()),
-  'x':       ('close panel', lambda a: a.close_panel()),
-  'X':       ('close all', lambda a: [a.close_panel(i) for i in reversed(range(a.num_panels()))]),
-  'c':       ('compose', lambda a: a.open_compose()),
-  'I':       ('show inbox', lambda a: a.open_search('tag:inbox')),
-  'U':       ('show unread', lambda a: a.open_search('tag:inbox and tag:unread')),
-  'F':       ('show flagged', lambda a: a.open_search('tag:flagged')),
-  'T':       ('show tags', lambda a: a.open_tags()),
-  'D':       ('show dashboard', lambda a: a.open_dashboard()),
-  '/':       ('search', lambda a: a.search_bar()),
-  't t':     ('tag', lambda a: a.tag_bar()),
-  't m':     ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
+  # ── Thread list ──────────────────────────────────────────────────
+  'j':           ('next thread', lambda a: a.navigate_list('next')),
+  'k':           ('previous thread', lambda a: a.navigate_list('previous')),
+  '<down>':      ('next thread', lambda a: a.navigate_list('next')),
+  '<up>':        ('previous thread', lambda a: a.navigate_list('previous')),
+  '<tab>':       ('next unread', lambda a: a.delegate_to_list('next_thread', unread=True)),
+  'S-<tab>':     ('previous unread', lambda a: a.delegate_to_list('previous_thread', unread=True)),
+  'g g':         ('first thread', lambda a: a.delegate_to_list('first_thread')),
+  'G':           ('last thread', lambda a: a.delegate_to_list('last_thread')),
+  'C-d':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
+  'C-u':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
+  '<pageup>':    ('page up (list)', lambda a: a.delegate_to_list('prev_page')),
+  '<pagedown>':  ('page down (list)', lambda a: a.delegate_to_list('next_page')),
+  '<enter>':     ('open thread', lambda a: a.delegate_to_list('open_current_thread')),
+  'u':           ('toggle unread', lambda a: a.delegate_to_list('toggle_thread_tag', 'unread')),
+  'f':           ('toggle flagged', lambda a: a.delegate_to_list('toggle_thread_tag', 'flagged')),
+  's':           ('mark and advance', lambda a: a.mark_and_advance()),
+  'a':           ('archive', lambda a: a.delegate_to_list('archive_thread')),
+  'd':           ('delete', lambda a: a.delegate_to_list('delete_thread')),
+  'A':           ('archive to local', lambda a: a.delegate_to_list('archive_to_local')),
+
+  # ── Message viewer ───────────────────────────────────────────────
+  'J':           ('next message', lambda a: a.delegate_to_thread('next_message')),
+  'K':           ('previous message', lambda a: a.delegate_to_thread('previous_message')),
+  '<space>':     ('page down (message)', lambda a: a.delegate_to_thread('scroll_message', pages=1)),
+  '-':           ('page up (message)', lambda a: a.delegate_to_thread('scroll_message', pages=-1)),
+  'H':           ('toggle HTML', lambda a: a.delegate_to_thread('toggle_html')),
+  'M':           ('toggle thread list mode', lambda a: a.delegate_to_thread('toggle_list_mode')),
+  'r':           ('reply to all', lambda a: a.delegate_to_thread('reply', to_all=True)),
+  'R':           ('reply', lambda a: a.delegate_to_thread('reply', to_all=False)),
+  'C-f':         ('forward', lambda a: a.delegate_to_thread('forward')),
+  'O':           ('open attachments', lambda a: a.delegate_to_thread('open_attachments')),
+  '<escape>':    ('focus list', lambda a: a.main_window.focus_list()),
+
+  # ── Global ───────────────────────────────────────────────────────
+  '?':           ('show help', lambda a: a.show_help()),
+  'Q':           ('quit', lambda a: a.prompt_quit()),
+  '`':           ('sync mail', lambda a: a.sync_mail(quiet=False)),
+  'l':           ('next panel', lambda a: a.next_panel()),
+  'h':           ('previous panel', lambda a: a.previous_panel()),
+  'x':           ('close panel', lambda a: a.close_panel()),
+  'X':           ('close all', lambda a: [a.close_panel(i) for i in reversed(range(a.num_panels()))]),
+  'c':           ('compose', lambda a: a.open_compose()),
+  'I':           ('show inbox', lambda a: a.open_search('tag:inbox')),
+  'U':           ('show unread', lambda a: a.open_search('tag:inbox and tag:unread')),
+  'F':           ('show flagged', lambda a: a.open_search('tag:flagged')),
+  'T':           ('show tags', lambda a: a.open_tags()),
+  'D':           ('show dashboard', lambda a: a.open_dashboard()),
+  '/':           ('search', lambda a: a.search_bar()),
+  't t':         ('tag', lambda a: a.tag_bar()),
+  't m':         ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 """The global keymap
 
-A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.app.Dodo` as input. This commands can be superseded by the various
-local keymaps.
+Every key delegates either to the thread list or the thread preview
+pane directly (via :func:`~dodo.app.Dodo.delegate_to_list` or
+:func:`~dodo.app.Dodo.delegate_to_thread`), so all bindings work
+regardless of which pane has keyboard focus.
 """
 
-# Split-pane navigation hints — displayed in help but these keys are
-# actually handled by the local keymaps (dashboard/search/thread).
-navigation_keymap = {
-  'j / k':     ('next / previous thread (always)', lambda a: None),
-  'J / K':     ('next / previous message', lambda a: None),
-  '<enter>':   ('open thread / next message', lambda a: None),
-  '<escape>':  ('focus list (from thread)', lambda a: a.main_window.focus_list()),
-  '<space> / -': ('page down / up', lambda a: None),
-  's':         ('mark and advance', lambda a: None),
-  't m':       ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
-}
-
-search_keymap = {
-  'j':          ('next thread', lambda p: p.next_thread()),
-  'k':          ('previous thread', lambda p: p.previous_thread()),
-  '<down>':     ('next thread', lambda p: p.next_thread()),
-  '<up>':       ('previous thread', lambda p: p.previous_thread()),
-  '<tab>':      ('next unread', lambda p: p.next_thread(unread=True)),
-  'S-<tab>':    ('previous unread', lambda p: p.previous_thread(unread=True)),
-  'g g':        ('first thread', lambda p: p.first_thread()),
-  'G':          ('last thread', lambda p: p.last_thread()),
-  'C-d':        ('down 20', lambda p: [p.next_thread() for i in range(20)]),
-  'C-u':        ('up 20', lambda p: [p.previous_thread() for i in range(20)]),
-  '<pageup>':   ('page up', lambda p: p.prev_page()),
-  '<pagedown>': ('page down', lambda p: p.next_page()),
-  '<enter>':    ('open thread / focus preview', lambda p: p.open_current_thread()),
-  'a':          ('archive', lambda p: p.archive_thread()),
-  'd':          ('delete', lambda p: p.delete_thread()),
-  'A':          ('archive to local', lambda p: p.archive_to_local()),
-  'u':          ('toggle unread', lambda p: p.toggle_thread_tag('unread')),
-  'f':          ('toggle flagged', lambda p: p.toggle_thread_tag('flagged')),
-  's':          ('mark and advance', lambda p: [p.toggle_thread_tag('marked'), p.next_thread()]),
-}
-
-# Add configurable tag hotkeys (1-9) to both local and global keymaps
-# so they work from search/dashboard panels AND the thread preview.
+# Add configurable tag hotkeys (1-9) to the global keymap.
 for _k in '123456789':
-    def _make_hotkey(k: str):
-        def handler(p):
-            tag = settings.tag_hotkeys.get(k)
-            logging.getLogger(__name__).debug('hotkey %s → tag=%s', k, tag)
-            if tag:
-                p.toggle_thread_tag(tag)
-        return (f'toggle tag hotkey {k}', handler)
-    entry = _make_hotkey(_k)
-    search_keymap[_k] = entry
     global_keymap[_k] = (
         f'toggle tag hotkey {_k}',
         lambda a, k=_k: a.toggle_tag_hotkey(k))
 
+# ── Navigation help (display-only) ───────────────────────────────────
+
+navigation_keymap = {
+  'j / k':       ('next / previous thread', lambda a: None),
+  'J / K':       ('next / previous message', lambda a: None),
+  '<enter>':     ('open thread', lambda a: None),
+  '<escape>':    ('focus list', lambda a: None),
+  '<space> / -': ('page down / up (message)', lambda a: None),
+  's':           ('mark and advance', lambda a: None),
+  't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
+}
+
+# ── Local keymaps ────────────────────────────────────────────────────
+#
+# search_keymap and thread_keymap are empty — all their keys now live
+# in global_keymap.  dashboard_keymap copies search_keymap as before.
+
+search_keymap: dict = {}
 """The local keymap for search panels
 
-A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.search.SearchPanel` as input.
+All search keys have been consolidated into :data:`global_keymap`.
+This dictionary exists so that ``config.py`` can still add
+search-specific overrides.
 """
+
+thread_keymap: dict = {}
+"""The local keymap for thread panels
+
+All thread keys have been consolidated into :data:`global_keymap`.
+This dictionary exists so that ``config.py`` can still add
+thread-specific overrides.
+"""
+
+dashboard_keymap = dict(search_keymap)
+"""The local keymap for the dashboard panel (copy of ``search_keymap``)."""
 
 tag_keymap = {
   'j':       ('next tag', lambda p: p.next_tag()),
@@ -123,33 +148,6 @@ A dictionary from key strings to pairs consisting of a short docstring and a fun
 taking :class:`~dodo.search.TagPanel` as input.
 """
 
-thread_keymap = {
-  '<escape>':  ('focus list', lambda p: p.app.main_window.focus_list()),
-  '<enter>':   ('next message', lambda p: p.next_message()),
-  'J':          ('next message', lambda p: p.next_message()),
-  'K':          ('previous message', lambda p: p.previous_message()),
-  'U':          ('next matching unread message', lambda p: p.next_unread()),
-  'g g':        ('top of message', lambda p: p.scroll_message(pos='top')),
-  'G':          ('bottom of message', lambda p: p.scroll_message(pos='bottom')),
-  '<pageup>':   ('page up', lambda p: p.scroll_message(pages=-1)),
-  '<pagedown>': ('page down', lambda p: p.scroll_message(pages=1)),
-  '<space>':    ('page down', lambda p: p.scroll_message(pages=1)),
-  '-':          ('page up', lambda p: p.scroll_message(pages=-1)),
-  'u':          ('toggle unread', lambda p: p.toggle_message_tag('unread')),
-  'f':          ('toggle flagged', lambda p: p.toggle_message_tag('flagged')),
-  'H':          ('toggle HTML', lambda p: p.toggle_html()),
-  'M':          ('toggle thread list mode', lambda p: p.toggle_list_mode()),
-  'r':          ('reply to all', lambda p: p.reply(to_all=True)),
-  'R':          ('reply', lambda p: p.reply(to_all=False)),
-  'C-f':        ('forward', lambda p: p.forward()),
-  'O':          ('show attachments in file browser', lambda p: p.open_attachments()),
-}
-"""The local keymap for thread panels
-
-A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.thread.ThreadPanel` as input.
-"""
-
 compose_keymap = {
   '<enter>': ('edit message', lambda p: p.edit()),
   'S':       ('send', lambda p: p.send()),
@@ -166,27 +164,11 @@ A dictionary from key strings to pairs consisting of a short docstring and a fun
 taking :class:`~dodo.compose.ComposePanel` as input.
 """
 
-dashboard_keymap = dict(search_keymap)
-"""The local keymap for the dashboard panel
-
-DashboardPanel and SearchPanel share the same bindings and target
-method names (both use dodo.actions.MarkableActionsMixin for
-tag/archive/delete, and implement the same next_thread/previous_thread
-navigation API), so this is a copy of search_keymap rather than a
-second hand-maintained dict. Override entries here (or in config.py)
-for dashboard-specific bindings.
-
-A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.dashboard.DashboardPanel` as input.
-"""
-
 command_bar_keymap = {
   '<enter>':  ('accept', lambda b: b.accept()),
   '<escape>': ('close', lambda b: b.close_bar()),
   '<down>':   ('history next', lambda b: b.history_next()),
   '<up>':     ('history previous', lambda b: b.history_previous()),
-  'C-n':      ('history next', lambda b: b.history_next()),
-  'C-p':      ('history previous', lambda b: b.history_previous()),
 }
 """The keymap active when the command bar is visible
 

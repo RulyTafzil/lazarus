@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, Any, List, Tuple, Literal, Set
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings, QTimer
-from PyQt6.QtWidgets import QTreeView, QHeaderView
+from PyQt6.QtWidgets import QTreeView, QHeaderView, QAbstractSlider
 from PyQt6.QtGui import QFont, QColor
 
 import logging
@@ -369,19 +369,63 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
                 return r
         return current
 
-    def next_thread(self) -> None:
-        """Select the next thread (skip headers)."""
-        row = self.tree.currentIndex().row()
-        next_r = self._next_row(row)
-        if next_r != row:
-            self.tree.setCurrentIndex(self.model.index(next_r, 0))
+    def next_thread(self, unread: bool = False) -> None:
+        """Select the next thread (skip headers).
 
-    def previous_thread(self) -> None:
-        """Select the previous thread (skip headers)."""
+        :param unread: if True, jump to the next unread thread
+        """
         row = self.tree.currentIndex().row()
-        prev_r = self._prev_row(row)
-        if prev_r != row:
-            self.tree.setCurrentIndex(self.model.index(prev_r, 0))
+        while True:
+            row += 1
+            if row >= self.model.rowCount():
+                break
+            if not self.model.is_header(row):
+                if not unread:
+                    self.tree.setCurrentIndex(self.model.index(row, 0))
+                    break
+                td = self.model.thread_data(self.model.index(row, 0))
+                if td and 'tags' in td and 'unread' in td['tags']:
+                    self.tree.setCurrentIndex(self.model.index(row, 0))
+                    break
+
+    def previous_thread(self, unread: bool = False) -> None:
+        """Select the previous thread (skip headers).
+
+        :param unread: if True, jump to the previous unread thread
+        """
+        row = self.tree.currentIndex().row()
+        while True:
+            row -= 1
+            if row < 0:
+                break
+            if not self.model.is_header(row):
+                if not unread:
+                    self.tree.setCurrentIndex(self.model.index(row, 0))
+                    break
+                td = self.model.thread_data(self.model.index(row, 0))
+                if td and 'tags' in td and 'unread' in td['tags']:
+                    self.tree.setCurrentIndex(self.model.index(row, 0))
+                    break
+
+    def prev_page(self) -> None:
+        """Scroll up a page in the list."""
+        bar = self.tree.verticalScrollBar()
+        if bar.value() == bar.minimum():
+            self.first_thread()
+            return
+        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)
+        pos = self.tree.rect().bottomLeft()
+        self.tree.setCurrentIndex(self.tree.indexAt(pos))
+
+    def next_page(self) -> None:
+        """Scroll down a page in the list."""
+        bar = self.tree.verticalScrollBar()
+        if bar.value() == bar.maximum():
+            self.last_thread()
+            return
+        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepAdd)
+        pos = self.tree.rect().topLeft()
+        self.tree.setCurrentIndex(self.tree.indexAt(pos))
 
     def first_thread(self) -> None:
         """Select the first thread."""

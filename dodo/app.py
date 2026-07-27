@@ -297,12 +297,24 @@ class Dodo(QApplication):
             w.toggle_thread_tag('marked')
             w.next_thread()
 
-    def delegate_to_list(self, method: str) -> None:
-        """Call *method* on the current list panel, even if thread
-        preview has focus.  Silently no-ops if not applicable."""
+    def delegate_to_list(self, method: str, **kwargs: object) -> None:
+        """Call *method* on the current list panel with *kwargs*.
+
+        Always targets the list tab, even when the thread preview
+        has focus.  Silently no-ops if the panel doesn't have the method.
+        """
         w = self.tabs.currentWidget()
         if w and hasattr(w, method):
-            getattr(w, method)()
+            getattr(w, method)(**kwargs)
+
+    def delegate_to_thread(self, method: str, **kwargs: object) -> None:
+        """Call *method* on the active thread preview with *kwargs*.
+
+        Silently no-ops if no thread is showing or the method is missing.
+        """
+        tp = self.main_window.active_thread()
+        if tp is not None and hasattr(tp, method):
+            getattr(tp, method)(**kwargs)
 
     def toggle_tag_hotkey(self, key: str) -> None:
         """Toggle the tag configured for hotkey *key* on the current
