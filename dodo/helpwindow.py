@@ -35,6 +35,11 @@ def _render_keymap(name: str, mp: dict) -> str:
     s += f'font-size: {settings.search_font_size}pt; width: 100%">\n'
     for key, val in mp.items():
         desc = val[0] if isinstance(val, tuple) else '(no description)'
+        # Resolve tag hotkey descriptions to show the configured tag name
+        if desc.startswith('toggle tag hotkey '):
+            hotkey = desc.rsplit(' ', 1)[-1]
+            tag = settings.tag_hotkeys.get(hotkey, 'undefined')
+            desc = f'toggle {tag}'
         s += (f'<tr>'
               f'<td width="80" style="color: {settings.theme["fg_bright"]}; '
               f'white-space: nowrap">{util.simple_escape(key)}</td>\n'
