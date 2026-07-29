@@ -468,11 +468,35 @@ def move_to_archive(notmuch_query: str) -> int:
         capture_output=True, text=True)
     # Errors here are non-fatal — file moves proceed regardless
 
-    archive_cur = _find_archive_dir()
+    return move_files(notmuch_query, os.path.expanduser(settings.archive_dir))
+
+
+def move_files(notmuch_query: str, target_dir: str) -> int:
+    """Move mail files matching *notmuch_query* into ``target_dir/cur/``.
+
+    This only handles the physical file move — it does **not** change
+    any notmuch tags.  Callers are responsible for any tagging they
+    want alongside the move (e.g. :func:`dodo.rules.apply_rules` tags
+    first, then calls this for rules with a ``move_to`` folder).
+
+    File moves are enqueued to the same background worker used by
+    :func:`move_to_trash` and :func:`move_to_archive`, so rapid
+    successive moves are serialised and ``notmuch new`` fires once
+    after each batch.
+
+    :returns: the number of *files found* (moves happen asynchronously)
+    """
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', notmuch_query],
+        capture_output=True, text=True)
+
+    target_cur = os.path.join(os.path.expanduser(target_dir), 'cur')
+    os.makedirs(target_cur, exist_ok=True)
 
     moves: List[Tuple[str, str]] = []
     found = 0
-    seen = set()
+    seen: set[str] = set()
     for f in r.stdout.strip().split('\n'):
         if not f or f in seen:
             continue
@@ -483,8 +507,14 @@ def move_to_archive(notmuch_query: str) -> int:
             logger.debug('file gone (no match): %s', os.path.basename(f))
             continue
         f = resolved
+        # Skip files already under the target directory — a file may
+        # still match the query after a previous move if its tags
+        # haven't changed (e.g. a rule with move_to but no tag_remove).
+        if f.startswith(target_cur + os.sep):
+            logger.debug('skip (already in target): %s', os.path.basename(f))
+            continue
         basename = _strip_uid_annotation(os.path.basename(f))
-        moves.append((f, _unique_dest(os.path.join(archive_cur, basename))))
+        moves.append((f, _unique_dest(os.path.join(target_cur, basename))))
 
     if moves:
         _get_worker().enqueue(moves)

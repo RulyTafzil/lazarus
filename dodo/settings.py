@@ -33,8 +33,10 @@ unless you set them properly. The rest of the settings have reasonable
 defaults, as detailed below.
 """
 
+from __future__ import annotations
 from . import themes
-from typing import Literal, Dict, Union
+from . import rules
+from typing import Literal, Dict, List, Union
 
 # functional
 email_address: Union[str, Dict[str, str]] = ''
@@ -228,6 +230,45 @@ When True, 'notmuch new' is called with --no-hooks when a message is sent. One
 may not wanting to wait for the hooks on each sent email, for example when
 calling mbsync on their notmuch hooks. Other users may set this to False, for
 example when notmuch hooks are used to archive sent mail."""
+
+use_signature = True
+"""Whether to automatically insert a per-account signature when composing.
+
+Signatures are loaded from files (not from this settings module -- see
+:mod:`dodo.signature`), one per account:
+
+.. code-block:: text
+
+  $XDG_CONFIG_HOME/dodo/<account>/signature       (plain text)
+  $XDG_CONFIG_HOME/dodo/<account>/signature.html   (HTML)
+
+where ``<account>`` is one of the names in
+:func:`~dodo.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
+``~/.config``). Either file is optional; if only ``signature.html``
+exists its plaintext rendering (via :func:`~dodo.util.html2text`) is
+used until Dodo has a rich-text compose mode. Set this to False to
+disable signature insertion entirely.
+"""
+
+filter_rules: List[rules.Rule] = []
+"""A list of :class:`dodo.rules.Rule` mail filters, applied automatically
+after every sync (and on demand via the ``C-r`` keybinding).
+
+Each rule is a notmuch query plus tags to add/remove from anything
+matching it. See the "Mail filters" section of README.md for a worked
+example.
+"""
+
+filter_scope_query = 'tag:inbox and tag:unread'
+"""Notmuch query limiting which mail :func:`~dodo.settings.filter_rules`
+are allowed to touch.
+
+Rules are applied as ``(filter_scope_query) and (rule.query)``, so
+this is what keeps a new/changed rule from re-tagging your entire
+archive the next time it runs -- it should describe "freshly arrived,
+not yet triaged" mail. The default, newly-synced unread inbox mail, is
+a reasonable definition of that for most setups.
+"""
 
 # logging
 log_level = 'WARNING'

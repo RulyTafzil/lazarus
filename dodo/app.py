@@ -42,7 +42,10 @@ from . import commandbar
 from . import helpwindow
 from . import panel
 from . import mainwindow
+from . import rules
 from .webengine import LOCAL_PROTOCOLS
+
+logger = logging.getLogger(__name__)
 
 class SyncMailThread(QThread):
     """A QThread used for syncing local Maildir and notmuch with IMAP
@@ -486,6 +489,11 @@ class Dodo(QApplication):
         self.sync_thread = t
 
         def done() -> None:
+            if t.notmuch_rc == 0 and settings.filter_rules:
+                try:
+                    rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+                except Exception as e:
+                    logger.warning('Error applying filter rules: %s', e)
             self.refresh_panels()
             self.refresh_tab_titles()
             # Parse mbsync summary for status bar
@@ -537,6 +545,26 @@ class Dodo(QApplication):
 
         t.finished.connect(done)
         t.start()
+
+    def apply_filter_rules(self) -> None:
+        """Manually (re-)apply :func:`~dodo.settings.filter_rules`
+
+        Runs the same rules :func:`sync_mail` applies automatically after
+        every sync, against the same :func:`~dodo.settings.filter_scope_query`
+        scope. Useful for testing a rule you just added without waiting for
+        (or forcing) a full sync.
+        """
+        if not settings.filter_rules:
+            self.status_message('No filter_rules configured', 'info')
+            return
+        try:
+            n = rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+        except Exception as e:
+            logger.warning('Error applying filter rules: %s', e)
+            self.status_message(f'Error applying filter rules: {e}', 'error')
+            return
+        self.refresh_panels()
+        self.status_message(f'Applied filter rules ({n} matched)', 'info')
 
     def num_panels(self) -> int:
         """Returns the number of panels (i.e. tabs) currently open"""

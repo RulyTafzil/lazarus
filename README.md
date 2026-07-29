@@ -153,6 +153,107 @@ By default, you can use the `[` and `]` keys to cycle through different accounts
 For multiple incoming mail accounts, just sync all accounts into subdirectories of a single directory and point `notmuch` to the main directory.
 
 
+### Signatures
+
+Signatures are per-account and are loaded from files, not from `config.py` — that keeps a signature (personal data) separate from configuration (which you might keep in version control), and lets you manage it with other tools (a symlink to a company template, a script, etc.) independently of Dodo.
+
+For each account name in `dodo.settings.smtp_accounts`, Dodo looks for:
+
+```
+$XDG_CONFIG_HOME/dodo/<account>/signature       # plain text
+$XDG_CONFIG_HOME/dodo/<account>/signature.html  # HTML
+```
+
+(`$XDG_CONFIG_HOME` defaults to `~/.config`.) So, continuing the two-account example above, you'd create:
+
+```
+~/.config/dodo/work/signature
+~/.config/dodo/fun/signature
+```
+
+Either file is optional, and you don't need both. If only `signature.html` exists, its plain-text rendering (via `dodo.util.html2text`) is used as a fallback in the meantime — Dodo's compose editor is currently plain text, so `signature.html` is read and stored but not yet inserted directly; it'll be used as-is once a rich-text compose mode lands.
+
+The signature is inserted automatically when you open a new message, reply, or forward, right after the area where you type and before any quoted or forwarded text below it. Set `dodo.settings.use_signature = False` to disable this entirely.
+
+
+### Mail filters
+
+Filter rules let Dodo automatically tag and file incoming mail based on a
+notmuch query, similar to filters/rules in other mail clients. They run
+automatically after every sync, and can also be re-run on demand with the
+``C-r`` key (useful for testing a new rule against mail you already have,
+without waiting for the next sync).
+
+Configure a list of ``dodo.rules.Rule`` objects as
+``dodo.settings.filter_rules`` in ``config.py``:
+
+```python
+import dodo
+from dodo.rules import Rule
+
+dodo.settings.filter_rules = [
+    # GitHub notifications: tag, remove from inbox, and file to Archive
+    Rule(
+        name='github notifications',
+        query='from:notifications@github.com',
+        tag_add=['github'],
+        tag_remove=['inbox', 'unread'],
+        move_to='~/Mail/Archive',
+    ),
+
+    # Flag anything from your manager (tag only, no move)
+    Rule(query='from:boss@work.com', tag_add=['flagged', 'work']),
+]
+```
+
+Each ``Rule`` has:
+
+- ``query`` — a notmuch query (same syntax as the search bar) selecting
+  which messages the rule applies to
+- ``tag_add`` / ``tag_remove`` — lists of tags to add/remove from matching
+  messages (either can be omitted)
+- ``move_to`` — optional path to a Maildir folder.  Matching messages are
+  moved into ``<move_to>/cur/`` after any tags are applied (e.g.
+  ``'~/Mail/Archive'`` or ``'~/Mail/Work/Projects'``).  File moves use
+  the same background worker and stale-path resolution as the ``A``
+  archive-to-local hotkey.
+- ``name`` — optional, just used to identify the rule in log messages
+
+A rule needs at least one of ``tag_add``, ``tag_remove``, or ``move_to``
+to do anything.
+
+#### Query discipline
+
+Rules are applied as ``(filter_scope_query) and (rule.query)``, where
+``filter_scope_query`` defaults to ``'tag:inbox and tag:unread'`` —
+freshly-arrived, not-yet-triaged mail.  This scope is what keeps a rule
+from re-tagging your entire archive every time it runs.
+
+**Construct your rules so a message no longer qualifies after the rule
+has acted on it.**  For example, if your scope is ``tag:inbox and
+tag:unread`` and a rule moves mail to Archive, include
+``tag_remove=['inbox', 'unread']`` so the message falls out of the scope
+on the next sync.  If you omit that, the message still matches the scope
+and the rule will try to file it again (and again on every sync).
+
+As a safety net, ``move_files`` skips files whose source path is already
+under the target directory, so you won't get silent duplicates even if
+the tags don't update.  But the rule will still spin up subprocesses
+unnecessarily, so matching your tags to your scope is the right fix.
+
+Adjust the scope in ``config.py`` if your workflow needs it:
+
+```python
+dodo.settings.filter_scope_query = 'tag:inbox and tag:unread and date:7d..'
+```
+
+If you want folder-based filing that runs whether or not Dodo itself is
+open (e.g. mapping a Gmail label to a local folder), that belongs at the
+notmuch-hook level (``~/.config/notmuch/default/hooks/post-new``).  Rules
+here are for things you want tagged and organised whenever Dodo happens
+to sync.
+
+
 ### Custom commands with the command bar
 
 By default, the command bar can be opened in two modes, `'search'` and `'tag'`, for searching and tagging messages, respectively. You can create more modes on-the-fly from `config.py` by passing a new name and a Python callback function to [CommandBar.open](https://dodomail.readthedocs.io/en/latest/api.html#dodo.commandbar.CommandBar.open). Here's an example which creates a new mode called `'notmuch'` for running arbitrary notmuch commands:

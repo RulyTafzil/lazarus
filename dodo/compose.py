@@ -45,6 +45,7 @@ from . import keymap
 from . import settings
 from . import util
 from . import pgp_util
+from . import signature
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
@@ -103,6 +104,11 @@ class ComposePanel(panel.Panel):
         self.pgp_sign = self.gnupg_keyid() is not None
         self.raw_message_string = f'From: {self.email_address()}\n'
 
+        self.signature_text: Optional[str] = None
+        self.signature_html: Optional[str] = None
+        if settings.use_signature:
+            self.signature_text, self.signature_html = signature.load(self.account_name())
+
         if msg and mode == 'mailto':
             if 'To' in msg['headers']:
                 self.raw_message_string += f'To: {msg["headers"]["To"]}\n'
@@ -112,7 +118,7 @@ class ComposePanel(panel.Panel):
             else:
                 self.raw_message_string += 'Subject: \n'
 
-            self.raw_message_string += '\n\n\n'
+            self.raw_message_string += '\n\n\n' + self._signature_block()
 
         elif msg and (mode == 'reply' or mode == 'replyall'):
             send_to = [(name, e) for name, e in senders + recipients if not util.email_is_me(e)]
@@ -133,7 +139,7 @@ class ComposePanel(panel.Panel):
                     subject = 'RE: ' + subject
                 self.raw_message_string += f'Subject: {subject}\n'
 
-            self.raw_message_string += '\n\n\n' + util.quote_body_text(msg)
+            self.raw_message_string += '\n\n\n' + self._signature_block() + util.quote_body_text(msg)
 
         elif msg and mode == 'forward':
             self.raw_message_string += f'To: \n'
@@ -149,7 +155,7 @@ class ComposePanel(panel.Panel):
             if temp_dir: self.temp_dirs.append(temp_dir)
             for f in att: self.raw_message_string += f'A: {f}\n'
 
-            self.raw_message_string += '\n\n\n---------- Forwarded message ---------\n'
+            self.raw_message_string += '\n\n\n' + self._signature_block() + '---------- Forwarded message ---------\n'
             for h in ['From', 'Date', 'Subject', 'To']:
                 if h in msg['headers']:
                     self.raw_message_string += f'{h}: {msg["headers"][h]}\n'
@@ -157,7 +163,7 @@ class ComposePanel(panel.Panel):
             self.raw_message_string += '\n' + util.body_text(msg) + '\n'
 
         else:
-            self.raw_message_string += 'To: \nSubject: \n\n'
+            self.raw_message_string += 'To: \nSubject: \n\n' + self._signature_block()
 
         self.editor_thread: Optional[EditorThread] = None
         self.sendmail_thread: Optional[SendmailThread] = None
@@ -285,6 +291,16 @@ class ComposePanel(panel.Panel):
             return 'default'
         return settings.smtp_accounts[self.current_account]
 
+    def _signature_block(self) -> str:
+        """Return the '-- \\n<signature>\\n' block for the current
+        account's plaintext signature, or '' if none is configured.
+
+        See :mod:`dodo.signature` for where this is loaded from.
+        """
+        if not self.signature_text:
+            return ''
+        return '-- \n' + self.signature_text.rstrip('\n') + '\n'
+
     def email_address(self) -> str:
         """Return email address that should be used in From: header"""
 
@@ -292,6 +308,31 @@ class ComposePanel(panel.Panel):
             return settings.email_address[self.account_name()]
         else:
             return settings.email_address
+
+    def _reload_signature(self) -> None:
+        """Swap the signature block in *raw_message_string* for the
+        current account's signature (if any).
+
+        Called by :func:`next_account` and :func:`previous_account` so
+        the compose buffer tracks which account is active.
+        """
+        old_block = self._signature_block()
+        if settings.use_signature:
+            self.signature_text, self.signature_html = signature.load(
+                self.account_name())
+        else:
+            self.signature_text = None
+            self.signature_html = None
+        new_block = self._signature_block()
+
+        if old_block == new_block:
+            return
+        if old_block:
+            self.raw_message_string = self.raw_message_string.replace(
+                old_block, new_block, 1)
+        elif new_block:
+            headers, body = util.separate_headers(self.raw_message_string)
+            self.raw_message_string = headers + '\n\n' + new_block + body
 
     def next_account(self) -> None:
         """Cycle to the next SMTP account in :func:`~dodo.settings.smtp_accounts`"""
@@ -303,6 +344,7 @@ class ComposePanel(panel.Panel):
             self.raw_message_string = util.replace_header(self.raw_message_string, 'From', self.email_address())
 
         self.pgp_sign = self.gnupg_keyid() is not None
+        self._reload_signature()
         self.refresh()
 
     def previous_account(self) -> None:
@@ -315,6 +357,7 @@ class ComposePanel(panel.Panel):
             self.raw_message_string = util.replace_header(self.raw_message_string, 'From', self.email_address())
 
         self.pgp_sign = self.gnupg_keyid() is not None
+        self._reload_signature()
         self.refresh()
 
     def send(self) -> None:
