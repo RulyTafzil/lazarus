@@ -37,12 +37,12 @@ new rule against existing mail without waiting for the next sync.
 """
 
 from __future__ import annotations
-import subprocess
 import logging
 from dataclasses import dataclass, field
 from typing import List
 
 from . import actions
+from . import notmuch
 
 logger = logging.getLogger(__name__)
 
@@ -71,15 +71,6 @@ class Rule:
         return self.name or self.query
 
 
-def _count_threads(query: str) -> int:
-    r = subprocess.run(['notmuch', 'count', '--output=threads', '--', query],
-                       capture_output=True, text=True)
-    try:
-        return int(r.stdout.strip() or '0')
-    except ValueError:
-        return 0
-
-
 def apply_rules(rules: List[Rule], scope_query: str) -> int:
     """Apply each rule in ``rules``, in order, to messages matching
     ``(scope_query) and (rule.query)``.
@@ -99,16 +90,22 @@ def apply_rules(rules: List[Rule], scope_query: str) -> int:
             continue
 
         combined_query = f'({scope_query}) and ({rule.query})'
-        count = _count_threads(combined_query)
+        count = notmuch.count(combined_query)
         if count == 0:
             continue
 
+        # Collect files BEFORE tagging: if tag_remove drops a tag that
+        # scope_query or rule.query itself depends on (e.g. removing
+        # 'unread' when scope is 'tag:inbox and tag:unread'), a search
+        # for combined_query run *after* tagging would match nothing,
+        # and a move_to folder would silently receive no files even
+        # though the tags were applied correctly.
+        files = actions.collect_files(combined_query) if rule.move_to else []
+
         if rule.tag_add or rule.tag_remove:
-            cmd = ['notmuch', 'tag']
-            cmd += [f'+{t}' for t in rule.tag_add]
-            cmd += [f'-{t}' for t in rule.tag_remove]
-            cmd += ['--', combined_query]
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            tag_expr = (' '.join(f'+{t}' for t in rule.tag_add)
+                        + ' ' + ' '.join(f'-{t}' for t in rule.tag_remove))
+            r = notmuch.tag(tag_expr.strip(), combined_query)
             if r.returncode != 0:
                 logger.warning('Filter rule %r failed: %s',
                                rule.describe(), r.stderr.strip())
@@ -116,7 +113,7 @@ def apply_rules(rules: List[Rule], scope_query: str) -> int:
 
         if rule.move_to:
             try:
-                actions.move_files(combined_query, rule.move_to)
+                actions.move_specific_files(files, rule.move_to)
             except OSError as e:
                 logger.warning(
                     'Filter rule %r file move to %r failed: %s',

@@ -38,6 +38,7 @@ import re
 import subprocess
 
 from . import settings
+from . import notmuch
 
 logger = logging.getLogger(__name__)
 
@@ -186,21 +187,20 @@ class ThreadModel(QAbstractItemModel):
     # -- data fetching -------------------------------------------------------
 
     def _fetch_full_thread(self) -> list:
-        cmd = [
-            'notmuch', 'show', '--exclude=false', '--format=json',
+        args = [
+            'show', '--exclude=false', '--format=json',
             '--verify', '--include-html', '--decrypt=true',
             f'thread:{self.thread_id}',
         ]
-        logger.info("Full thread refresh: %s", cmd)
-        r = subprocess.run(
-            cmd, stdout=subprocess.PIPE, encoding='utf8', check=True)
+        logger.info("Full thread refresh: %s", args)
+        r = notmuch.run(*args, check=True)
         return json.loads(r.stdout)
 
     def _fetch_matching_ids(self) -> set[str]:
-        r = subprocess.run(
-            ['notmuch', 'search', '--exclude=false', '--format=json',
-             '--output=messages', f'thread:{self.thread_id} AND {self.query}'],
-            stdout=subprocess.PIPE, encoding='utf8', check=True,
+        r = notmuch.run(
+            'search', '--exclude=false', '--format=json',
+            '--output=messages', f'thread:{self.thread_id} AND {self.query}',
+            check=True,
         )
         return set(json.loads(r.stdout))
 
@@ -274,11 +274,11 @@ class ThreadModel(QAbstractItemModel):
         logger.info("Single message refresh: %s", msg_id)
 
         try:
-            r = subprocess.run(
-                ['notmuch', 'show', '--entire-thread=false',
-                 '--exclude=false', '--format=json', '--verify',
-                 '--include-html', '--decrypt=true', f'id:{msg_id}'],
-                stdout=subprocess.PIPE, encoding='utf8', check=True,
+            r = notmuch.run(
+                'show', '--entire-thread=false',
+                '--exclude=false', '--format=json', '--verify',
+                '--include-html', '--decrypt=true', f'id:{msg_id}',
+                check=True,
             )
             matches = self._fetch_matching_ids()
         except subprocess.CalledProcessError:
@@ -308,10 +308,7 @@ class ThreadModel(QAbstractItemModel):
         msg_id = m['id']
         if '+' not in tag_expr and '-' not in tag_expr:
             tag_expr = '+' + tag_expr
-        subprocess.run(
-            ['notmuch', 'tag'] + tag_expr.split() + ['--', 'id:' + msg_id],
-            stdout=subprocess.PIPE,
-        )
+        notmuch.tag(tag_expr, 'id:' + msg_id)
         self.messageChanged.emit(idx)
 
     def toggle_message_tag(self, idx: QModelIndex, tag: str) -> None:

@@ -45,6 +45,7 @@ from . import mainwindow
 from . import rules
 from . import actions
 from . import address_completer
+from . import notmuch
 from .webengine import LOCAL_PROTOCOLS
 
 logger = logging.getLogger(__name__)
@@ -564,13 +565,7 @@ class Dodo(QApplication):
         Bound to the ``d d`` keychord.
         """
         # Count first, confirm, then expunge
-        r = subprocess.run(
-            ['notmuch', 'count', '--output=files', 'tag:trash'],
-            capture_output=True, text=True)
-        try:
-            count = int(r.stdout.strip() or '0')
-        except ValueError:
-            count = 0
+        count = notmuch.count('tag:trash', output='files')
 
         if count == 0:
             self.status_message('Trash is empty', 'info')

@@ -22,13 +22,13 @@ from typing import Optional, Any, overload, Literal, List, Tuple
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QObject
 from PyQt6.QtWidgets import QTreeView, QWidget
 from PyQt6.QtGui import QFont, QColor
-import subprocess
 import json
 
 from . import app
 from . import settings
 from . import keymap
 from . import panel
+from . import notmuch
 from .search import columns
 
 
@@ -42,20 +42,13 @@ class TagModel(QAbstractItemModel):
     def refresh(self) -> None:
         """Refresh the model by (re-) running "notmuch search"."""
         self.beginResetModel()
-        r = subprocess.run(['notmuch', 'search', '--output=tags', '*'],
-                stdout=subprocess.PIPE)
-        tag_str = r.stdout.decode('utf-8')
 
         self.d: List[Tuple[str,str,str]] = []
 
-        for t in tag_str.splitlines():
-            r1 = subprocess.run(['notmuch', 'count', '--output=threads', '--', 'tag:'+t],
-                    stdout=subprocess.PIPE)
-            c = r1.stdout.decode('utf-8').strip()
-            r1 = subprocess.run(['notmuch', 'count', '--output=threads', '--', f'tag:{t} AND tag:unread'],
-                    stdout=subprocess.PIPE)
-            cu = r1.stdout.decode('utf-8').strip()
-            self.d.append((t, cu, c))
+        for t in notmuch.tags():
+            c = notmuch.count(f'tag:{t}')
+            cu = notmuch.count(f'tag:{t} AND tag:unread')
+            self.d.append((t, str(cu), str(c)))
 
         self.endResetModel()
 

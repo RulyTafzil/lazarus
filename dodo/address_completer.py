@@ -38,6 +38,8 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtWidgets import QCompleter, QLineEdit
 
+from . import notmuch
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -58,11 +60,11 @@ class _AddressLoader(QThread):
 
     def run(self) -> None:
         try:
-            r = subprocess.run(
-                ['notmuch', 'address', '--output=recipients',
-                 '--deduplicate=address', '--format=json',
-                 '--', '*'],
-                capture_output=True, text=True, timeout=60,
+            r = notmuch.run(
+                'address', '--output=recipients',
+                '--deduplicate=address', '--format=json',
+                '--', '*',
+                timeout=60,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             logger.warning('notmuch address full load failed: %s', e)

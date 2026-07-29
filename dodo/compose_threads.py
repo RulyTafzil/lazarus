@@ -36,6 +36,7 @@ import traceback
 import logging
 
 from . import settings
+from . import notmuch
 from . import pgp_util
 from . import mime_builder
 
@@ -135,17 +136,12 @@ class SendmailThread(QThread):
                     m.set_flags('S')
                     mailbox.Maildir(sent_dir).add(m)
 
-                notmuch_command = ['notmuch', 'new']
-                if settings.no_hooks_on_send:
-                    notmuch_command.append('--no-hooks')
-                subprocess.run(notmuch_command)
+                notmuch.new(no_hooks=settings.no_hooks_on_send)
 
                 if ((self.panel.mode == 'reply' or
                      self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
-                    subprocess.run(
-                        ['notmuch', 'tag', '+replied', '--',
-                         'id:' + self.panel.msg['id']])
+                    notmuch.tag('+replied', 'id:' + self.panel.msg['id'])
                 self.panel.set_status('sent', color='fg_good')
                 self.send_success = True
             else:

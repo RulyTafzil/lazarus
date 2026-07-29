@@ -28,6 +28,7 @@ import logging
 
 from . import app
 from . import settings
+from . import notmuch
 from . import keymap
 from . import panel
 from . import actions
@@ -127,9 +128,7 @@ class SearchModel(QAbstractItemModel):
         logger.info("Beginning search refresh for '%s'", self.q)
         self.beginResetModel()
         try:
-            r = subprocess.run(['notmuch', 'search', '--format=json', self.q],
-                    capture_output=True, text=True, check=True)
-            self.json_str = r.stdout
+            self.json_str = notmuch.search_json(self.q)
             self.d = json.loads(self.json_str)
             self.error_msg = None
         except subprocess.CalledProcessError as e:
@@ -151,13 +150,8 @@ class SearchModel(QAbstractItemModel):
         logger.info("Search '%s': refreshing thread %s", self.q, thread_id)
         self.beginResetModel()
         try:
-            r = subprocess.run(
-                    ['notmuch', 'search', '--format=json', f'{self.q} AND thread:{thread_id}'],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    )
-            contents = json.loads(r.stdout)
+            contents = json.loads(
+                notmuch.search_json(f'{self.q} AND thread:{thread_id}'))
 
             self.d[row:row+1] = contents
             self.threads = {thread['thread']: i for i,thread in enumerate(self.d)}
@@ -171,12 +165,7 @@ class SearchModel(QAbstractItemModel):
         """Only refresh the number of threads in the search, not the underlying data"""
         logger.info("Search '%s': Refreshing cached thread count", self.q)
         try:
-            r = subprocess.run(
-                    ['notmuch', 'count', '--output=threads', self.q],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    )
+            r = notmuch.run('count', '--output=threads', self.q, check=True)
             self.num_threads = int(r.stdout)
         except subprocess.CalledProcessError as e:
             # Just log the error and move on

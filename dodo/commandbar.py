@@ -17,7 +17,6 @@
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-import subprocess
 from typing import Dict, List, Tuple, Optional, Callable, Any
 from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QKeyEvent
@@ -28,6 +27,7 @@ from . import util
 from . import keymap
 from . import search
 from . import thread
+from . import notmuch
 
 class CommandBar(QLineEdit):
     """A command bar that appears on the bottom of the screen when searching
@@ -45,9 +45,7 @@ class CommandBar(QLineEdit):
 
     def _get_completer(self):
         """Prepare the completer for tags."""
-        r = subprocess.run(['notmuch', 'search', '--output=tags', '*'], stdout=subprocess.PIPE)
-        tags = r.stdout.decode('utf-8').splitlines()
-        completer = QCompleter(tags, self)
+        completer = QCompleter(notmuch.tags(), self)
         completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         completer.setFilterMode(QtCore.Qt.MatchFlag.MatchContains)

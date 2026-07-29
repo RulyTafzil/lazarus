@@ -32,7 +32,6 @@ immediately after enqueueing, so it never races the renames.
 from __future__ import annotations
 import os
 import re
-import subprocess
 import logging
 import queue
 from typing import Set, Optional, List, Tuple, Literal
@@ -40,6 +39,7 @@ from typing import Set, Optional, List, Tuple, Literal
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from . import settings
+from . import notmuch
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ def _run_notmuch_new() -> None:
     of the renames and miss them, silently deferring pickup to the next
     sync.
     """
-    subprocess.run(['notmuch', 'new', '--no-hooks'], capture_output=True)
+    notmuch.new()
 
 
 def _get_worker() -> _BulkMoveWorker:
@@ -213,16 +213,12 @@ def _resolve_stale_path(f: str) -> Optional[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def _collect_files(query: str) -> list[str]:
+def collect_files(query: str) -> list[str]:
     """Return deduplicated, resolved file paths matching *query*."""
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', query],
-        capture_output=True, text=True)
     files: list[str] = []
     seen: set[str] = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
+    for f in notmuch.search_files(query, exclude_false=True):
+        if f in seen:
             continue
         seen.add(f)
         resolved = _resolve_stale_path(f)
@@ -248,12 +244,9 @@ def move_to_trash(notmuch_query: str) -> int:
     Returns the number of *files moved* (happens asynchronously).
     """
     # Search BEFORE tagging — tag changes may alter query matching.
-    files = _collect_files(notmuch_query)
+    files = collect_files(notmuch_query)
 
-    subprocess.run(
-        ['notmuch', 'tag', '+trash', '-inbox', '-unread',
-         '-marked', '--', notmuch_query],
-        capture_output=True, text=True)
+    notmuch.tag('+trash -inbox -unread', notmuch_query, exclude_marked=True)
 
     moves: List[Tuple[str, str]] = []
     for f in files:
@@ -336,10 +329,7 @@ class MarkableActionsMixin:
             tag_expr = '+' + tag_expr
 
         if mode == 'tag marked':
-            r = subprocess.run(
-                ['notmuch', 'tag'] + tag_expr.split()
-                + ['-marked', '--', self._marked_query()],
-                capture_output=True, text=True)
+            r = notmuch.tag(tag_expr, self._marked_query(), exclude_marked=True)
             if r.returncode != 0:
                 self.app.status_message(
                     f'Tag error: {r.stderr.strip()[:200]}', 'error')
@@ -349,10 +339,7 @@ class MarkableActionsMixin:
             thread_id = self._current_thread_id()
             if not thread_id:
                 return
-            r = subprocess.run(
-                ['notmuch', 'tag'] + tag_expr.split()
-                + ['--', 'thread:' + thread_id],
-                capture_output=True, text=True)
+            r = notmuch.tag(tag_expr, 'thread:' + thread_id)
             if r.returncode != 0:
                 self.app.status_message(
                     f'Tag error: {r.stderr.strip()[:200]}', 'error')
@@ -371,14 +358,9 @@ class MarkableActionsMixin:
         """Archive (``-inbox -unread``) all marked threads in this
         panel's scope, or the current thread if none are marked."""
         marked_query = self._marked_query()
-        count = int(subprocess.run(
-            ['notmuch', 'count', '--output=threads', marked_query],
-            capture_output=True, text=True).stdout.strip() or '0')
+        count = notmuch.count(marked_query)
         if count > 0:
-            r = subprocess.run(
-                ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
-                 marked_query],
-                capture_output=True, text=True)
+            r = notmuch.tag('-inbox -unread', marked_query, exclude_marked=True)
             if r.returncode != 0:
                 self.app.status_message(
                     f'Archive error: {r.stderr.strip()[:200]}', 'error')
@@ -400,10 +382,7 @@ class MarkableActionsMixin:
             return
         self._advance_selection()
         self._clear_preview_if_showing(thread_id)
-        r = subprocess.run(
-            ['notmuch', 'tag', '-inbox', '-unread', '--',
-             'thread:' + thread_id],
-            capture_output=True, text=True)
+        r = notmuch.tag('-inbox -unread', 'thread:' + thread_id)
         if r.returncode != 0:
             self.app.status_message(
                 f'Archive error: {r.stderr.strip()[:200]}', 'error')
@@ -434,14 +413,7 @@ class MarkableActionsMixin:
         """Move the current thread (or all marked threads) from Trash
         back to INBOX, undoing a soft-delete."""
         marked_query = self._marked_query()
-        r = subprocess.run(
-            ['notmuch', 'count', '--output=files',
-             f'tag:trash AND ({marked_query})'],
-            capture_output=True, text=True)
-        try:
-            count = int(r.stdout.strip() or '0')
-        except ValueError:
-            count = 0
+        count = notmuch.count(f'tag:trash AND ({marked_query})', output='files')
 
         if count > 0:
             moved = restore_from_trash(
@@ -502,28 +474,33 @@ def move_to_archive(notmuch_query: str) -> int:
 
     Returns the number of *files found*.
     """
-    # Search BEFORE tagging — tag removal may alter query matching.
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', notmuch_query],
-        capture_output=True, text=True)
+    # Search BEFORE tagging: notmuch_query often includes tag:inbox or
+    # tag:unread (e.g. the default 'tag:inbox' view), and those are
+    # exactly the tags we're about to remove. Re-searching afterwards
+    # would match nothing, so we move this exact file list instead of
+    # re-querying inside move_files().
+    files = collect_files(notmuch_query)
+    notmuch.tag('-inbox -unread', notmuch_query, exclude_marked=True)
+    # Errors here are non-fatal — file moves proceed regardless.
 
-    subprocess.run(
-        ['notmuch', 'tag', '-inbox', '-unread', '-marked', '--',
-         notmuch_query],
-        capture_output=True, text=True)
-    # Errors here are non-fatal — file moves proceed regardless
-
-    return move_files(notmuch_query, os.path.expanduser(settings.archive_dir))
+    return move_specific_files(files, os.path.expanduser(settings.archive_dir))
 
 
 def move_files(notmuch_query: str, target_dir: str) -> int:
-    """Move mail files matching *notmuch_query* into ``target_dir/cur/``.
+    """Search for *notmuch_query* and move matching files into
+    ``target_dir/cur/``.
 
     This only handles the physical file move — it does **not** change
-    any notmuch tags.  Callers are responsible for any tagging they
-    want alongside the move (e.g. :func:`dodo.rules.apply_rules` tags
-    first, then calls this for rules with a ``move_to`` folder).
+    any notmuch tags.
+
+    CAUTION: the search happens *inside* this call. If a caller tags
+    ``notmuch_query`` (e.g. removing a tag the query itself depends
+    on, such as ``tag:inbox``) before calling this, the search here
+    will run against the already-changed tags and can match nothing.
+    Callers that tag first should instead call :func:`collect_files`
+    *before* tagging and pass the result to :func:`move_specific_files`
+    directly (see :func:`move_to_archive` and
+    :func:`dodo.rules.apply_rules` for examples).
 
     File moves are enqueued to the same background worker used by
     :func:`move_to_trash` and :func:`move_to_archive`, so rapid
@@ -532,15 +509,26 @@ def move_files(notmuch_query: str, target_dir: str) -> int:
 
     :returns: the number of *files moved* (happens asynchronously)
     """
-    files = _collect_files(notmuch_query)
+    return move_specific_files(collect_files(notmuch_query), target_dir)
 
+
+def move_specific_files(files: List[str], target_dir: str) -> int:
+    """Move an already-resolved list of file paths into
+    ``target_dir/cur/``.
+
+    Use this instead of :func:`move_files` whenever the file list was
+    collected *before* a tagging operation that might change which
+    files a fresh search would match.
+
+    :returns: the number of *files moved* (happens asynchronously)
+    """
     target_cur = os.path.join(os.path.expanduser(target_dir), 'cur')
     os.makedirs(target_cur, exist_ok=True)
 
     moves: List[Tuple[str, str]] = []
     for f in files:
         # Skip files already under the target directory — a file may
-        # still match the query after a previous move if its tags
+        # still be in the list after a previous move if its tags
         # haven't changed (e.g. a rule with move_to but no tag_remove).
         if f.startswith(target_cur + os.sep):
             logger.debug('skip (already in target): %s', os.path.basename(f))
@@ -563,7 +551,7 @@ def expunge_trash() -> int:
 
     :returns: the number of files marked ``T``
     """
-    files = _collect_files('tag:trash')
+    files = collect_files('tag:trash')
 
     tagged = 0
     for f in files:
@@ -593,9 +581,7 @@ def expunge_trash() -> int:
         tagged += 1
 
     if tagged:
-        subprocess.run(
-            ['notmuch', 'tag', '-trash', '--', 'tag:trash'],
-            capture_output=True, text=True)
+        notmuch.tag('-trash', 'tag:trash')
 
     return tagged
 
@@ -610,7 +596,7 @@ def restore_from_trash(notmuch_query: str) -> int:
 
     :returns: the number of files moved
     """
-    files = _collect_files(notmuch_query)
+    files = collect_files(notmuch_query)
 
     moves: List[Tuple[str, str]] = []
     for f in files:
@@ -630,9 +616,7 @@ def restore_from_trash(notmuch_query: str) -> int:
         moves.append((f, _unique_dest(os.path.join(inbox_cur, basename))))
 
     if moves:
-        subprocess.run(
-            ['notmuch', 'tag', '-trash', '+inbox', '--', notmuch_query],
-            capture_output=True, text=True)
+        notmuch.tag('-trash +inbox', notmuch_query)
         _get_worker().enqueue(moves)
 
     return len(moves)
