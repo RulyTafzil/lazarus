@@ -153,14 +153,21 @@ taking :class:`~dodo.search.TagPanel` as input.
 """
 
 compose_keymap = {
-  '<enter>': ('edit message', lambda p: p.edit()),
-  'S':       ('send', lambda p: p.send()),
-  'a':       ('attach file', lambda p: p.attach_file()),
-  'e':       ('toggle PGP-encrypt', lambda p: p.toggle_pgp_encrypt()),
-  'p':       ('toggle PGP-sign', lambda p: p.toggle_pgp_sign()),
-  'w':       ('toggle word wrap', lambda p: p.toggle_wrap()),
-  ']':       ('next SMTP account', lambda p: p.next_account()),
-  '[':       ('previous SMTP account', lambda p: p.previous_account()),
+  '<escape>':    ('toggle focus', lambda p: p.escape_focus()),
+  '<enter>':     ('insert newline', lambda p: p.insert_newline() if hasattr(p, 'insert_newline') else None),
+  'E':           ('edit externally', lambda p: p.edit_externally()),
+  'C-s':         ('send', lambda p: p.send()),
+  'C-S':         ('send', lambda p: p.send()),
+  'a':           ('attach file', lambda p: p.attach_file()),
+  'e':           ('toggle PGP-encrypt', lambda p: p.toggle_pgp_encrypt()),
+  'p':           ('toggle PGP-sign', lambda p: p.toggle_pgp_sign()),
+  'w':           ('toggle word wrap', lambda p: p.toggle_wrap()),
+  'C-p':         ('toggle preview', lambda p: p.toggle_preview()),
+  ']':           ('next SMTP account', lambda p: p.next_account()),
+  '[':           ('previous SMTP account', lambda p: p.previous_account()),
+  'C-b':         ('bold', lambda p: p.editor.toggle_bold() if hasattr(p, 'editor') else None),
+  'C-i':         ('italic', lambda p: p.editor.toggle_italic() if hasattr(p, 'editor') else None),
+  'C-u':         ('underline', lambda p: p.editor.toggle_underline() if hasattr(p, 'editor') else None),
 }
 """The local keymap for compose panels
 

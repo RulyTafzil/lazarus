@@ -231,6 +231,15 @@ may not wanting to wait for the hooks on each sent email, for example when
 calling mbsync on their notmuch hooks. Other users may set this to False, for
 example when notmuch hooks are used to archive sent mail."""
 
+compose_editor_font = 'DejaVu Sans Mono'
+"""Font used in the built-in compose editor."""
+
+compose_editor_font_size = 12
+"""Font size for the built-in compose editor."""
+
+compose_autocomplete_min_chars = 2
+"""Minimum characters before address autocomplete triggers."""
+
 use_signature = True
 """Whether to automatically insert a per-account signature when composing.
 

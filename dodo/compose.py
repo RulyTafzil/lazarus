@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, List, Set
 
 from PyQt6.QtCore import *
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFont, QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineWidgets import *
 import mailbox
@@ -46,12 +46,16 @@ from . import settings
 from . import util
 from . import pgp_util
 from . import signature
+from . import editor as editor_mod
+from . import address_completer
+from . import mime_builder
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
     import gnupg
 except ImportError as ex:
     pass
+
 
 class ComposePanel(panel.Panel):
     """A panel for composing messages
@@ -62,33 +66,21 @@ class ComposePanel(panel.Panel):
                 this cannot be None.
     """
 
-    def __init__(self, a: app.Dodo, mode: str='', msg: Optional[dict]=None, parent: Optional[QWidget]=None):
+    def __init__(self, a: app.Dodo, mode: str='', msg: Optional[dict]=None,
+                 parent: Optional[QWidget]=None):
         super().__init__(a, keep_open=False, parent=parent)
         self.set_keymap(keymap.compose_keymap)
         self.mode = mode
         self.msg = msg
-        self.message_view = QWebEngineView()
-        self.message_view.setStyleSheet(
-            f'background-color: {settings.theme["bg"]};')
-        self.message_view.page().setBackgroundColor(QColor(settings.theme['bg']))
-        self.message_view.setZoomFactor(1.2)
-        self.layout().addWidget(self.message_view)
-        self.status = f'<i style="color:{settings.theme["fg"]}">draft</i>'
-        self.current_account = 0
-        self.pgp_encrypt = False
-        self.wrap_message = settings.wrap_message
+        self.temp_dirs: List[str] = []
 
-        self.raw_message_string = f'From: {self.email_address()}\n'
-        self.message_string = ''
+        # ── Structured compose data ──────────────────────────────────
+        self._data = mime_builder.ComposeData()
 
+        # Determine initial account
         if msg:
             senders = util.get_header_addresses(msg['headers'], ['From', 'Reply-To'])
             recipients = util.get_header_addresses(msg['headers'], ['To', 'Cc'])
-
-            # Select current_account by checking which smtp_account's address
-            # is found first in the headers. Start with the recipient headers
-            # and continus in the senders. Select account with index 0 if none
-            # of the smtp_accounts matches.
             if isinstance(settings.email_address, dict):
                 self.current_account = next(
                         (
@@ -102,382 +94,791 @@ class ComposePanel(panel.Panel):
             self.current_account = 0
 
         self.pgp_sign = self.gnupg_keyid() is not None
-        self.raw_message_string = f'From: {self.email_address()}\n'
+        self.pgp_encrypt = False
+        self.wrap_message = settings.wrap_message
 
+        # ── Signatures ───────────────────────────────────────────────
         self.signature_text: Optional[str] = None
         self.signature_html: Optional[str] = None
         if settings.use_signature:
-            self.signature_text, self.signature_html = signature.load(self.account_name())
+            self.signature_text, self.signature_html = signature.load(
+                self.account_name())
+
+        # ── Build the layout ─────────────────────────────────────────
+        self._build_ui()
+
+        # ── Populate fields from mode ────────────────────────────────
+        self._data.from_addr = self.email_address()
 
         if msg and mode == 'mailto':
             if 'To' in msg['headers']:
-                self.raw_message_string += f'To: {msg["headers"]["To"]}\n'
-
+                self.to_field.setText(msg['headers']['To'])
             if 'Subject' in msg['headers']:
-                self.raw_message_string += f'Subject: {msg["headers"]["Subject"]}\n'
-            else:
-                self.raw_message_string += 'Subject: \n'
-
-            self.raw_message_string += '\n\n\n' + self._signature_block()
+                self.subject_field.setText(msg['headers']['Subject'])
+            self._insert_signature()
 
         elif msg and (mode == 'reply' or mode == 'replyall'):
-            send_to = [(name, e) for name, e in senders + recipients if not util.email_is_me(e)]
-
-            # put the first non-me email in To
-            if len(send_to) != 0:
-                to_value = email.utils.formataddr(send_to.pop(0))
-                self.raw_message_string += f'To: {to_value}\n'
-
-            # for replyall, put the rest of the emails in Cc
-            if len(send_to) != 0 and mode == 'replyall':
-                cc_values = [email.utils.formataddr(pair) for pair in send_to]
-                self.raw_message_string += f'Cc: {", ".join(cc_values)}\n'
+            send_to = [(name, e) for name, e in senders + recipients
+                       if not util.email_is_me(e)]
+            if send_to:
+                self.to_field.setText(email.utils.formataddr(send_to.pop(0)))
+                if mode == 'replyall' and send_to:
+                    cc_values = [email.utils.formataddr(pair) for pair in send_to]
+                    self.cc_field.setText(', '.join(cc_values))
 
             if 'Subject' in msg['headers']:
                 subject = msg['headers']['Subject']
-                if subject[0:3].upper() != 'RE:':
+                if subject[:3].upper() != 'RE:':
                     subject = 'RE: ' + subject
-                self.raw_message_string += f'Subject: {subject}\n'
+                self.subject_field.setText(subject)
 
-            self.raw_message_string += '\n\n\n' + self._signature_block() + util.quote_body_text(msg)
+            self._insert_signature()
+            quoted = util.quote_body_text(msg)
+            if quoted:
+                cursor = self.editor.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                cursor.insertText('\n' + quoted)
+                self.editor.setTextCursor(cursor)
 
         elif msg and mode == 'forward':
-            self.raw_message_string += f'To: \n'
-
             if 'Subject' in msg['headers']:
                 subject = msg['headers']['Subject']
-                if subject[0:3].upper() != 'FW:':
+                if subject[:3].upper() != 'FW:':
                     subject = 'FW: ' + subject
-                self.raw_message_string += f'Subject: {subject}\n'
+                self.subject_field.setText(subject)
 
-            # if the message has attachments, dump them to temp dir and attach them
+            # If the message has attachments, dump to temp dir
             temp_dir, att = util.write_attachments(msg)
-            if temp_dir: self.temp_dirs.append(temp_dir)
-            for f in att: self.raw_message_string += f'A: {f}\n'
+            if temp_dir:
+                self.temp_dirs.append(temp_dir)
+            for fi in att:
+                self._add_attachment_file(fi)
 
-            self.raw_message_string += '\n\n\n' + self._signature_block() + '---------- Forwarded message ---------\n'
+            self._insert_signature()
+            fwd_text = ('\n---------- Forwarded message ---------\n')
             for h in ['From', 'Date', 'Subject', 'To']:
                 if h in msg['headers']:
-                    self.raw_message_string += f'{h}: {msg["headers"][h]}\n'
-
-            self.raw_message_string += '\n' + util.body_text(msg) + '\n'
+                    fwd_text += f'{h}: {msg["headers"][h]}\n'
+            fwd_text += '\n' + util.body_text(msg) + '\n'
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.insertText(fwd_text)
+            self.editor.setTextCursor(cursor)
 
         else:
-            self.raw_message_string += 'To: \nSubject: \n\n' + self._signature_block()
+            self.to_field.setFocus()
+            self._insert_signature()
 
+        self._sync_data_from_fields()
         self.editor_thread: Optional[EditorThread] = None
         self.sendmail_thread: Optional[SendmailThread] = None
 
         self.refresh()
 
+    # ── UI construction ──────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        """Construct the compose panel UI."""
+        lay = self.layout()
+        if lay is None:
+            return
+        lay.setSpacing(4)
+
+        # --- Account bar ---
+        self.account_label = QLabel()
+        self.account_label.setStyleSheet(
+            f'color: {settings.theme["fg_good"]}; font-weight: bold;')
+        self.status_label = QLabel()
+        lay.addWidget(self._make_header_bar())
+
+        # --- From field (readonly) ---
+        self.from_label = QLabel()
+        self.from_label.setStyleSheet(
+            f'color: {settings.theme["fg_dim"]}; padding: 2px 4px;')
+        lay.addWidget(self.from_label)
+
+        # --- To field ---
+        self.to_field = QLineEdit()
+        self.to_field.setPlaceholderText('To')
+        self.to_field.setStyleSheet(self._field_style())
+        self._to_completer = address_completer.AddressCompleter(self)
+        self._to_completer.set_line_edit(self.to_field)
+        lay.addWidget(self.to_field)
+
+        # --- Cc field ---
+        self.cc_field = QLineEdit()
+        self.cc_field.setPlaceholderText('Cc')
+        self.cc_field.setStyleSheet(self._field_style())
+        self._cc_completer = address_completer.AddressCompleter(self)
+        self._cc_completer.set_line_edit(self.cc_field)
+        lay.addWidget(self.cc_field)
+
+        # --- Subject field ---
+        self.subject_field = QLineEdit()
+        self.subject_field.setPlaceholderText('Subject')
+        self.subject_field.setStyleSheet(self._field_style())
+        lay.addWidget(self.subject_field)
+
+        # --- Mode toggle bar ---
+        lay.addWidget(self._make_mode_bar())
+
+        # --- Editor / Preview stack ---
+        self.editor_stack = QStackedWidget()
+
+        # Page 0: Rich text editor
+        self.editor = editor_mod.RichTextEditor(self)
+        self.editor_stack.addWidget(self.editor)
+
+        # Page 1: HTML preview
+        self.message_view = QWebEngineView()
+        self.message_view.setStyleSheet(
+            f'background-color: {settings.theme["bg"]};')
+        self.message_view.page().setBackgroundColor(
+            QColor(settings.theme['bg']))
+        self.message_view.setZoomFactor(1.2)
+        self.editor_stack.addWidget(self.message_view)
+
+        lay.addWidget(self.editor_stack, stretch=1)
+
+        # --- Attachment bar ---
+        self.attachment_bar = QWidget()
+        self.attachment_layout = QHBoxLayout()
+        self.attachment_layout.setContentsMargins(0, 0, 0, 0)
+        self.attachment_layout.setSpacing(4)
+        self.attachment_bar.setLayout(self.attachment_layout)
+        self.attachment_bar.hide()
+        lay.addWidget(self.attachment_bar)
+
+        # Intercept compose command keys before QTextEdit can eat them
+        self.editor.installEventFilter(self)
+
+        # Start in editor mode
+        self._show_editor()
+
+    def _make_header_bar(self) -> QWidget:
+        """Build the top bar showing account selector + PGP status."""
+        bar = QWidget()
+        hlay = QHBoxLayout()
+        hlay.setContentsMargins(0, 0, 0, 0)
+        bar.setLayout(hlay)
+        hlay.addWidget(self.account_label)
+        hlay.addStretch()
+        hlay.addWidget(self.status_label)
+        return bar
+
+    def _make_mode_bar(self) -> QWidget:
+        """Build the bar with preview toggle, wrap toggle, and external
+        editor button."""
+        bar = QWidget()
+        hlay = QHBoxLayout()
+        hlay.setContentsMargins(0, 0, 0, 0)
+        bar.setLayout(hlay)
+
+        self.mode_btn = QPushButton('Edit')
+        self.mode_btn.setFlat(True)
+        self.mode_btn.setStyleSheet(
+            f'color: {settings.theme["fg_bright"]}; font-weight: bold;')
+        self.mode_btn.clicked.connect(self._toggle_mode)
+        hlay.addWidget(self.mode_btn)
+
+        hlay.addStretch()
+
+        self.wrap_btn = QPushButton('Wrap' if self.wrap_message else 'NoWrap')
+        self.wrap_btn.setFlat(True)
+        self.wrap_btn.setStyleSheet(f'color: {settings.theme["fg"]};')
+        self.wrap_btn.clicked.connect(self.toggle_wrap)
+        hlay.addWidget(self.wrap_btn)
+
+        return bar
+
+    def _field_style(self) -> str:
+        """Return a stylesheet string for header line edits."""
+        return (
+            f'background-color: {settings.theme["bg"]};'
+            f'color: {settings.theme["fg_bright"]};'
+            f'border: 1px solid {settings.theme["bg_button"]};'
+            f'border-radius: 3px;'
+            f'padding: 3px 6px;'
+            f'font-family: {settings.message_font};'
+            f'font-size: {settings.message_font_size}pt;'
+        )
+
+    # ── Mode switching ───────────────────────────────────────────────
+
+    def _show_editor(self) -> None:
+        self.editor_stack.setCurrentIndex(0)
+        self.mode_btn.setText('Edit')
+        self.editor.setFocus()
+
+    def _show_preview(self) -> None:
+        self._sync_data_from_fields()
+        self._update_preview()
+        self.editor_stack.setCurrentIndex(1)
+        self.mode_btn.setText('Preview')
+
+    def _toggle_mode(self) -> None:
+        if self.editor_stack.currentIndex() == 0:
+            self._show_preview()
+        else:
+            self._show_editor()
+
+    def toggle_preview(self) -> None:
+        """Toggle between editor and preview (Ctrl+P)."""
+        self._toggle_mode()
+
+    # ── Panel interface ──────────────────────────────────────────────
+
     def title(self) -> str:
         return 'compose'
 
     def refresh(self) -> None:
-        """Refresh the message text
-
-        This gets called automatically after the external editor has closed."""
-
-        # set message_string to be wrapped version of raw_message_string, depending on
-        # preferences
-        if self.wrap_message:
-            self.message_string = util.wrap_message(self.raw_message_string)
-        else:
-            self.message_string = self.raw_message_string
-
-        text = util.colorize_text(util.simple_escape(self.message_string), has_headers=True)
-
+        """Refresh the compose panel display."""
+        # Account label
         if len(settings.smtp_accounts) > 1:
-            account_str = f'<pre style="color: {settings.theme["fg_good"]}"><b>Account:</b> '
-            for i,acct in enumerate(settings.smtp_accounts):
+            parts = []
+            for i, acct in enumerate(settings.smtp_accounts):
                 if i == self.current_account:
-                    account_str += f'[{acct}]'
+                    parts.append(f'[{acct}]')
                 else:
-                    account_str += f' {acct} '
-            account_str += '</pre>'
+                    parts.append(f' {acct} ')
+            self.account_label.setText(
+                f'Account: {"".join(parts)}')
         else:
-            account_str = ''
+            self.account_label.setText('')
+
+        # From label
+        self.from_label.setText(f'From: {self.email_address()}')
+
+        # Status
+        pgp = []
+        if self.pgp_sign:
+            pgp.append('PGPSign')
+        if self.pgp_encrypt:
+            pgp.append('PGPEncrypt')
+        pgp_str = '  '.join(pgp)
+        self.status_label.setText(pgp_str)
+        self.status_label.setStyleSheet(
+            f'color: {settings.theme["fg"]}; font-style: italic;')
+
+        if self.editor_stack.currentIndex() == 1:
+            self._update_preview()
+
+        super().refresh()
+
+    def _update_preview(self) -> None:
+        """Render the message as HTML in the preview pane."""
+        self._sync_data_from_fields()
+
+        # Build header block
+        headers_html = ''
+        if self._data.to:
+            headers_html += (f'<b>To:</b> '
+                             f'{util.simple_escape(", ".join(self._data.to))}<br>')
+        if self._data.cc:
+            headers_html += (f'<b>Cc:</b> '
+                             f'{util.simple_escape(", ".join(self._data.cc))}<br>')
+        headers_html += (f'<b>Subject:</b> '
+                         f'{util.simple_escape(self._data.subject)}<br>')
+
+        # Body: show escaped plaintext — the WebEngineView can't resolve
+        # file:// references from the editor, and QTextEdit's HTML has
+        # Qt-specific styling that looks odd outside the widget.
+        escaped = util.simple_escape(self._data.body_text or '')
+        body_html = (f'<pre style="white-space: pre-wrap">'
+                     f'{util.colorize_text(escaped)}</pre>')
 
         self.message_view.setHtml(f"""<html>
         <style type="text/css">
         {util.make_message_css()}
         </style>
         <body>
-        {account_str}
-        <p>{self.status}   {'<i style="color:{settings.theme["fg"]}">PGPSign</i>' if self.pgp_sign else ''}   {'<i style="color:{settings.theme["fg"]}">PGPEncrypt</i>' if self.pgp_encrypt else ''}</p>
-        <pre style="white-space: pre-wrap">{text}</pre>
+        <div style="color:{settings.theme['fg_dim']}">{headers_html}</div>
+        <hr style="border-color:{settings.theme['bg_button']}">
+        {body_html}
         </body></html>""")
 
-        super().refresh()
+    def _sync_data_from_fields(self) -> None:
+        """Pull values from UI fields into self._data.
 
-    def edit(self) -> None:
-        """Edit the email message with an external text editor
+        Does NOT call ``collect_inline_images`` — that rewrites the
+        editor HTML and is only safe to call once, at send time.
+        """
+        self._data.from_addr = self.email_address()
+        self._data.to = _parse_address_list(self.to_field.text())
+        self._data.cc = _parse_address_list(self.cc_field.text())
+        self._data.subject = self.subject_field.text()
+        self._data.body_html = self.editor.body_html()
+        self._data.body_text = self.editor.toPlainText()
 
-        The editor is configured via :func:`dodo.settings.editor_command`."""
+    # ── Attachments ──────────────────────────────────────────────────
 
-        # only open one editor at a time
-        if self.editor_thread is None:
-            self.editor_thread = EditorThread(self, parent=self)
+    def _add_attachment_file(self, path: str) -> None:
+        """Add *path* to the attachment list and show a chip."""
+        if path in self._data.attachments:
+            return
+        self._data.attachments.append(path)
+        chip = self._make_attachment_chip(path)
+        self.attachment_layout.addWidget(chip)
+        self.attachment_bar.show()
 
-            def done() -> None:
-                if self.editor_thread:
-                    if not self.is_open:
-                        self.app.message('Compose panel closed',
-                                         'Compose panel closed while editing, email text saved in:\n    - {}'.format(
-                              self.editor_thread.file))
-                    self.editor_thread.deleteLater()
-                    self.editor_thread = None
-                self.refresh()
-                self.app.raise_panel(self)
+    def _remove_attachment(self, path: str) -> None:
+        """Remove *path* from the attachment list."""
+        if path in self._data.attachments:
+            self._data.attachments.remove(path)
+        # Rebuild chips
+        _clear_layout(self.attachment_layout)
+        for p in self._data.attachments:
+            self.attachment_layout.addWidget(self._make_attachment_chip(p))
+        if not self._data.attachments:
+            self.attachment_bar.hide()
 
-            self.editor_thread.finished.connect(done)
-            self.editor_thread.start()
+    def _make_attachment_chip(self, path: str) -> QWidget:
+        """Return a small chip widget showing the filename with an X button."""
+        chip = QWidget()
+        hlay = QHBoxLayout()
+        hlay.setContentsMargins(4, 2, 4, 2)
+        hlay.setSpacing(4)
+        chip.setLayout(hlay)
+        chip.setStyleSheet(
+            f'background-color: {settings.theme["bg_button"]};'
+            f'border-radius: 3px;'
+            f'padding: 2px;'
+        )
+
+        label = QLabel(os.path.basename(path))
+        label.setStyleSheet(f'color: {settings.theme["fg"]};')
+        hlay.addWidget(label)
+
+        btn = QPushButton('✕')
+        btn.setFlat(True)
+        btn.setFixedSize(18, 18)
+        btn.setStyleSheet(
+            f'color: {settings.theme["fg_dim"]}; border: none;'
+            f'font-size: 10pt;')
+        btn.clicked.connect(lambda: self._remove_attachment(path))
+        hlay.addWidget(btn)
+
+        return chip
 
     def attach_file(self) -> None:
-        """Attach a file
-
-        Opens a file browser for selecting a file to attach. If a file is selected, add it using the "A:"
-        pseudo-header. This will be translated into a proper attachment when the message is sent.
-
-        This command can also use the optional setting file_picker_command to run an external file picker
-        instead of Qt's built-in one."""
-
-        if settings.file_picker_command == None:
-            file_list, _filter = QFileDialog.getOpenFileNames()
+        """Open a file picker and attach the selected file(s)."""
+        if settings.file_picker_command is None:
+            file_list, _ = QFileDialog.getOpenFileNames()
         else:
             fd, file = tempfile.mkstemp()
             cmd = settings.file_picker_command.format(tempfile=file)
             subprocess.run(cmd, shell=True)
-
             with open(file, 'r') as f1:
                 file_list = f1.read().split('\n')
             os.remove(file)
 
         for att in file_list:
             if att != '':
-                self.raw_message_string = util.add_header_line(self.raw_message_string, 'A: ' + att)
+                self._add_attachment_file(att)
         self.refresh()
 
+    # ── Signatures ───────────────────────────────────────────────────
 
-    def toggle_wrap(self) -> None:
-        """Toggle message wrapping
+    def _insert_signature(self) -> None:
+        """Insert the current account's plaintext signature.
 
-        Tell Dodo to apply hard wrapping to message text for viewing and sending. This maintains an unwrapped
-        copy of the text for editing."""
-
-        self.wrap_message = not self.wrap_message
-        self.refresh()
-
-    def toggle_pgp_sign(self) -> None:
-        # Silently ignore when gnupg_keyid is not set
-        if not self.gnupg_keyid(): return
-        self.pgp_sign = True if self.pgp_sign is False else False
-        self.refresh()
-
-    def toggle_pgp_encrypt(self) -> None:
-        self.pgp_encrypt = True if self.pgp_encrypt is False else False
-        self.refresh()
-
-    def gnupg_keyid(self) -> str | None:
-        """Get the GPG key id to use based on the current SMTP account."""
-        if isinstance(settings.gnupg_keyid, dict):
-            return settings.gnupg_keyid.get(self.account_name())
-        else:
-            return settings.gnupg_keyid
-
-    def account_name(self) -> str:
-        """Return the name of the current SMTP account"""
-        if not settings.smtp_accounts:
-            return 'default'
-        return settings.smtp_accounts[self.current_account]
-
-    def _signature_block(self) -> str:
-        """Return the '-- \\n<signature>\\n' block for the current
-        account's plaintext signature, or '' if none is configured.
-
-        See :mod:`dodo.signature` for where this is loaded from.
+        On the first call the signature is appended at the end of the
+        document.  On subsequent calls (account switch) the old signature
+        block is replaced in-place — preserving any quoted reply text
+        that appears below it.
         """
-        if not self.signature_text:
-            return ''
-        return '-- \n' + self.signature_text.rstrip('\n') + '\n'
+        doc = self.editor.document()
+        full_text = doc.toPlainText()
 
-    def email_address(self) -> str:
-        """Return email address that should be used in From: header"""
+        new_block = ''
+        if self.signature_text:
+            new_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
 
-        if isinstance(settings.email_address, dict):
-            return settings.email_address[self.account_name()]
-        else:
-            return settings.email_address
+        # If we have a cached old signature, replace it in-place
+        if getattr(self, '_sig_block', None):
+            old_block = self._sig_block
+            idx = full_text.find(old_block)
+            if idx >= 0:
+                cursor = QTextCursor(doc)
+                cursor.setPosition(idx)
+                cursor.setPosition(
+                    idx + len(old_block),
+                    QTextCursor.MoveMode.KeepAnchor)
+                if new_block:
+                    cursor.insertText(new_block)
+                else:
+                    cursor.removeSelectedText()
+                self._sig_block = new_block
+                return
+
+        # No old signature — append at end
+        if not new_block:
+            return
+        cursor = self.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if full_text and not full_text.endswith('\n'):
+            cursor.insertText('\n')
+        cursor.insertText(new_block)
+        self._sig_block = new_block
+        self.editor.setTextCursor(cursor)
 
     def _reload_signature(self) -> None:
-        """Swap the signature block in *raw_message_string* for the
-        current account's signature (if any).
-
-        Called by :func:`next_account` and :func:`previous_account` so
-        the compose buffer tracks which account is active.
-        """
-        old_block = self._signature_block()
+        """Swap the signature when the account changes."""
         if settings.use_signature:
             self.signature_text, self.signature_html = signature.load(
                 self.account_name())
         else:
             self.signature_text = None
             self.signature_html = None
-        new_block = self._signature_block()
 
-        if old_block == new_block:
-            return
-        if old_block:
-            self.raw_message_string = self.raw_message_string.replace(
-                old_block, new_block, 1)
-        elif new_block:
-            headers, body = util.separate_headers(self.raw_message_string)
-            self.raw_message_string = headers + '\n\n' + new_block + body
+    # ── Account switching ────────────────────────────────────────────
+
+    def account_name(self) -> str:
+        """Return the name of the current SMTP account."""
+        if not settings.smtp_accounts:
+            return 'default'
+        return settings.smtp_accounts[self.current_account]
+
+    def email_address(self) -> str:
+        """Return the email address for the current account."""
+        if isinstance(settings.email_address, dict):
+            return settings.email_address[self.account_name()]
+        else:
+            return settings.email_address
+
+    def gnupg_keyid(self) -> str | None:
+        """Get the GPG key id for the current SMTP account."""
+        if isinstance(settings.gnupg_keyid, dict):
+            return settings.gnupg_keyid.get(self.account_name())
+        else:
+            return settings.gnupg_keyid
 
     def next_account(self) -> None:
-        """Cycle to the next SMTP account in :func:`~dodo.settings.smtp_accounts`"""
-
+        """Cycle to the next SMTP account."""
         old_email = self.email_address()
-        self.current_account = (self.current_account+1) % len(settings.smtp_accounts)
-
+        self.current_account = (self.current_account + 1) % len(
+            settings.smtp_accounts)
         if self.email_address() != old_email:
-            self.raw_message_string = util.replace_header(self.raw_message_string, 'From', self.email_address())
-
+            self._data.from_addr = self.email_address()
         self.pgp_sign = self.gnupg_keyid() is not None
         self._reload_signature()
+        self._insert_signature()
         self.refresh()
 
     def previous_account(self) -> None:
-        """Cycle to the previous SMTP account in :func:`~dodo.settings.smtp_accounts`"""
-
+        """Cycle to the previous SMTP account."""
         old_email = self.email_address()
-        self.current_account = (self.current_account-1) % len(settings.smtp_accounts)
-
+        self.current_account = (self.current_account - 1) % len(
+            settings.smtp_accounts)
         if self.email_address() != old_email:
-            self.raw_message_string = util.replace_header(self.raw_message_string, 'From', self.email_address())
-
+            self._data.from_addr = self.email_address()
         self.pgp_sign = self.gnupg_keyid() is not None
         self._reload_signature()
+        self._insert_signature()
         self.refresh()
 
-    def send(self) -> None:
-        """Send the message
+    # ── PGP toggles ──────────────────────────────────────────────────
 
-        Sends asynchronously using :class:`~dodo.compose.SendmailThread`. If one or more occurances of
-        the "A:" pseudo-header are detected, these are converted into attachments."""
+    def toggle_pgp_sign(self) -> None:
+        if not self.gnupg_keyid():
+            return
+        self.pgp_sign = not self.pgp_sign
+        self.refresh()
 
-        # only try to send mail once at a time
-        if self.sendmail_thread is None:
-            self.status = f'<i style="color:{settings.theme["fg_bright"]}">sending</i>'
+    def toggle_pgp_encrypt(self) -> None:
+        self.pgp_encrypt = not self.pgp_encrypt
+        self.refresh()
+
+    def toggle_wrap(self) -> None:
+        self.wrap_message = not self.wrap_message
+        self.wrap_btn.setText('Wrap' if self.wrap_message else 'NoWrap')
+        self.refresh()
+
+    # ── External editor (escape hatch) ───────────────────────────────
+
+    def edit_externally(self) -> None:
+        """Open the current message in the external editor.
+
+        Bound to the ``E`` key.  Dumps the editor content to a temp file,
+        opens it in the configured editor, and reads the result back."""
+        if self.editor_thread is not None:
+            return
+
+        self._sync_data_from_fields()
+        # Build a raw message string for the external editor
+        raw = self._build_raw_message_string()
+        self.editor_thread = EditorThread(raw, self, parent=self)
+
+        def done() -> None:
+            if self.editor_thread:
+                if not self.is_open:
+                    self.app.message(
+                        'Compose panel closed',
+                        'Compose panel closed while editing, '
+                        'email text saved in:\n    - {}'.format(
+                            self.editor_thread.file))
+                else:
+                    # Parse the result back into the editor
+                    self._load_from_raw_message(
+                        self.editor_thread.raw_message_string)
+                self.editor_thread.deleteLater()
+                self.editor_thread = None
             self.refresh()
-            self.sendmail_thread = SendmailThread(self, parent=self)
+            self.app.raise_panel(self)
 
-            def done() -> None:
-                if self.sendmail_thread:
-                    self.sendmail_thread.deleteLater()
-                    self.sendmail_thread = None
-                self.app.refresh_panels()
+        self.editor_thread.finished.connect(done)
+        self.editor_thread.start()
 
-            self.sendmail_thread.finished.connect(done)
-            self.sendmail_thread.start()
+    def _build_raw_message_string(self) -> str:
+        """Build a flat text representation for the external editor."""
+        lines = []
+        lines.append(f'From: {self._data.from_addr}')
+        if self._data.to:
+            lines.append(f'To: {", ".join(self._data.to)}')
+        if self._data.cc:
+            lines.append(f'Cc: {", ".join(self._data.cc)}')
+        lines.append(f'Subject: {self._data.subject}')
+        for p in self._data.attachments:
+            lines.append(f'A: {p}')
+        lines.append('')
+        lines.append(self._data.body_text)
+        return '\n'.join(lines)
+
+    def _load_from_raw_message(self, raw: str) -> None:
+        """Parse a flat text message back into the editor fields."""
+        headers, body = util.separate_headers(raw)
+        msg = email.message_from_string(raw, policy=email.policy.compat32)
+
+        # Extract headers
+        self.to_field.setText(msg.get('To', ''))
+        self.cc_field.setText(msg.get('Cc', ''))
+        self.subject_field.setText(msg.get('Subject', ''))
+
+        # Extract attachments (A: pseudo-header)
+        att_paths: list[str] = []
+        for line in headers.splitlines():
+            if line.startswith('A:'):
+                att_paths.append(line[2:].strip())
+
+        # Clear and rebuild attachments
+        self._data.attachments.clear()
+        _clear_layout(self.attachment_layout)
+        for p in att_paths:
+            self._add_attachment_file(p)
+
+        # Set body into editor
+        self.editor.clear()
+        self.editor.insertPlainText(body)
+
+    # ── Send ─────────────────────────────────────────────────────────
+
+    def send(self) -> None:
+        """Send the message asynchronously."""
+        if self.sendmail_thread is not None:
+            return
+
+        self._sync_data_from_fields()
+
+        # Collect inline images (rewrites file:// → cid: in editor HTML)
+        self._data.inline_images = self.editor.collect_inline_images()
+        self._data.body_html = self.editor.body_html()
+        self._data.body_text = self.editor.body_text()
+
+        # Use plain body text if there's no HTML content
+        if not self._data.body_html.strip():
+            self._data.body_html = ''
+
+        self.status_label.setText('sending...')
+        self.status_label.setStyleSheet(
+            f'color: {settings.theme["fg_bright"]}; font-style: italic;')
+        self.refresh()
+
+        self.sendmail_thread = SendmailThread(self, parent=self)
+        self.sendmail_thread.send_success = False
+
+        def done() -> None:
+            if self.sendmail_thread:
+                success = self.sendmail_thread.send_success
+                self.sendmail_thread.deleteLater()
+                self.sendmail_thread = None
+            else:
+                success = False
+            self.app.refresh_panels()
+            if success and self.is_open:
+                self.app.status_message('Email sent', 'info')
+                self.app.close_panel(self)
+
+        self.sendmail_thread.finished.connect(done)
+        self.sendmail_thread.start()
+
+    def escape_focus(self) -> None:
+        """Toggle focus between the editor and the compose panel chrome.
+
+        Bound to ``<escape>``.  While editing, all keys type text and only
+        Ctrl chords trigger commands.  Press ``<escape>`` to move focus to
+        the panel itself — then all compose command keys (``a``, ``p``,
+        ``e``, ``w``, ``E``, ``[``, ``]``) work as plain keypresses.
+        Press ``<escape>`` again to return to the editor.
+        """
+        if self.editor.hasFocus():
+            self.setFocus()
+        else:
+            self.editor.setFocus()
+
+    def insert_newline(self) -> None:
+        """Insert a newline at the editor cursor position.
+
+        Bound to ``<enter>`` — only active when the editor has focus.
+        """
+        if self.editor_stack.currentIndex() == 0:
+            self.editor.insertPlainText('\n')
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Override to let certain keys pass through to child line edits
+        before the panel keymap intercepts them.
+
+        When a QLineEdit has focus and its completer popup is visible,
+        ``<enter>`` and ``<tab>`` must reach the widget for the completer
+        to accept a suggestion.
+        """
+        fw = self.focusWidget()
+        if isinstance(fw, QLineEdit) and event.key() in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab):
+            # Let the QLineEdit handle this directly
+            QLineEdit.keyPressEvent(fw, event)
+            return
+        super().keyPressEvent(event)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """Intercept compose command chords before QTextEdit consumes them.
+
+        QTextEdit handles alphanumeric keys as text input, so Ctrl chords
+        never reach the panel keymap.  This filter catches **only** keys
+        with modifiers (Ctrl, Alt, Meta) plus ``<escape>`` and ``<enter>``
+        — plain letters and symbols pass through to the editor as text.
+        """
+        if obj is self.editor and event.type() == QEvent.Type.KeyPress:
+            key_event = typing.cast(QKeyEvent, event)
+            mods = key_event.modifiers()
+            modifier_held = bool(
+                mods & (Qt.KeyboardModifier.ControlModifier
+                        | Qt.KeyboardModifier.AltModifier
+                        | Qt.KeyboardModifier.MetaModifier))
+            k = util.key_string(key_event)
+            if k and self.keymap and k in self.keymap:
+                # Only intercept keys with modifiers, <escape>, or <enter>.
+                # Plain letters/symbols must reach the editor as text.
+                if modifier_held or key_event.key() in (
+                        Qt.Key.Key_Escape, Qt.Key.Key_Return,
+                        Qt.Key.Key_Enter):
+                    from . import panel as panel_mod
+                    panel_mod.Panel.keyPressEvent(self, key_event)
+                    return True
+        return super().eventFilter(obj, event)
 
     def set_status(self, status: str, color: str) -> None:
-        html_status = util.simple_escape(status)
-        self.status = f'<i style="color:{settings.theme[color]}">{html_status}</i>'
+        """Set the status label text and color."""
+        self.status_label.setText(status)
+        self.status_label.setStyleSheet(
+            f'color: {settings.theme[color]}; font-style: italic;')
 
+
+# -----------------------------------------------------------------------
+# Helper: parse comma-separated address list
+# -----------------------------------------------------------------------
+
+def _parse_address_list(text: str) -> list[str]:
+    """Parse a comma-separated address string into a list of trimmed entries."""
+    if not text.strip():
+        return []
+    return [a.strip() for a in text.split(',') if a.strip()]
+
+
+def _clear_layout(layout: QLayout) -> None:
+    """Remove all widgets from *layout*."""
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
+
+
+# -----------------------------------------------------------------------
+# EditorThread (external editor escape hatch)
+# -----------------------------------------------------------------------
 
 class EditorThread(QThread):
-    """A QThread used for editing mail with the external editor
+    """A QThread used for editing mail with the external editor."""
 
-    Used by the :func:`~dodo.compose.ComposePanel.edit` method."""
-
-    def __init__(self, panel: ComposePanel, parent: Optional[QObject]=None):
+    def __init__(self, raw_message: str, panel: ComposePanel,
+                 parent: Optional[QObject] = None):
         super().__init__(parent)
         self.panel = panel
+        self.raw_message_string = raw_message
         self.file = ''
 
     def run(self) -> None:
         fd, file = tempfile.mkstemp('.eml')
         self.file = file
         with os.fdopen(fd, 'w') as f:
-            f.write(self.panel.raw_message_string)
+            f.write(self.raw_message_string)
 
         cmd = settings.editor_command.format(file=file)
         subprocess.run(cmd, shell=True)
 
         with open(file, 'r') as f1:
-            self.panel.raw_message_string = f1.read()
+            self.raw_message_string = f1.read()
 
-        # only remove the temp file if the panel is still open, otherwise
-        # email contents will be lost
         if self.panel.is_open:
             os.remove(file)
 
+
+# -----------------------------------------------------------------------
+# SendmailThread
+# -----------------------------------------------------------------------
+
 class SendmailThread(QThread):
-    """A QThread used for editing mail with the external editor
+    """A QThread used for sending mail."""
 
-    Used by the :func:`~dodo.compose.ComposePanel.edit` method."""
-
-    def __init__(self, panel: ComposePanel, parent: Optional[QObject]=None):
+    def __init__(self, panel: ComposePanel,
+                 parent: Optional[QObject] = None):
         super().__init__(parent)
         self.panel = panel
+        self.send_success = False
 
     def run(self) -> None:
         try:
+            data = self.panel._data
             account = self.panel.account_name()
-            eml = typing.cast(email.message.EmailMessage, email.message_from_string(
-                self.panel.message_string,
-                policy = email.policy.EmailPolicy(utf8=False)))
-            attachments: List[str] = eml.get_all('A', [])
-            del eml['A']
 
-            # Reset the proper content headers for the body, otherwise we'll lose it
-            # if/when switching to multipart.
-            eml.set_content(eml.get_payload())
+            # Build message via mime_builder
+            eml = mime_builder.build_message(data)
 
-            eml['Message-ID'] = email.utils.make_msgid()
-            eml['User-Agent'] = 'Dodo'
-
-            # add a date if it's missing
-            if not "Date" in eml:
-                eml["Date"] = email.utils.formatdate(localtime=True)
-
-            # add "In-Reply-To" and "References" headers if there's an old message
+            # In-Reply-To and References
             if self.panel.msg and 'id' in self.panel.msg:
                 msg_id = f'<{self.panel.msg["id"]}>'
-                eml["In-Reply-To"] = msg_id
-
+                eml['In-Reply-To'] = msg_id
                 refs = [msg_id]
-                if 'filename' in self.panel.msg and len(self.panel.msg['filename']) != 0:
+                if ('filename' in self.panel.msg and
+                        len(self.panel.msg['filename']) != 0):
                     try:
                         with open(self.panel.msg['filename'][0]) as f:
-                            old_msg = email.parser.Parser().parse(f, headersonly=True)
-
-                            if "References" in old_msg:
-                                refs = old_msg["References"].split() + refs
+                            old_msg = email.parser.Parser().parse(
+                                f, headersonly=True)
+                            if 'References' in old_msg:
+                                refs = (old_msg['References'].split()
+                                        + refs)
                     except IOError:
-                        print("Couldn't open message to get References")
+                        logger = __import__('logging').getLogger(__name__)
+                        logger.debug("Couldn't open message for References")
+                eml['References'] = ' '.join(refs)
 
-                eml["References"] = ' '.join(refs)
-
-
-            for att in attachments:
-                mime, _ = mimetypes.guess_type(att)
-                if mime and len(mime.split('/')) == 2:
-                    ty = mime.split('/')
-                else:
-                    ty = ['application', 'octet-stream']
-
-                with open(os.path.expanduser(att), 'rb') as f1:
-                    data = f1.read()
-                    eml.add_attachment(data, maintype=ty[0], subtype=ty[1], filename=os.path.basename(att))
-
+            # PGP
             if self.panel.pgp_sign:
                 eml = pgp_util.sign(eml, self.panel.gnupg_keyid())
-
             if self.panel.pgp_encrypt:
                 eml = pgp_util.encrypt(eml)
 
+            # Send
             if isinstance(settings.send_mail_command, dict):
                 cmd = settings.send_mail_command[account]
             else:
@@ -488,35 +889,38 @@ class SendmailThread(QThread):
                 sendmail.stdin.write(eml.as_string())
                 sendmail.stdin.close()
             sendmail.wait(30)
+
             if sendmail.returncode == 0:
-                # save to sent folder
+                # Save to sent folder
                 if isinstance(settings.sent_dir, dict):
                     sent_dir = settings.sent_dir[account]
                 else:
                     sent_dir = settings.sent_dir
-                # None means we should discard the email, presumably because it's already
-                # handled by whatever mechanism sends it in the first place
                 if sent_dir is not None:
                     m = mailbox.MaildirMessage(eml.as_bytes())
                     m.set_flags('S')
                     key = mailbox.Maildir(sent_dir).add(m)
-                    # print(f'add: {key}')
 
-                notmuch_command = [ 'notmuch', 'new' ]
+                notmuch_command = ['notmuch', 'new']
                 if settings.no_hooks_on_send:
-                    notmuch_command.append( '--no-hooks' )
+                    notmuch_command.append('--no-hooks')
                 subprocess.run(notmuch_command)
 
-                if ((self.panel.mode == 'reply' or self.panel.mode == 'replyall') and
+                if ((self.panel.mode == 'reply' or
+                     self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
-                    subprocess.run(['notmuch', 'tag', '+replied', '--', 'id:' + self.panel.msg['id']])
-                self.panel.set_status("sent", color="fg_good")
+                    subprocess.run(
+                        ['notmuch', 'tag', '+replied', '--',
+                         'id:' + self.panel.msg['id']])
+                self.panel.set_status('sent', color='fg_good')
+                self.send_success = True
             else:
-                self.panel.set_status("error", color="fg_bad")
+                self.panel.set_status('error', color='fg_bad')
+                self.send_success = False
         except TimeoutExpired:
-            self.panel.set_status("timed out", color="fg_bad")
+            self.panel.set_status('timed out', color='fg_bad')
         except pgp_util.GpgError as e:
-            self.panel.set_status(f"GPG error: {e}", color="fg_bad")
-        except Exception as e:
-            self.panel.set_status(f"exception {e} (traceback on stderr)", color="fg_bad")
+            self.panel.set_status(f'GPG error: {e}', color='fg_bad')
+        except Exception:
             traceback.print_exc()
+            self.panel.set_status('exception (see stderr)', color='fg_bad')
