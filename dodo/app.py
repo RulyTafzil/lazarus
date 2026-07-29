@@ -44,6 +44,7 @@ from . import panel
 from . import mainwindow
 from . import rules
 from . import actions
+from . import address_completer
 from .webengine import LOCAL_PROTOCOLS
 
 logger = logging.getLogger(__name__)
@@ -200,6 +201,10 @@ class Dodo(QApplication):
             self.sync_timer.start(settings.sync_mail_interval * 1000)
 
         self.aboutToQuit.connect(self._cleanup_sync)
+
+        # Preload the address book in the background so autocomplete
+        # is ready by the time the user opens the compose panel.
+        address_completer.preload_addresses()
 
         # Handle Ctrl-C: use a pipe + QSocketNotifier so the Qt event loop
         # wakes up immediately when a Unix signal arrives.

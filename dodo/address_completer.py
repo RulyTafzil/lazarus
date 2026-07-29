@@ -19,32 +19,32 @@
 """Address autocomplete powered by ``notmuch address``.
 
 :class:`AddressCompleter` is a :class:`~PyQt6.QtWidgets.QCompleter`
-subclass backed by notmuch's address database.  On the first keystroke
-it launches a background thread to fetch *all* known addresses via
-``notmuch address ... '*'``, then filters the cached results in Python
-for subsequent keystrokes — fast, predictable, and no per-prefix
-notmuch timeouts.
+subclass that works exactly like the tag completer in
+:mod:`dodo.commandbar`: load every address once (in a background thread,
+since ``notmuch address`` scans messages and takes a few seconds), shove
+them into the model, then let Qt's built-in ``MatchContains`` filter do
+the rest — instant results, no Python filtering, no per-keystroke
+notmuch calls.
 """
 
 from __future__ import annotations
 import subprocess
 import json
 import logging
-from typing import Optional, List
+from typing import Optional
 
 from PyQt6.QtCore import (
-    Qt, QStringListModel, QTimer, QThread, QObject, pyqtSignal,
+    Qt, QStringListModel, QThread, QObject, pyqtSignal,
 )
 from PyQt6.QtWidgets import QCompleter, QLineEdit
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Minimum characters before autocomplete kicks in
+# Minimum characters before the popup appears
 # ---------------------------------------------------------------------------
 
 _MIN_CHARS = 2
-"""Minimum characters before the completer fires."""
 
 
 # ---------------------------------------------------------------------------
@@ -52,8 +52,7 @@ _MIN_CHARS = 2
 # ---------------------------------------------------------------------------
 
 class _AddressLoader(QThread):
-    """Runs ``notmuch address ... '*'`` in the background and emits the
-    parsed result via :attr:`loaded`."""
+    """Runs ``notmuch address ... '*'`` once and emits the parsed list."""
 
     loaded = pyqtSignal(list)
 
@@ -104,111 +103,133 @@ class _AddressLoader(QThread):
 
 
 # ---------------------------------------------------------------------------
+# Shared loader — started once, shared by all AddressCompleter instances
+# ---------------------------------------------------------------------------
+
+_shared_addresses: list[str] | None = None
+"""All addresses, shared across all completer instances.  ``None`` means
+not yet loaded."""
+
+_shared_loader: _AddressLoader | None = None
+"""The (singleton) background loader thread."""
+
+
+def _start_shared_loader() -> None:
+    """Launch the background address loader if not already running."""
+    global _shared_loader, _shared_addresses
+    if _shared_loader is not None or _shared_addresses is not None:
+        return
+
+    loader = _AddressLoader()
+    _shared_loader = loader
+
+    def _on_loaded(addresses: list[str]) -> None:
+        global _shared_addresses, _shared_loader
+        _shared_addresses = addresses
+        _shared_loader = None
+        loader.deleteLater()
+
+    loader.loaded.connect(_on_loaded)
+    # Safety net: if loaded never fires (e.g. timeout/error), still clean up.
+    loader.finished.connect(loader.deleteLater)
+    loader.start()
+
+
+def preload_addresses() -> None:
+    """Start loading the address book in the background.
+
+    Safe to call multiple times — the loader only runs once per session.
+    Call this at application startup (or when the first compose panel is
+    created) so addresses are ready by the time the user types in the To
+    field.
+    """
+    _start_shared_loader()
+
+
+# ---------------------------------------------------------------------------
 # AddressCompleter
 # ---------------------------------------------------------------------------
 
 class AddressCompleter(QCompleter):
     """A QCompleter backed by notmuch's address index.
 
-    Usage::
-
-        completer = AddressCompleter()
-        to_field = QLineEdit()
-        completer.set_line_edit(to_field)
-
-    On the first keystroke the completer fetches every known address
-    from notmuch in a background thread.  Once loaded, subsequent
-    keystrokes filter the in-memory cache — no more notmuch calls.
+    Unlike the tag completer in :class:`dodo.commandbar.CommandBar`
+    (which is its own QLineEdit), we complete addresses in an existing
+    QLineEdit.  Because ``QLineEdit.setCompleter()`` forces inline
+    completion that can't be suppressed, we do NOT attach the completer
+    to the line edit.  Instead we manually filter, show the popup, and
+    replace only the active token when the user picks a suggestion —
+    exactly the UX CommandBar provides for tags.
     """
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
+
         self._model = QStringListModel()
         self.setModel(self._model)
         self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.setModelSorting(QCompleter.ModelSorting.UnsortedModel)
         self.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self.setMaxVisibleItems(8)
 
-        # Full address book, loaded once
-        self._all_addresses: list[str] = []
-        self._loaded = False
-
-        # Background loader
-        self._loader: _AddressLoader | None = None
-
-        # Debounce timer
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(200)
-        self._timer.timeout.connect(self._do_query)
-
-        self._pending_prefix = ''
+        self._line_edit: QLineEdit | None = None
+        self._current_prefix = ''
 
     def set_line_edit(self, widget: QLineEdit) -> None:
-        """Attach this completer to *widget* and wire up input
-        debouncing.  Call this instead of ``widget.setCompleter()``."""
-        widget.setCompleter(self)
-        widget.textEdited.connect(self._on_text_edited)
+        """Wire up this completer to *widget* without attaching it
+        via ``QLineEdit.setCompleter()``, which forces inline completion.
 
-    # ------------------------------------------------------------------
-    # Input handling
-    # ------------------------------------------------------------------
+        We call ``setWidget()`` directly so the completer knows where
+        to show its popup, but skip ``widget.setCompleter()`` to avoid
+        QLineEdit's internal inline-completion logic.
+        """
+        self._line_edit = widget
+        self.setWidget(widget)
+        widget.textChanged.connect(self._on_text_changed)
+        self.activated.connect(self._on_activated)
 
-    def _on_text_edited(self, text: str) -> None:
-        """Called whenever the user types in the attached QLineEdit.
+    def _on_activated(self, text: str) -> None:
+        """Replace only the active token with the chosen completion."""
+        if self._line_edit is None:
+            return
+        prefix = self._current_prefix
+        current = self._line_edit.text()
+        idx = current.rfind(prefix)
+        if idx >= 0:
+            new_text = current[:idx] + text + ', '
+            self._line_edit.setText(new_text)
 
-        Extracts the active token (the last comma-separated segment)
-        and schedules filtering after a 200 ms debounce.
+    def _on_text_changed(self, text: str) -> None:
+        """Filter the model and show/hide the popup.
+
+        Identical pattern to
+        :meth:`dodo.commandbar.CommandBar.handleTextChanged`.
         """
         prefix = _extract_active_token(text)
+        self._current_prefix = prefix
+
         if len(prefix) < _MIN_CHARS:
-            self._model.setStringList([])
-            self._pending_prefix = ''
+            self.popup().hide()
             return
 
-        self._pending_prefix = prefix
-
-        # Start the background loader if this is the first keystroke
-        if not self._loaded and self._loader is None:
-            self._start_loader()
-
-        self._timer.start()
-
-    def _do_query(self) -> None:
-        """Filter the cached address book for the pending prefix."""
-        prefix = self._pending_prefix
-        if not prefix or len(prefix) < _MIN_CHARS:
+        global _shared_addresses
+        if _shared_addresses is None:
+            self.popup().hide()
             return
 
-        if not self._loaded:
-            # Loader still running — show nothing yet
-            self._model.setStringList([])
+        # Filter in Python (instant on ~200 addresses).
+        matches = [a for a in _shared_addresses
+                   if prefix.casefold() in a.casefold()][:20]
+        self._model.setStringList(matches)
+
+        if not matches:
+            self.popup().hide()
             return
 
-        results = _filter_addresses(self._all_addresses, prefix)
-        self._model.setStringList(results)
-        if results:
-            self.complete()
-
-    # ------------------------------------------------------------------
-    # Background loader
-    # ------------------------------------------------------------------
-
-    def _start_loader(self) -> None:
-        """Launch the background thread to fetch all notmuch addresses."""
-        self._loader = _AddressLoader(self)
-
-        def _on_loaded(addresses: list[str]) -> None:
-            self._all_addresses = addresses
-            self._loaded = True
-            self._loader = None
-            # Re-trigger query with the pending prefix
-            if self._pending_prefix:
-                self._do_query()
-
-        self._loader.loaded.connect(_on_loaded)
-        self._loader.start()
+        popup = self.popup()
+        popup.setCurrentIndex(self.completionModel().index(0, 0))
+        self.complete()
 
 
 # ---------------------------------------------------------------------------
@@ -226,17 +247,3 @@ def _extract_active_token(text: str) -> str:
     token = tokens[-1].strip()
     token = token.rstrip('>').strip()
     return token
-
-
-def _filter_addresses(addresses: list[str], prefix: str) -> list[str]:
-    """Return entries from *addresses* whose name or email contains
-    *prefix* (case-insensitive substring match), limited to 20 results.
-    """
-    p = prefix.casefold()
-    matches: list[str] = []
-    for addr in addresses:
-        if p in addr.casefold():
-            matches.append(addr)
-            if len(matches) >= 20:
-                break
-    return matches
