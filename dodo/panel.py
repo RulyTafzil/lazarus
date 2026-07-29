@@ -93,7 +93,14 @@ class Panel(QWidget):
             lambda _cur, _prev: self._auto_open_timer.start())
 
     def _on_auto_open(self) -> None:
-        """Called by the debounce timer to open the selected thread."""
+        """Called by the debounce timer to open the selected thread.
+
+        Only opens if the thread preview is visible — when the user
+        has closed it with ``C-<enter>``, ``j``/``k`` navigation stays
+        list-only.
+        """
+        if not self.app.main_window.has_thread_preview():
+            return
         if hasattr(self, 'open_current_thread'):
             self.open_current_thread()
 

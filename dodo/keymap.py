@@ -65,6 +65,7 @@ global_keymap = {
   'C-f':         ('forward', lambda a: a.delegate_to_thread('forward')),
   'O':           ('open attachments', lambda a: a.delegate_to_thread('open_attachments')),
   '<escape>':    ('focus list', lambda a: a.main_window.focus_list()),
+  'C-<enter>':   ('close thread preview', lambda a: a.main_window.clear_thread()),
 
   # ── Global ───────────────────────────────────────────────────────
   '?':           ('show help', lambda a: a.show_help()),

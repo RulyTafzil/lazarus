@@ -180,11 +180,13 @@ class MainWindow(QMainWindow):
             self._active_thread.deleteLater()
             self._active_thread = None
 
+        self.thread_container.show()
         self._active_thread = thread_panel
         self.thread_container.addWidget(thread_panel)
         self.thread_container.setCurrentWidget(thread_panel)
         thread_panel.has_refreshed.connect(self._on_thread_refreshed)
         thread_panel.setFocus()
+        self._save_preview_state(hidden=False)
 
     def _on_thread_refreshed(self) -> None:
         """Update window title when the active thread refreshes."""
@@ -213,7 +215,13 @@ class MainWindow(QMainWindow):
                 self.thread_container.removeWidget(self._active_thread)
             self._active_thread.deleteLater()
             self._active_thread = None
-        self.thread_container.setCurrentWidget(self._thread_placeholder)
+        self.thread_container.hide()
+        self._save_preview_state(hidden=True)
+        self.focus_list()
+
+    def _save_preview_state(self, hidden: bool) -> None:
+        """Persist whether the thread preview is collapsed."""
+        QSettings('dodo', 'dodo').setValue('preview_hidden', hidden)
 
     # -- status bar ---------------------------------------------------------
 
