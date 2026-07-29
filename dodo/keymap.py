@@ -56,6 +56,7 @@ global_keymap = {
   '<space>':     ('page down (message)', lambda a: a.delegate_to_thread('scroll_message', pages=1)),
   '-':           ('page up (message)', lambda a: a.delegate_to_thread('scroll_message', pages=-1)),
   'H':           ('toggle HTML', lambda a: a.delegate_to_thread('toggle_html')),
+  'i':           ('toggle remote images', lambda a: a.delegate_to_thread('toggle_remote_content')),
   'M':           ('toggle thread list mode', lambda a: a.delegate_to_thread('toggle_list_mode')),
   'r':           ('reply to all', lambda a: a.delegate_to_thread('reply', to_all=True)),
   'R':           ('reply', lambda a: a.delegate_to_thread('reply', to_all=False)),

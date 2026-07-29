@@ -145,11 +145,22 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
 
 
 class RemoteBlockingUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
-    """Block remote network requests unless explicitly allowed."""
+    """Block remote network requests unless explicitly allowed.
+
+    By default, blocking follows :attr:`settings.html_block_remote_requests`.
+    Set :attr:`allow_remote` to ``True`` on the interceptor instance to
+    override the global setting and allow all remote requests for the
+    current thread view.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.allow_remote = False
 
     def interceptRequest(self, info):
         if info.requestUrl().scheme() not in LOCAL_PROTOCOLS:
-            info.block(settings.html_block_remote_requests)
+            blocked = settings.html_block_remote_requests and not self.allow_remote
+            info.block(blocked)
 
 
 # ---------------------------------------------------------------------------

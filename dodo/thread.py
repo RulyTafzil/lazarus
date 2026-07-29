@@ -110,6 +110,7 @@ class ThreadPanel(panel.Panel):
 
         self.url_interceptor = RemoteBlockingUrlRequestInterceptor()
         self.message_profile.setUrlRequestInterceptor(self.url_interceptor)
+        self.allow_remote_content = False
 
         # Double-buffered views to prevent white flash during page loads.
         # QStackedLayout in StackAll mode keeps both views compositing
@@ -446,6 +447,13 @@ class ThreadPanel(panel.Panel):
         """Toggle between HTML and plain text message view."""
         self.html_mode = not self.html_mode
         self.refresh_content()
+
+    def toggle_remote_content(self) -> None:
+        """Toggle remote content (images) for the current message view."""
+        self.allow_remote_content = not self.allow_remote_content
+        self.url_interceptor.allow_remote = self.allow_remote_content
+        self.refresh_content()
+        self.has_refreshed.emit()
 
     def reply(self, to_all: bool = True) -> None:
         self.app.open_compose(
