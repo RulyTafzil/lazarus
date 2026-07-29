@@ -420,6 +420,42 @@ class MarkableActionsMixin:
         self.app.update_single_thread(thread_id)
         self.app.status_message('Moved to trash', 'info')
 
+    def restore_thread_from_trash(self) -> None:
+        """Move the current thread (or all marked threads) from Trash
+        back to INBOX, undoing a soft-delete."""
+        marked_query = self._marked_query()
+        r = subprocess.run(
+            ['notmuch', 'count', '--output=files',
+             f'tag:trash AND ({marked_query})'],
+            capture_output=True, text=True)
+        try:
+            count = int(r.stdout.strip() or '0')
+        except ValueError:
+            count = 0
+
+        if count > 0:
+            moved = restore_from_trash(
+                f'tag:trash AND ({marked_query})')
+            self.app.refresh_panels()
+            self.app.status_message(
+                f'Restored {moved} file{"s" if moved != 1 else ""} '
+                f'from trash', 'info')
+            return
+
+        thread_id = self._current_thread_id()
+        if not thread_id:
+            return
+        moved = restore_from_trash(
+            f'tag:trash AND thread:{thread_id}')
+        if moved == 0:
+            self.app.status_message(
+                'Not in trash', 'warning')
+            return
+        self.app.update_single_thread(thread_id)
+        self.app.status_message(
+            f'Restored {moved} file{"s" if moved != 1 else ""} '
+            f'from trash', 'info')
+
     def archive_to_local(self) -> None:
         """Move all marked threads in this panel's scope to the local
         Archive maildir, or the current thread if none are marked."""
@@ -519,3 +555,116 @@ def move_files(notmuch_query: str, target_dir: str) -> int:
     if moves:
         _get_worker().enqueue(moves)
     return found
+
+
+def expunge_trash() -> int:
+    """Add the Maildir ``T`` (Trashed) flag to every file matching
+    ``tag:trash`` that lives inside a Trash folder.
+
+    This is the irreversible step after a soft-delete — it tells the
+    IMAP server (via mbsync on the next sync) to expunge the message.
+    Files already marked ``T`` are skipped.
+
+    :returns: the number of files marked ``T``
+    """
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', 'tag:trash'],
+        capture_output=True, text=True)
+
+    tagged = 0
+    for f in r.stdout.strip().split('\n'):
+        if not f:
+            continue
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('expunge: file gone: %s', os.path.basename(f))
+            continue
+        f = resolved
+
+        # Only touch files that actually live in a Trash folder
+        if '/Trash/' not in f and '/[Gmail]/Trash/' not in f:
+            logger.debug('expunge: not in trash folder: %s', f)
+            continue
+
+        dirname = os.path.dirname(f)
+        basename = os.path.basename(f)
+
+        # Parse Maildir info suffix: base:2,FLAGS
+        if ':2,' in basename:
+            base, flags = basename.rsplit(':2,', 1)
+            if 'T' in flags:
+                continue  # already trashed
+            new_basename = f'{base}:2,{flags}T'
+        else:
+            new_basename = basename + ':2,T'
+
+        new_path = os.path.join(dirname, new_basename)
+        try:
+            os.rename(f, new_path)
+        except OSError as e:
+            logger.warning('expunge: rename failed: %s → %s: %s',
+                           f, new_path, e)
+            continue
+        tagged += 1
+
+    if tagged:
+        subprocess.run(
+            ['notmuch', 'tag', '-trash', '--', 'tag:trash'],
+            capture_output=True, text=True)
+
+    return tagged
+
+
+def restore_from_trash(notmuch_query: str) -> int:
+    """Move files matching *notmuch_query* from their Trash folder back
+    to the same account's INBOX and tag ``-trash +inbox``.
+
+    This is the inverse of :func:`move_to_trash` — it undoes a
+    soft-delete.  Files that aren't actually in a Trash folder are
+    skipped.
+
+    :returns: the number of files moved
+    """
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', notmuch_query],
+        capture_output=True, text=True)
+
+    moves: List[Tuple[str, str]] = []
+    restored = 0
+    seen: set[str] = set()
+    for f in r.stdout.strip().split('\n'):
+        if not f or f in seen:
+            continue
+        seen.add(f)
+        restored += 1
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('restore: file gone: %s', os.path.basename(f))
+            continue
+        f = resolved
+
+        # Only restore files that are actually in a Trash folder
+        if '/Trash/' not in f and '/[Gmail]/Trash/' not in f:
+            logger.debug('restore: not in trash folder: %s', f)
+            continue
+
+        result = _mail_file_account(f)
+        if result is None:
+            continue
+        account, _ = result
+        inbox_cur = os.path.join(
+            os.path.expanduser(settings.mail_root), account, 'INBOX', 'cur')
+        os.makedirs(inbox_cur, exist_ok=True)
+
+        basename = _strip_uid_annotation(os.path.basename(f))
+        moves.append((f, _unique_dest(os.path.join(inbox_cur, basename))))
+
+    if moves:
+        subprocess.run(
+            ['notmuch', 'tag', '-trash', '+inbox', '--', notmuch_query],
+            capture_output=True, text=True)
+        _get_worker().enqueue(moves)
+
+    return restored

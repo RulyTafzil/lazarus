@@ -43,6 +43,7 @@ from . import helpwindow
 from . import panel
 from . import mainwindow
 from . import rules
+from . import actions
 from .webengine import LOCAL_PROTOCOLS
 
 logger = logging.getLogger(__name__)
@@ -565,6 +566,49 @@ class Dodo(QApplication):
             return
         self.refresh_panels()
         self.status_message(f'Applied filter rules ({n} matched)', 'info')
+
+    def expunge_trash(self) -> None:
+        """Permanently expunge all messages tagged ``trash``.
+
+        Runs :func:`dodo.actions.expunge_trash` to add the Maildir
+        ``T`` flag to every file in a Trash folder.  Shows a
+        confirmation dialog with a message count first — this action
+        is irreversible.
+
+        Bound to the ``d d`` keychord.
+        """
+        # Count first, confirm, then expunge
+        r = subprocess.run(
+            ['notmuch', 'count', '--output=files', 'tag:trash'],
+            capture_output=True, text=True)
+        try:
+            count = int(r.stdout.strip() or '0')
+        except ValueError:
+            count = 0
+
+        if count == 0:
+            self.status_message('Trash is empty', 'info')
+            return
+
+        reply = QMessageBox.warning(
+            self.main_window,
+            'Empty trash',
+            f'Permanently delete {count} message{"s" if count != 1 else ""} '
+            f'from trash?\n\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        tagged = actions.expunge_trash()
+        self.refresh_panels()
+        if tagged:
+            self.status_message(
+                f'{tagged} message{"s" if tagged != 1 else ""} '
+                f'will be expunged on next sync', 'info')
+        else:
+            self.status_message('Nothing to expunge', 'info')
 
     def num_panels(self) -> int:
         """Returns the number of panels (i.e. tabs) currently open"""

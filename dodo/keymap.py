@@ -48,6 +48,8 @@ global_keymap = {
   's':           ('mark and advance', lambda a: a.mark_and_advance()),
   'a':           ('archive', lambda a: a.delegate_to_list('archive_thread')),
   'd':           ('delete', lambda a: a.delegate_to_list('delete_thread')),
+  'd d':         ('empty trash', lambda a: a.expunge_trash()),
+  'd u':         ('restore from trash', lambda a: a.delegate_to_list('restore_thread_from_trash')),
   'A':           ('archive to local', lambda a: a.delegate_to_list('archive_to_local')),
 
   # ── Message viewer ───────────────────────────────────────────────

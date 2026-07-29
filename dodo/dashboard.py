@@ -464,6 +464,12 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
     def _current_thread_id(self) -> Optional[str]:
         return self.model.thread_id(self.tree.currentIndex())
 
+    def _current_thread_tags(self) -> Optional[Set[str]]:
+        td = self.model.thread_data(self.tree.currentIndex())
+        if td is None:
+            return None
+        return set(td.get('tags', []))
+
     def _advance_selection(self) -> None:
         """Advance the cursor before a destructive action and save the
         target row so the debounced refresh restores it."""
