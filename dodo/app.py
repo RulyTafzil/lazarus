@@ -33,7 +33,7 @@ from . import search
 from . import thread
 from . import compose
 from . import tag
-from . import dashboard
+
 from . import settings
 from . import themes
 from . import util
@@ -220,12 +220,8 @@ class Dodo(QApplication):
         signal.signal(signal.SIGINT, lambda *_: None)
 
         # open init_queries and make un-closeable
-        # If dashboard_queries are configured, open dashboard instead
-        if settings.dashboard_queries:
-            self.open_dashboard(keep_open=True)
-        else:
-            for query in settings.init_queries:
-                self.open_search(query, keep_open=True)
+        for query in settings.init_queries:
+            self.open_search(query, keep_open=True)
 
         # Restore search panels from previous session
         self._restore_open_searches()
@@ -450,21 +446,6 @@ class Dodo(QApplication):
         p = tag.TagPanel(self, keep_open)
         self.add_panel(p)
 
-    def open_dashboard(self, keep_open: bool=False) -> None:
-        """Open dashboard panel
-
-        If a dashboard panel is already open, switch to it."""
-
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, dashboard.DashboardPanel):
-                w.keep_open = keep_open
-                self.tabs.setCurrentIndex(i)
-                return
-
-        p = dashboard.DashboardPanel(self, keep_open=keep_open)
-        self.add_panel(p)
-
     def search_bar(self) -> None:
         """Open command bar for searching"""
         self.command_bar.open('search', callback=self.open_search)
@@ -476,7 +457,7 @@ class Dodo(QApplication):
             if w and isinstance(w, panel.Panel):
                 if isinstance(w, search.SearchPanel): w.tag_thread(tag_expr, mode)
                 elif isinstance(w, thread.ThreadPanel): w.tag_message(tag_expr)
-                elif isinstance(w, dashboard.DashboardPanel): w.tag_thread(tag_expr, mode)
+
                 w.refresh()
         self.command_bar.open(mode, callback)
 

@@ -106,18 +106,25 @@ class _AddressLoader(QThread):
 # Shared loader — started once, shared by all AddressCompleter instances
 # ---------------------------------------------------------------------------
 
-_shared_addresses: list[str] | None = None
-"""All addresses, shared across all completer instances.  ``None`` means
-not yet loaded."""
+_shared_addresses: list[str] = []
+"""All addresses, shared across all completer instances.  Empty until
+the loader thread emits its :attr:`_AddressLoader.loaded` signal.
+The model is updated from that signal on the UI thread, so reads from
+:meth:`AddressCompleter._on_text_changed` are always safe."""
 
 _shared_loader: _AddressLoader | None = None
 """The (singleton) background loader thread."""
 
+def preload_addresses() -> None:
+    """Start loading the address book in the background.
 
-def _start_shared_loader() -> None:
-    """Launch the background address loader if not already running."""
-    global _shared_loader, _shared_addresses
-    if _shared_loader is not None or _shared_addresses is not None:
+    Safe to call multiple times — the loader only runs once per session.
+    Call this at application startup (or when the first compose panel is
+    created) so addresses are ready by the time the user types in the To
+    field.
+    """
+    global _shared_loader
+    if _shared_loader is not None:
         return
 
     loader = _AddressLoader()
@@ -133,17 +140,6 @@ def _start_shared_loader() -> None:
     # Safety net: if loaded never fires (e.g. timeout/error), still clean up.
     loader.finished.connect(loader.deleteLater)
     loader.start()
-
-
-def preload_addresses() -> None:
-    """Start loading the address book in the background.
-
-    Safe to call multiple times — the loader only runs once per session.
-    Call this at application startup (or when the first compose panel is
-    created) so addresses are ready by the time the user types in the To
-    field.
-    """
-    _start_shared_loader()
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +210,7 @@ class AddressCompleter(QCompleter):
             return
 
         global _shared_addresses
-        if _shared_addresses is None:
+        if not _shared_addresses:
             self.popup().hide()
             return
 

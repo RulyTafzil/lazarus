@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         self.main_splitter.setChildrenCollapsible(False)
         w.layout().addWidget(self.main_splitter, stretch=1)
 
-        # List side: tabs (dashboard, searches, compose, tags)
+        # List side: tabs (searches, compose, tags)
         self.tabs = QTabWidget()
         self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 

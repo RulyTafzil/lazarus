@@ -174,25 +174,6 @@ init_queries = [ 'tag:inbox' ]
 You can save query with `notmuch config set query:inbox "tag:inbox and not
 tag:trash"` and use `query:inbox` as a search term.
 
-Set this to ``[]`` when using a dashboard as the default view.
-"""
-
-dashboard_queries = [
-  ('inbox', 'tag:inbox'),
-  ('urgent', 'tag:Urgent'),
-  ('todo', 'tag:ToDo'),
-  ('waiting', 'tag:Waiting'),
-]
-"""List of (label, query) tuples shown in the dashboard panel.
-
-When non-empty, the dashboard is opened automatically on startup.
-Labels are used as section headers and matched against tag_icons for display.
-"""
-
-dashboard_max_items = None
-"""Maximum number of threads to show per dashboard section.
-
-Set to None to show all matching threads, or an integer to limit each section.
 """
 
 mail_root = '~/Mail'
@@ -351,7 +332,7 @@ tag_hotkeys: dict[str, str] = {}
 """Number keys mapped to tags for quick toggling.
 
 Map key strings (``'1'``-``'9'``) to tag names.  Pressing the key in a
-search or dashboard panel toggles that tag on the selected thread.
+search panel toggles that tag on the selected thread.
 
 Example::
 

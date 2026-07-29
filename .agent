@@ -32,9 +32,8 @@ email indexer.
 │ ┌───────────────────────┐ ┌───────────────────────────┐ │
 │ │ QTabWidget (list)     │ │ Thread Preview (persistent)│ │
 │ │ ┌───────────────────┐ │ │                           │ │
-│ │ │ DashboardPanel    │ │ │ ThreadPanel               │ │
-│ │ │ SearchPanel       │ │ │ (message list + viewer)   │ │
-│ │ │ ComposePanel      │ │ │                           │ │
+│ │ │ SearchPanel       │ │ │ ThreadPanel               │ │
+│ │ │ ComposePanel      │ │ │ (message list + viewer)   │ │
 │ │ │ TagPanel          │ │ │                           │ │
 │ │ └───────────────────┘ │ │                           │ │
 │ └───────────────────────┘ └───────────────────────────┘ │
@@ -56,9 +55,8 @@ QMainWindow
  └── MainWindow (mainwindow.py)
       ├── QTabWidget (tabs)
       │    └── Panel (panel.py) — base class
-      │         ├── DashboardPanel (dashboard.py) — multi-query inbox dashboard
       │         ├── SearchPanel (search.py) — notmuch query results
-      │         ├── ThreadPanel (thread.py) — single thread + message viewer
+      │         ├── ThreadPanel (thread.py) — message list + viewer
       │         ├── ComposePanel (compose.py) — compose/reply/forward
       │         └── TagPanel (tag.py) — tag browser
       ├── CommandBar (commandbar.py) — search/tag input with autocomplete
@@ -71,31 +69,38 @@ QMainWindow
 |------|---------|
 | `app.py` | `Dodo(QApplication)`, `SyncMailThread` (with live progress signal), `main()` |
 | `mainwindow.py` | `MainWindow`: split-pane layout (tabs + persistent thread preview), command bar, status bar |
-| `panel.py` | `Panel(QWidget)`: keychord handling, dirty tracking, temp dir cleanup |
-| `dashboard.py` | `DashboardPanel` + `DashboardModel`: multi-section inbox view |
+| `panel.py` | `Panel(QWidget)`: keychord handling, dirty tracking, temp dir cleanup, auto-open debounce |
 | `search.py` | `SearchPanel` + `SearchModel` + `render_thread_cell()`: thread listing with `#` count column |
-| `thread.py` | `ThreadPanel`: message viewer, reply/forward, attachments |
+| `thread.py` | `ThreadPanel`: message viewer (double-buffered QWebEngineView), reply/forward, attachments |
 | `thread_model.py` | `ThreadModel` + `ThreadItem` + helpers: thread-tree data model (extracted from thread.py) |
 | `webengine.py` | `MessagePage` + `MessageHandler` + `EmbeddedImageHandler` + `RemoteBlockingUrlRequestInterceptor` (extracted from thread.py) |
-| `actions.py` | `move_to_trash()`, `move_to_archive()`, `check_archive_refused()`, `MarkableActionsMixin`: shared delete/archive/tag logic as a panel mixin |
-| `compose.py` | `ComposePanel` + `EditorThread` + `SendmailThread` |
+| `actions.py` | `MarkableActionsMixin` + `_BulkMoveWorker` + `move_to_trash()`/`move_to_archive()`/`expunge_trash()`/`restore_from_trash()` |
+| `compose.py` | `ComposePanel`: compose/reply/forward UI with built-in rich-text editor |
+| `compose_threads.py` | `EditorThread` + `SendmailThread` (extracted from compose.py) |
+| `editor.py` | `RichTextEditor(QTextEdit)`: built-in rich-text editor with inline images, drag-and-drop |
+| `mime_builder.py` | `ComposeData` + `build_message()`: structured MIME construction from compose data |
+| `signature.py` | Per-account signature loading from `$XDG_CONFIG_HOME/dodo/<account>/signature[.html]` |
+| `address_completer.py` | `AddressCompleter`: notmuch-backed address autocomplete (preloaded in background) |
 | `tag.py` | `TagPanel` + `TagModel`: tag browser with counts |
 | `commandbar.py` | `CommandBar(QLineEdit)`: tag autocomplete + command history |
-| `keymap.py` | All keymaps (global, dashboard, search, thread, compose, tag, command_bar) |
-| `settings.py` | Config defaults incl. `mail_root`, `dashboard_queries`, `dashboard_max_items` |
-| `themes.py` | Theme dicts + `apply_theme()` |
-| `util.py` | HTML/text helpers, case-insensitive email matching, key parsing |
+| `keymap.py` | All keymaps (global, search, thread, compose, tag, command_bar) |
+| `settings.py` | Config defaults incl. `mail_root`, `archive_dir`, `filter_rules`, themes, fonts |
+| `themes.py` | Theme dicts (Nord, Solarized, Gruvbox, Catppuccin) + `apply_theme()` |
+| `util.py` | HTML/text helpers (html2text, linkify, colorize_text), email matching, key parsing, CSS |
 | `helpwindow.py` | `HelpWindow`: three-column keybinding layout |
 | `pgp_util.py` | PGP/MIME signing and encryption |
+| `rules.py` | `Rule` dataclass + `apply_rules()`: mail filter engine |
 
 ### Data Flow
 1. **Search**: `notmuch search --format=json` → `SearchModel` → `QTreeView` (5 cols: date, #, from, subject, tags)
-2. **Dashboard**: multiple `SearchModel` instances → `DashboardModel` (flat model with section headers) → single QTreeView
-3. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list + QWebEngineView (via custom URL scheme `message:`)
-4. **Compose**: raw email string → external editor → `SendmailThread` pipes to msmtp → saved to Maildir sent folder
-5. **Sync**: `SyncMailThread` runs `mbsync -a -V`, streams output to status bar via `progress` signal, then `notmuch new`
-6. **Delete**: `d` → `+deleted` tag + move file to Trash folder (Thunderbird/neomutt approach) — centralized in `actions.py`
-7. **Archive-to-local**: `A` → `-inbox -unread` + move file to local Archive Maildir — centralized in `actions.py`
+2. **Thread**: `notmuch show --format=json --include-html` → `ThreadModel` → message list + QWebEngineView (via custom URL scheme `message:`)
+3. **Compose**: `ComposeData` → `RichTextEditor` → `mime_builder.build_message()` → `SendmailThread` pipes to msmtp → saved to Maildir sent folder
+4. **Sync**: `SyncMailThread` runs `mbsync -a -V`, streams output to status bar via `progress` signal, then `notmuch new`
+5. **Delete**: `d` → `+trash` tag + move file to Trash folder (Thunderbird/neomutt approach) — centralized in `actions.py`
+6. **Empty trash**: `d d` → `T` flag on trash files → expunged on next sync
+7. **Restore from trash**: `d u` → move files back to INBOX + tag `-trash +inbox`
+8. **Archive-to-local**: `A` → `-inbox -unread` + move file to local Archive Maildir — centralized in `actions.py`
+9. **Filter rules**: `C-r` → `rules.apply_rules()` — tag and/or move matching mail per `settings.filter_rules`
 
 ### Sync Flow (Ruly's Setup)
 - `mbsync -a -V`: syncs Gmail (`RulyTafzil@gmail.com/`) and contact (`contact@RulyTafzil.com/`)
@@ -109,11 +114,12 @@ QMainWindow
 | Key | Action |
 |-----|--------|
 | `?` | Help (three-column layout) |
-| `D` | Open/re-focus dashboard |
+| `D` | Show inbox |
 | `/` | Search bar |
 | `t t` | Tag current thread |
 | `t m` | Tag all marked threads |
 | `` ` `` | Manual sync |
+| `C-r` | Apply filter rules |
 | `Q` | Quit |
 | `h/l` | Previous/next tab |
 | `x/X` | Close panel / close all |
@@ -123,9 +129,12 @@ QMainWindow
 | `s` | Mark thread and advance |
 | `a` | Archive (current or all marked) |
 | `d` | Delete (current or all marked) |
+| `d d` | Empty trash (irreversible expunge) |
+| `d u` | Restore from trash |
 | `A` | Archive to local (current or all marked) |
+| `1`-`9` | Toggle configured tag hotkey |
 
-### Dashboard & Search
+### Search
 | Key | Action |
 |-----|--------|
 | `j/k` | Next/previous thread (auto-opens in preview) |
@@ -137,93 +146,117 @@ QMainWindow
 ### Thread View
 | Key | Action |
 |-----|--------|
-| `J/K` or `<enter>` | Next/previous message |
+| `J/K` | Next/previous message |
 | `<escape>` | Focus back to list |
 | `<space>` / `-` | Page down/up |
 | `H` | Toggle HTML/plaintext |
-| `r/R` | Reply / reply all |
+| `i` | Toggle remote images |
+| `M` | Toggle thread list mode (conversation/tree) |
+| `r/R` | Reply all / reply |
 | `C-f` | Forward |
 | `O` | Open attachments |
 
 ### Compose
 | Key | Action |
 |-----|--------|
-| `<enter>` | Edit in external editor |
-| `S` | Send |
+| `<escape>` | Toggle focus (editor ↔ panel chrome) |
+| `E` | Edit in external editor |
+| `C-s` | Send |
 | `a` | Attach file |
 | `[/]` | Cycle SMTP accounts |
 | `p/e` | Toggle PGP sign/encrypt |
 
 ## Custom Features (Deviations from Upstream)
 
-### Dashboard Panel
-- Multi-section inbox view: queries configured via `dashboard_queries` setting
-- Section headers span all columns, non-selectable
-- Unified scroll with j/k navigation skipping headers
-- Column widths persist via QSettings
-- Auto-opens on startup (replaces `init_queries`)
+### Built-in Rich-Text Compose Editor
+- `RichTextEditor(QTextEdit)` with inline image support (paste, drag-and-drop)
+- Images stored in temp dir; rewritten to `cid:` references on send
+- Formatting shortcuts (Ctrl+B/I/U)
+- HTML body with plaintext fallback via `mime_builder`
+- External editor still available as escape hatch (`E` key)
+
+### Address Autocomplete
+- `AddressCompleter` backed by `notmuch address --output=recipients`
+- All addresses preloaded once in a background thread at startup
+- Comma-aware token extraction: completes only the active address
+- Minimum 2 characters before popup appears (configurable via `compose_autocomplete_min_chars`)
+
+### Per-Account Signatures
+- Loaded from `$XDG_CONFIG_HOME/dodo/<account>/signature` (plain text)
+- Optional `signature.html` for future HTML compose mode
+- Swapped automatically when cycling SMTP accounts
+- `-- ` prefix per RFC 3676
+
+### Mail Filter Rules
+- `settings.filter_rules`: list of `Rule(query, tag_add, tag_remove, move_to, name)`
+- Applied automatically after every sync, scoped by `settings.filter_scope_query`
+- Manual invocation via `C-r` (`Dodo.apply_filter_rules()`)
+- File moves enqueued to the same background worker as delete/archive
 
 ### Status Bar
 - `MainWindow.show_status(message, kind, duration)` — supported kinds: info/warning/error
 - `duration=0` keeps message until replaced (used for sync progress)
 - `Dodo.status_message()` convenience method callable from any panel
-- Used for: sync progress, archive refusal, delete confirmations, errors
 
 ### Delete Workflow
 - `d` moves files to Trash folder (matching Thunderbird/neomutt)
 - Strips mbsync UID annotations to avoid duplicate UID errors
 - Trash folder auto-detected per account (`[Gmail]/Trash` or `Trash`)
-- Post-new hook strips inbox/unread from Trash folder files
-- Two-stage: soft-delete to Trash (recoverable), empty trash later for expunge
-- Centralized in `dodo/actions.py` → `move_to_trash()`
+- `d d` (empty trash): adds `T` flag → mbsync expunges on next sync
+- `d u` (restore): moves files back to INBOX + tags `-trash +inbox`
+- Centralized in `dodo/actions.py`
 
 ### Archive-to-Local Workflow
 - `A` moves files to local-only Archive Maildir (outside synced IMAP folders)
 - Refuses threads without categorizing tags
-- Centralized in `dodo/actions.py` → `move_to_archive()`
+- Centralized in `dodo/actions.py`
 
 ### Sync Progress
 - `SyncMailThread.progress` signal emits per-mailbox status during sync
 - Status bar shows real-time: "Syncing: gmail... INBOX Finances ..."
 - Final summary parsed from mbsync output: "Sync: +3 new, 2 flagged"
-- Uses `mbsync -a -V` (verbose) for detailed output
 
 ### Other Changes
 - **Split-pane UX**: persistent thread preview (configurable via `thread_pane_position`)
 - **Thread auto-open**: `j`/`k` navigation auto-opens selected thread after 150ms debounce
 - **Neomutt-style nav**: `j`/`k`/`s`/`a`/`d`/`A` are global — work from thread preview too
 - **Marked-thread bulk actions**: `s` marks threads, then `d`/`a`/`A` operate on all marked in view
-- **Bulk file moves**: background `QThread` serialises file I/O; `notmuch new` fires via `batch_done` signal AFTER moves land on disk (not before)
+- **Bulk file moves**: background `QThread` serialises file I/O; `notmuch new` fires via `batch_done` signal AFTER moves land on disk
 - **Persistent search tabs**: open searches saved/restored across sessions
 - **`force_dark_mode` setting**: passes `--force-dark-mode` to Chromium (default on)
-- **Double-buffered views**: `QStackedLayout(StackAll)` keeps both QWebEngineViews compositing
-- **Navigation help section**: split-pane keys shown in `?` help modal
+- **Double-buffered views**: `QStackedLayout(StackAll)` keeps both QWebEngineViews compositing to prevent white flash on page load
 - **Fixed flagged icon**: `󰉀` (NerdFont) for consistency with other tag icons
-- **Fixed post-new hook**: `/**` path wildcards, `[Gmail]` bracket fix, `tag:deleted` Trash cleanup
 - **Thread count column** (`#`): shows fa-comments icon + count for multi-message threads
 - **Plaintext fallback**: HTML mode degrades to plaintext when no HTML part exists
 - **Case-insensitive email matching**: `email_is_me` and `email_smtp_account_index`
-- **Compose background fix**: no white flash when switching accounts
 - **Three-column help window** layout
 - **Column order**: `date | # | from | subject | tags`
 - **Archive refuses** threads without categorizing tags (not just inbox/unread)
 - `deleted`/`killed`/`spam` excluded from searches by default
 - **`mail_root` setting**: configurable Maildir root (default `~/Mail`)
-- **Shared rendering**: `render_thread_cell()` in search.py eliminates duplication between SearchModel and DashboardModel
 
-### Refactoring (2025-07-24)
-- **`dodo/actions.py`**: `MarkableActionsMixin` extracts duplicated tag/archive/delete logic from SearchPanel and DashboardPanel into three abstract hooks (`_marked_query`, `_current_thread_id`, `_current_thread_tags`).  Also:
+### Refactoring History
+
+#### 2025-07-29 — Dashboard Removal & Housekeeping
+- **Removed `DashboardPanel`/`DashboardModel`**: unused; simplified codebase by ~480 lines
+- **Extracted `compose_threads.py`**: `EditorThread` and `SendmailThread` moved out of `compose.py`
+- **Cleaned dead code**: shadow `columns` in `tag.py`, commented-out code in `util.py`
+- **Converted `html2html` lambda to `def`** for debuggability
+- **Fixed `_shared_addresses`**: initialised as empty list instead of None, avoiding None-check fragility
+- **`_BulkMoveWorker` exit**: exits immediately when no more batches are pending rather than waiting for timeout
+- **Double-buffer comment**: documented why `QStackedLayout.StackAll` is needed (white-flash prevention)
+
+#### 2025-07-24 — Actions Mixin & Selection Fixes
+- **`dodo/actions.py`**: `MarkableActionsMixin` extracts duplicated tag/archive/delete logic from SearchPanel into three hooks (`_marked_query`, `_current_thread_id`, `_current_thread_tags`).
   - `_unique_dest()` prevents filename collisions when UID stripping produces duplicate basenames
   - `_resolve_stale_path()` finds mbsync-renamed files (flag sync changes `:2,` → `:2,S`)
-  - `_advance_selection()` hook called before destructive single-thread actions
-  - `batch_done` signal now correctly fires AFTER file moves land on disk
-- **`dodo/dashboard.py`**: `_advance_past_current()`, `_select_near_row()`, `_select_last_thread()` for selection-on-delete; `_refresh_pending_row` survives debounced refresh
+  - `batch_done` signal fires AFTER file moves land on disk
 - **`dodo/search.py`**: `_select_near_row()` fallback in `refresh()` when deleted thread ID is gone
-- **`dodo/keymap.py`**: `dashboard_keymap = dict(search_keymap)` (DRY); configurable tag hotkeys (1-9) via `settings.tag_hotkeys`; hotkeys added to global keymap for thread-preview access
-- **`dodo/thread.py`**: Date shown in local timezone via `email.utils.parsedate_to_datetime().astimezone()`; Message ID hidden from header
-- **`dodo/app.py`**: `Dodo.toggle_tag_hotkey()` for global tag hotkey delegation; two-phase logging setup (early stderr → full config after config.py)
+- **`dodo/keymap.py`**: configurable tag hotkeys (1-9) via `settings.tag_hotkeys`; hotkeys added to global keymap
+- **`dodo/thread.py`**: Date shown in local timezone; Message ID hidden from header
+- **`dodo/app.py`**: `Dodo.toggle_tag_hotkey()` for global tag hotkey delegation; two-phase logging setup
 
-## 2025-07-24 Session — Key Learnings
+## Key Learnings
 
 ### mbsync Flag Sync Renames Files
 When `synchronize_flags=true`, mbsync renames Maildir files to reflect flag
@@ -241,10 +274,11 @@ the same host with different UIDs produce the same destination basename.
 - Minimal stderr logger set up before config.py loads; full reconfiguration after
 - `--verbose` overrides level to INFO for that session
 
-### Selection-on-Delete/Archive
-- DashboardPanel advances selection immediately + saves pending row for debounced refresh
-- SearchPanel relies on `_select_near_row()` fallback in `refresh()` when thread ID is gone
-- Mixin's `_advance_selection()` hook called before destructive single-thread actions
+### QWebEngineView White Flash
+Chromium tears down the render surface when a `QWebEngineView` is hidden. Using
+`QStackedLayout.StackAll` keeps both views compositing at all times — the inactive
+view is merely covered, not hidden, so swaps are instant. `QStackedWidget` (which
+calls `hide()` on the inactive widget) would reintroduce the flash.
 
 ## New Settings
 | Setting | Default | Purpose |
@@ -253,6 +287,14 @@ the same host with different UIDs produce the same destination basename.
 | `tag_order` | `['marked','Urgent','ToDo','Waiting','Reference','inbox','sent']` | Tag display order in columns |
 | `log_level` | `'WARNING'` | Python logging level |
 | `log_file` | `''` | Optional log file path |
+| `filter_rules` | `[]` | List of `Rule` dataclasses for auto-tagging |
+| `filter_scope_query` | `'tag:inbox and tag:unread'` | Limits filter_rules scope |
+| `archive_dir` | `'~/Mail/Archive'` | Local-only Archive Maildir |
+| `compose_editor_font` | `'DejaVu Sans Mono'` | Font for built-in editor |
+| `compose_editor_font_size` | `12` | Font size for built-in editor |
+| `compose_autocomplete_min_chars` | `2` | Min chars before address popup |
+| `use_signature` | `True` | Enable per-account signatures |
+| `thread_pane_position` | `'right'` | Thread preview placement |
 
 ## Post-New Hook
 Located at `~/.config/notmuch/default/hooks/post-new`:

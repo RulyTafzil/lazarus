@@ -17,26 +17,18 @@
 # along with Dodo. If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from typing import Optional, List, Set
+from typing import Optional, List
 
 from PyQt6.QtCore import *
 from PyQt6.QtGui import QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import *
-import mailbox
-import email
 import email.utils
-import email.parser
-import email.generator
 import email.policy
 import email.message
-import mimetypes
 import subprocess
-import traceback
-from subprocess import PIPE, Popen, TimeoutExpired
 import tempfile
 import typing
 import os
-import re
 
 from . import app
 from . import panel
@@ -48,6 +40,7 @@ from . import signature
 from . import editor as editor_mod
 from . import address_completer
 from . import mime_builder
+from . import compose_threads
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
@@ -168,8 +161,8 @@ class ComposePanel(panel.Panel):
             self._insert_signature()
 
         self._sync_data_from_fields()
-        self.editor_thread: Optional[EditorThread] = None
-        self.sendmail_thread: Optional[SendmailThread] = None
+        self.editor_thread: Optional[compose_threads.EditorThread] = None
+        self.sendmail_thread: Optional[compose_threads.SendmailThread] = None
 
         self.refresh()
 
@@ -510,7 +503,7 @@ class ComposePanel(panel.Panel):
         self._sync_data_from_fields()
         # Build a raw message string for the external editor
         raw = self._build_raw_message_string()
-        self.editor_thread = EditorThread(raw, self, parent=self)
+        self.editor_thread = compose_threads.EditorThread(raw, self, parent=self)
 
         def done() -> None:
             if self.editor_thread:
@@ -592,7 +585,7 @@ class ComposePanel(panel.Panel):
             f'color: {settings.theme["fg_bright"]}; font-style: italic;')
         self.refresh()
 
-        self.sendmail_thread = SendmailThread(self, parent=self)
+        self.sendmail_thread = compose_threads.SendmailThread(self, parent=self)
         self.sendmail_thread.send_success = False
 
         def done() -> None:
@@ -691,127 +684,3 @@ def _clear_layout(layout: QLayout) -> None:
         item = layout.takeAt(0)
         if item.widget():
             item.widget().deleteLater()
-
-
-# -----------------------------------------------------------------------
-# EditorThread (external editor escape hatch)
-# -----------------------------------------------------------------------
-
-class EditorThread(QThread):
-    """A QThread used for editing mail with the external editor."""
-
-    def __init__(self, raw_message: str, panel: ComposePanel,
-                 parent: Optional[QObject] = None):
-        super().__init__(parent)
-        self.panel = panel
-        self.raw_message_string = raw_message
-        self.file = ''
-
-    def run(self) -> None:
-        fd, file = tempfile.mkstemp('.eml')
-        self.file = file
-        with os.fdopen(fd, 'w') as f:
-            f.write(self.raw_message_string)
-
-        cmd = settings.editor_command.format(file=file)
-        subprocess.run(cmd, shell=True)
-
-        with open(file, 'r') as f1:
-            self.raw_message_string = f1.read()
-
-        if self.panel.is_open:
-            os.remove(file)
-
-
-# -----------------------------------------------------------------------
-# SendmailThread
-# -----------------------------------------------------------------------
-
-class SendmailThread(QThread):
-    """A QThread used for sending mail."""
-
-    def __init__(self, panel: ComposePanel,
-                 parent: Optional[QObject] = None):
-        super().__init__(parent)
-        self.panel = panel
-        self.send_success = False
-
-    def run(self) -> None:
-        try:
-            data = self.panel._data
-            account = self.panel.account_name()
-
-            # Build message via mime_builder
-            eml = mime_builder.build_message(data)
-
-            # In-Reply-To and References
-            if self.panel.msg and 'id' in self.panel.msg:
-                msg_id = f'<{self.panel.msg["id"]}>'
-                eml['In-Reply-To'] = msg_id
-                refs = [msg_id]
-                if ('filename' in self.panel.msg and
-                        len(self.panel.msg['filename']) != 0):
-                    try:
-                        with open(self.panel.msg['filename'][0]) as f:
-                            old_msg = email.parser.Parser().parse(
-                                f, headersonly=True)
-                            if 'References' in old_msg:
-                                refs = (old_msg['References'].split()
-                                        + refs)
-                    except IOError:
-                        logger = __import__('logging').getLogger(__name__)
-                        logger.debug("Couldn't open message for References")
-                eml['References'] = ' '.join(refs)
-
-            # PGP
-            if self.panel.pgp_sign:
-                eml = pgp_util.sign(eml, self.panel.gnupg_keyid())
-            if self.panel.pgp_encrypt:
-                eml = pgp_util.encrypt(eml)
-
-            # Send
-            if isinstance(settings.send_mail_command, dict):
-                cmd = settings.send_mail_command[account]
-            else:
-                cmd = settings.send_mail_command
-            cmd = cmd.replace('{account}', account)
-            sendmail = Popen(cmd, stdin=PIPE, encoding='utf8', shell=True)
-            if sendmail.stdin:
-                sendmail.stdin.write(eml.as_string())
-                sendmail.stdin.close()
-            sendmail.wait(30)
-
-            if sendmail.returncode == 0:
-                # Save to sent folder
-                if isinstance(settings.sent_dir, dict):
-                    sent_dir = settings.sent_dir[account]
-                else:
-                    sent_dir = settings.sent_dir
-                if sent_dir is not None:
-                    m = mailbox.MaildirMessage(eml.as_bytes())
-                    m.set_flags('S')
-                    key = mailbox.Maildir(sent_dir).add(m)
-
-                notmuch_command = ['notmuch', 'new']
-                if settings.no_hooks_on_send:
-                    notmuch_command.append('--no-hooks')
-                subprocess.run(notmuch_command)
-
-                if ((self.panel.mode == 'reply' or
-                     self.panel.mode == 'replyall') and
-                        self.panel.msg and 'id' in self.panel.msg):
-                    subprocess.run(
-                        ['notmuch', 'tag', '+replied', '--',
-                         'id:' + self.panel.msg['id']])
-                self.panel.set_status('sent', color='fg_good')
-                self.send_success = True
-            else:
-                self.panel.set_status('error', color='fg_bad')
-                self.send_success = False
-        except TimeoutExpired:
-            self.panel.set_status('timed out', color='fg_bad')
-        except pgp_util.GpgError as e:
-            self.panel.set_status(f'GPG error: {e}', color='fg_bad')
-        except Exception:
-            traceback.print_exc()
-            self.panel.set_status('exception (see stderr)', color='fg_bad')

@@ -50,16 +50,6 @@ def clean_html2html(s: str) -> str:
     c = Cleaner()
     return c.clean(s)
 
-# Pure python html2text, but results don't look nearly as good as w3m -dump
-#
-# def python_html2text(s):
-#     from html2text import HTML2Text
-#     c = HTML2Text()
-#     c.ignore_emphasis = True
-#     c.ignore_links = True
-#     c.images_to_alt = True
-#     return c.handle(s)
-
 def w3m_html2text(s: str) -> str:
     """Convert HTML to plain text using "w3m -dump"
 
@@ -104,12 +94,14 @@ def get_header_addresses(
     return email.utils.getaddresses(header_values)
 
 
-html2html = lambda s : s
-"""Function used to process HTML messages
+def html2html(s: str) -> str:
+    """Function used to process HTML messages
 
-This is the identity by default, but can be set to another function to
-do HTML sanitization, (de)formatting, etc.
-"""
+    This is the identity by default, but can be set to another function to
+    do HTML sanitization, (de)formatting, etc.
+    """
+    return s
+
 
 html2text = w3m_html2text
 """Function used to convert HTML to plain text

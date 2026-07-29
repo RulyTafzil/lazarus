@@ -29,8 +29,8 @@ from . import app
 from . import settings
 from . import keymap
 from . import panel
+from .search import columns
 
-columns = ['date', 'from', 'subject', 'tags']
 
 class TagModel(QAbstractItemModel):
     """A model containing all tags"""
@@ -145,8 +145,6 @@ class TagPanel(panel.Panel):
         self.layout().addWidget(self.tree)
 
         self.tree.resizeColumnToContents(0)
-        # self.tree.setColumnWidth(1, 900)
-        # self.tree.setColumnWidth(2, 900)
 
         self.tree.doubleClicked.connect(self.search_current_tag)
         if self.tree.model().rowCount() > 0:

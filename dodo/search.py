@@ -40,10 +40,7 @@ columns = ['date', '#', 'from', 'subject', 'tags']
 def render_thread_cell(thread_d: dict, col: str, role: int,
                        hide_tags: set | None = None,
                        hide_query: str = '') -> Any:
-    """Render a single cell for a thread in a search or dashboard view.
-
-    Shared by :class:`SearchModel` and :class:`~dodo.dashboard.DashboardModel`
-    to avoid duplicating the display logic for thread rows.
+    """Render a single cell for a thread in a search view.
 
     :param thread_d: thread JSON dict from notmuch
     :param col: column name (``'date'``, ``'#'``, ``'from'``, ``'subject'``, ``'tags'``)

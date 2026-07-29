@@ -373,7 +373,14 @@ class ThreadPanel(panel.Panel):
         QTimer.singleShot(0, self._do_swap)
 
     def _do_swap(self) -> None:
-        """Raise the freshly loaded view after Chromium has painted."""
+        """Raise the freshly loaded view after Chromium has painted.
+
+        Uses QStackedLayout.StackAll to keep both views compositing at
+        all times — the hidden view is merely covered, not hidden, so
+        Chromium never tears down its render surface.  This avoids the
+        white flash that QStackedWidget (which hides the inactive widget)
+        produces when swapping between two QWebEngineView instances.
+        """
         old = self._active_view
         self._active_view = 1 - old
         self._views[old].setAttribute(

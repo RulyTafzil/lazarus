@@ -16,11 +16,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 
-"""Shared email actions used by search, dashboard, and thread panels.
+"""Shared email actions used by search and thread panels.
 
 This module centralises delete, archive, and file-move operations that
-were previously duplicated across SearchPanel, DashboardPanel, and
-ThreadPanel.
+were previously duplicated across SearchPanel and ThreadPanel.
 
 File moves run on a background ``QThread`` so rapid successive bulk
 actions queue up instead of interrupting each other.  Tagging and
@@ -72,7 +71,13 @@ class _BulkMoveWorker(QThread):
             except queue.Empty:
                 return
             if item is None:
+                # Sentinel: a batch of enqueued moves is done.
                 self._batches_pending -= 1
+                # If no more batches were enqueued while we were
+                # draining the current one, exit.
+                if self._batches_pending <= 0:
+                    self.batch_done.emit()
+                    return
                 self.batch_done.emit()
                 continue
             src, dst = item
@@ -271,16 +276,11 @@ def move_to_trash(notmuch_query: str) -> int:
 
 class MarkableActionsMixin:
     """Shared "act on marked threads, or fall back to the current thread"
-    logic for :class:`~dodo.search.SearchPanel` and
-    :class:`~dodo.dashboard.DashboardPanel`.
+    logic for :class:`~dodo.search.SearchPanel`.
 
-    Both panels previously implemented near-identical copies of
-    ``tag_thread``/``toggle_thread_tag``/``archive_thread``/
-    ``delete_thread``/``archive_to_local``; the only real difference
-    between them was how "marked" is scoped (marked threads within a
-    search's own query vs. marked threads dashboard-wide) and how the
-    currently-selected thread is looked up. That's now factored into
-    three small hooks subclasses must implement:
+    The panel previously implemented ``tag_thread``/``toggle_thread_tag``/
+    ``archive_thread``/``delete_thread``/``archive_to_local`` inline;
+    the logic is factored into three small hooks subclasses must implement:
 
     - :func:`_marked_query`
     - :func:`_current_thread_id`

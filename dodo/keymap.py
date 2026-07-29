@@ -18,7 +18,7 @@
 
 # ── Consolidated global keymap ────────────────────────────────────────
 #
-# In the split-pane layout the search/dashboard list and the thread
+# In the split-pane layout the search list and the thread
 # preview are always visible.  Every key does exactly one thing,
 # delegating to the list or the thread preview directly — no key
 # changes behaviour depending on focus, and no <escape> preamble is
@@ -80,7 +80,7 @@ global_keymap = {
   'U':           ('show unread', lambda a: a.open_search('tag:inbox and tag:unread')),
   'F':           ('show flagged', lambda a: a.open_search('tag:flagged')),
   'T':           ('show tags', lambda a: a.open_tags()),
-  'D':           ('show dashboard', lambda a: a.open_dashboard()),
+  'D':           ('show inbox', lambda a: a.open_search('tag:inbox')),
   '/':           ('search', lambda a: a.search_bar()),
   't t':         ('tag', lambda a: a.tag_bar()),
   't m':         ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
@@ -114,7 +114,7 @@ navigation_keymap = {
 # ── Local keymaps ────────────────────────────────────────────────────
 #
 # search_keymap and thread_keymap are empty — all their keys now live
-# in global_keymap.  dashboard_keymap copies search_keymap as before.
+# in global_keymap.
 
 search_keymap: dict = {}
 """The local keymap for search panels
@@ -131,9 +131,6 @@ All thread keys have been consolidated into :data:`global_keymap`.
 This dictionary exists so that ``config.py`` can still add
 thread-specific overrides.
 """
-
-dashboard_keymap = dict(search_keymap)
-"""The local keymap for the dashboard panel (copy of ``search_keymap``)."""
 
 tag_keymap = {
   'j':       ('next tag', lambda p: p.next_tag()),
