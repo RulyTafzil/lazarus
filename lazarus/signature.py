@@ -1,29 +1,29 @@
-#     Dodo - A graphical, hackable email client based on notmuch
+#     Lazarus - A fork of Dodo, a graphical, hackable email client based on notmuch
+#     Copyright (C) 2025 - Ruly Tafzil
 #
-# This file is part of Dodo
+# This file is part of Lazarus
 #
-# Dodo is free software: you can redistribute it and/or modify
+# Lazarus is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Dodo is distributed in the hope that it will be useful,
+# Lazarus is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with Dodo. If not, see <https://www.gnu.org/licenses/>.
-
+# along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 """Per-account email signatures.
 
 Signatures are loaded from files, not from ``config.py`` -- this keeps
 them out of version-controlled dotfiles (a signature is personal data,
 not configuration) and lets non-Python tooling (a script, a symlink to
-a company-wide template, etc.) manage them independently of Dodo.
+a company-wide template, etc.) manage them independently of Lazarus.
 
 For an account named ``ACCOUNT`` (i.e. one of the entries in
-:func:`~lazarus.settings.smtp_accounts`), Dodo looks for:
+:func:`~lazarus.settings.smtp_accounts`), Lazarus looks for:
 
     $XDG_CONFIG_HOME/lazarus/ACCOUNT/signature       (plain text)
     $XDG_CONFIG_HOME/lazarus/ACCOUNT/signature.html   (HTML)
@@ -33,7 +33,7 @@ QStandardPaths so this also does the right thing on macOS/Windows.)
 
 Either file is optional. If only ``signature.html`` exists, its
 plaintext form (via :func:`lazarus.util.html2text`) is used as the
-plaintext signature until Dodo has a rich-text compose mode -- at
+plaintext signature until Lazarus has a rich-text compose mode -- at
 which point ``signature.html`` will be used directly instead of being
 downconverted. The HTML content is loaded and returned regardless, so
 callers written against a future HTML compose panel don't need this

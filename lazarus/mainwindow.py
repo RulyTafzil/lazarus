@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         icon = os.path.dirname(__file__) + '/lazarus.svg'
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
-        self.setWindowTitle("Dodo")
+        self.setWindowTitle("Lazarus")
 
         w = QWidget(self)
         w.setLayout(QVBoxLayout())

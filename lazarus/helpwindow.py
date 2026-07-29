@@ -60,7 +60,7 @@ class HelpWindow(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle('Dodo - Help')
+        self.setWindowTitle('Lazarus - Help')
 
         layout = QHBoxLayout()
         layout.setContentsMargins(8, 8, 8, 8)

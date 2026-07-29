@@ -37,7 +37,7 @@ class Panel(QWidget):
     This is the base class for :class:`~lazarus.search.SearchPanel`,
     :class:`~lazarus.thread.ThreadPanel`, and
     :class:`~lazarus.compose.ComposePanel`, which are the main top-level
-    containers used by Dodo.
+    containers used by Lazarus.
 
 
     :param keep_open: If this is True, keep the panel open even when instructed to close.

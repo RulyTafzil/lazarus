@@ -28,7 +28,7 @@ can be done as follows:
   lazarus.settings.sent_dir = '~/mail/work/Sent'
 
 The settings :func:`~lazarus.settings.email_address` and
-:func:`~lazarus.settings.sent_dir` are required. Dodo may not work correctly
+:func:`~lazarus.settings.sent_dir` are required. Lazarus may not work correctly
 unless you set them properly. The rest of the settings have reasonable
 defaults, as detailed below.
 """
@@ -91,7 +91,7 @@ web_browser_command = ''
 """Web browser to use when clicking links in emails
 
 This should be a single command which expects a URL as its first argument. If this
-is an empty string, Dodo will attempt to use the default web browser supplied by
+is an empty string, Lazarus will attempt to use the default web browser supplied by
 the desktop environment, if it exists.
 """
 
@@ -141,7 +141,7 @@ remove_temp_dirs = 'ask'
 """Set whether to remove temporary directories when closing a panel
 
 Thread panels create temporary directories to open attachments. These can be cleaned up
-automatically when a panel (or Dodo) is closed. Possible values are: 'always', 'never',
+automatically when a panel (or Lazarus) is closed. Possible values are: 'always', 'never',
 or 'ask'.
 """
 
@@ -236,7 +236,7 @@ where ``<account>`` is one of the names in
 :func:`~lazarus.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
 ``~/.config``). Either file is optional; if only ``signature.html``
 exists its plaintext rendering (via :func:`~lazarus.util.html2text`) is
-used until Dodo has a rich-text compose mode. Set this to False to
+used until Lazarus has a rich-text compose mode. Set this to False to
 disable signature insertion entirely.
 """
 
@@ -262,7 +262,7 @@ a reasonable definition of that for most setups.
 
 # logging
 log_level = 'WARNING'
-"""Python logging level for Dodo.
+"""Python logging level for Lazarus.
 
 One of ``'DEBUG'``, ``'INFO'``, ``'WARNING'``, ``'ERROR'``, ``'CRITICAL'``.
 Set to ``'DEBUG'`` when troubleshooting, ``'WARNING'`` for normal use.
@@ -280,13 +280,13 @@ html_block_remote_requests = True
 """Block remote requests for HTML messages
 
 HTML messages, especially from dodgy senders, can display remote content or 'call home'
-from embedded image tags or iframes. If set to True, Dodo will not allow these requests.
+from embedded image tags or iframes. If set to True, Lazarus will not allow these requests.
 """
 
 html_confirm_open_links = True
 """Display a confirmation dialog before opening a link in browser
 
-If this is True, Dodo will display a confirmation dialog showing the *actual* URL that
+If this is True, Lazarus will display a confirmation dialog showing the *actual* URL that
 the web browser will request before opening. This is an extra measure against phishing
 or emails opening your web browser without your permission.
 """

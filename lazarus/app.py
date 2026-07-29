@@ -127,7 +127,7 @@ class SyncMailThread(QThread):
 
 
 class Dodo(QApplication):
-    """The main Dodo application
+    """The main Lazarus application
 
     There is always one instance of this class, and it contains methods for all of the global (i.e.
     not view-specific) commands. This includes running global opening/closing panels, opening the help
@@ -684,7 +684,7 @@ class Dodo(QApplication):
 
 
 def main() -> None:
-    """Main entry point for Dodo"""
+    """Main entry point for Lazarus"""
 
     lazarus = Dodo()
     lazarus.exec()
