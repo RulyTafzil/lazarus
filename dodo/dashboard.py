@@ -19,8 +19,8 @@
 from __future__ import annotations
 from typing import Optional, Any, List, Tuple, Literal, Set
 
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QSettings, QTimer
-from PyQt6.QtWidgets import QTreeView, QHeaderView, QAbstractSlider
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QTimer
+from PyQt6.QtWidgets import QTreeView, QHeaderView
 from PyQt6.QtGui import QFont, QColor
 
 import logging
@@ -219,6 +219,7 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
 
         self.queries = queries
         self.max_items = max_items
+        self._geometry_key = 'dashboard_tree_geometry'
 
         self.tree = QTreeView()
         self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -235,8 +236,6 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
         # Span header rows across all columns
         self.tree.model().modelReset.connect(self._span_headers)
 
-        # Restore column widths from previous session
-        self.conf = QSettings("dodo", "dodo")
         self.restore_tree_geometry()
 
         self.layout().addWidget(self.tree)
@@ -259,21 +258,6 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
             if self.model.is_header(row):
                 idx = self.model.index(row, 0)
                 self.tree.setFirstColumnSpanned(row, QModelIndex(), True)
-
-    def restore_tree_geometry(self) -> None:
-        """Restore column widths from previous session."""
-        tree_geometry = self.conf.value("dashboard_tree_geometry")
-        if tree_geometry:
-            self.tree.header().restoreState(tree_geometry)
-
-    def save_tree_geometry(self) -> None:
-        """Save column widths for next session."""
-        self.conf.setValue("dashboard_tree_geometry", self.tree.header().saveState())
-
-    def before_close(self) -> bool:
-        """Save geometry before closing."""
-        self.save_tree_geometry()
-        return super().before_close()
 
     def _advance_past_current(self) -> int:
         """Advance selection to the next non-header row and return its
@@ -406,26 +390,6 @@ class DashboardPanel(actions.MarkableActionsMixin, panel.Panel):
                 if td and 'tags' in td and 'unread' in td['tags']:
                     self.tree.setCurrentIndex(self.model.index(row, 0))
                     break
-
-    def prev_page(self) -> None:
-        """Scroll up a page in the list."""
-        bar = self.tree.verticalScrollBar()
-        if bar.value() == bar.minimum():
-            self.first_thread()
-            return
-        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)
-        pos = self.tree.rect().bottomLeft()
-        self.tree.setCurrentIndex(self.tree.indexAt(pos))
-
-    def next_page(self) -> None:
-        """Scroll down a page in the list."""
-        bar = self.tree.verticalScrollBar()
-        if bar.value() == bar.maximum():
-            self.last_thread()
-            return
-        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepAdd)
-        pos = self.tree.rect().topLeft()
-        self.tree.setCurrentIndex(self.tree.indexAt(pos))
 
     def first_thread(self) -> None:
         """Select the first thread."""

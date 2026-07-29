@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 from typing import Optional, List, Set
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer
 from PyQt6.QtGui import QFocusEvent, QFont, QKeyEvent
 from PyQt6.QtWidgets import *
 import shutil
@@ -60,6 +60,7 @@ class Panel(QWidget):
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.dirty = True
         self.temp_dirs: List[str] = []
+        self._geometry_key: str | None = None
 
         # set up timer and prefix cache for handling keychords
         self._prefix = ""
@@ -129,14 +130,62 @@ class Panel(QWidget):
     def update_thread(self, thread_id: str, msg_id: str|None=None) -> None:
         self.dirty = True
 
+    # -- tree geometry ------------------------------------------------------
+
+    def save_tree_geometry(self) -> None:
+        """Persist column widths if a geometry key is set."""
+        if not self._geometry_key or not hasattr(self, 'tree'):
+            return
+        conf = QSettings('dodo', 'dodo')
+        conf.setValue(self._geometry_key, self.tree.header().saveState())
+
+    def restore_tree_geometry(self) -> None:
+        """Restore column widths from a previous session."""
+        if not self._geometry_key or not hasattr(self, 'tree'):
+            return
+        conf = QSettings('dodo', 'dodo')
+        state = conf.value(self._geometry_key)
+        if state:
+            self.tree.header().restoreState(state)
+
+    # -- page-up / page-down ------------------------------------------------
+
+    def prev_page(self) -> None:
+        """Scroll up one page in the list, keeping selection visible."""
+        if not hasattr(self, 'tree') or not hasattr(self, 'first_thread'):
+            return
+        bar = self.tree.verticalScrollBar()
+        if bar.value() == bar.minimum():
+            self.first_thread()
+            return
+        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)
+        pos = self.tree.rect().bottomLeft()
+        self.tree.setCurrentIndex(self.tree.indexAt(pos))
+
+    def next_page(self) -> None:
+        """Scroll down one page in the list, keeping selection visible."""
+        if not hasattr(self, 'tree') or not hasattr(self, 'last_thread'):
+            return
+        bar = self.tree.verticalScrollBar()
+        if bar.value() == bar.maximum():
+            self.last_thread()
+            return
+        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepAdd)
+        pos = self.tree.rect().topLeft()
+        self.tree.setCurrentIndex(self.tree.indexAt(pos))
+
+    # -- close --------------------------------------------------------------
+
     def before_close(self) -> bool:
         """Called before closing a panel
 
-        Cleans up temp dirs and returns True. Overriding methods should call this method
-        *after* checking they are ready to close.
+        Saves tree geometry and cleans up temp dirs. Overriding methods
+        should call this method *after* checking they are ready to close.
 
         :returns: True if the panel is ready to close, or False to cancel
         """
+
+        self.save_tree_geometry()
 
         logger.info('before_close: starting')
         if settings.remove_temp_dirs == 'always':

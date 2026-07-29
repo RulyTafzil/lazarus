@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, Any, overload, Literal, Set
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QObject, QSettings
-from PyQt6.QtWidgets import QTreeView, QWidget, QAbstractSlider, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QTreeView, QWidget, QVBoxLayout, QLabel
 from PyQt6.QtGui import QFont, QColor
 import subprocess
 import json
@@ -261,7 +261,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         super().__init__(a, keep_open, parent)
         self.set_keymap(keymap.search_keymap)
         self.q = q
-        self.conf = QSettings("dodo", "dodo")
+        self._geometry_key = 'search_tree_geometry'
         self.tree = QTreeView()
         self.error_view = QLabel()
         self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -296,18 +296,6 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             self.error_view.setText(self.model.error_msg)
             self.error_view.show()
         self.has_refreshed.emit()
-
-    def before_close(self) -> bool:
-        self.save_tree_geometry()
-        return super().before_close()
-
-    def restore_tree_geometry(self):
-        tree_geometry = self.conf.value("search_tree_geometry")
-        if tree_geometry:
-            self.tree.header().restoreState(tree_geometry)
-
-    def save_tree_geometry(self):
-        self.conf.setValue("search_tree_geometry", self.tree.header().saveState())
 
     def _select_first_row(self) -> None:
         """Select the first row in the tree view."""
@@ -410,30 +398,6 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         ix = self.model.index(self.tree.model().rowCount()-1, 0)
         if self.model.checkIndex(ix):
             self.tree.setCurrentIndex(ix)
-
-    def prev_page(self) -> None:
-        """Scroll up a page in the search"""
-        bar = self.tree.verticalScrollBar()
-        if bar.value() == bar.minimum():
-            self.first_thread()
-            return
-
-        # Scroll up a page and keep selection at the bottommost thread
-        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepSub)
-        pos = self.tree.rect().bottomLeft()
-        self.tree.setCurrentIndex(self.tree.indexAt(pos))
-
-    def next_page(self) -> None:
-        """Scroll down a page in the search"""
-        bar = self.tree.verticalScrollBar()
-        if bar.value() == bar.maximum():
-            self.last_thread()
-            return
-
-        # Scroll down a page and keep selection at the topmost thread
-        bar.triggerAction(QAbstractSlider.SliderAction.SliderPageStepAdd)
-        pos = self.tree.rect().topLeft()
-        self.tree.setCurrentIndex(self.tree.indexAt(pos))
 
     def open_current_thread(self) -> None:
         """Open the selected thread"""

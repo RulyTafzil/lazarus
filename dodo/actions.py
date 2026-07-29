@@ -208,6 +208,31 @@ def _resolve_stale_path(f: str) -> Optional[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _collect_files(query: str) -> list[str]:
+    """Return deduplicated, resolved file paths matching *query*."""
+    r = subprocess.run(
+        ['notmuch', 'search', '--exclude=false', '--output=files',
+         '--', query],
+        capture_output=True, text=True)
+    files: list[str] = []
+    seen: set[str] = set()
+    for f in r.stdout.strip().split('\n'):
+        if not f or f in seen:
+            continue
+        seen.add(f)
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('file gone: %s', os.path.basename(f))
+            continue
+        files.append(resolved)
+    return files
+
+
+def _is_trash_path(path: str) -> bool:
+    """Return True if *path* lives inside a Trash Maildir folder."""
+    return '/Trash/' in path or '/[Gmail]/Trash/' in path
+
+
 def move_to_trash(notmuch_query: str) -> int:
     """Tag ``+trash`` and move matching files to the Trash folder.
 
@@ -215,33 +240,18 @@ def move_to_trash(notmuch_query: str) -> int:
     enqueued to a background thread so rapid successive calls don't
     interrupt each other.
 
-    Returns the number of *files found* (moves happen asynchronously).
+    Returns the number of *files moved* (happens asynchronously).
     """
     # Search BEFORE tagging — tag changes may alter query matching.
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', notmuch_query],
-        capture_output=True, text=True)
+    files = _collect_files(notmuch_query)
 
     subprocess.run(
         ['notmuch', 'tag', '+trash', '-inbox', '-unread',
          '-marked', '--', notmuch_query],
         capture_output=True, text=True)
-    # Errors here are non-fatal — file moves proceed regardless
 
     moves: List[Tuple[str, str]] = []
-    found = 0
-    seen = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
-            continue
-        seen.add(f)
-        found += 1
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
-            logger.debug('file gone (no match): %s', os.path.basename(f))
-            continue
-        f = resolved
+    for f in files:
         result = _mail_file_account(f)
         if result is None:
             continue
@@ -252,7 +262,7 @@ def move_to_trash(notmuch_query: str) -> int:
 
     if moves:
         _get_worker().enqueue(moves)
-    return found
+    return len(moves)
 
 
 # ---------------------------------------------------------------------------
@@ -520,29 +530,15 @@ def move_files(notmuch_query: str, target_dir: str) -> int:
     successive moves are serialised and ``notmuch new`` fires once
     after each batch.
 
-    :returns: the number of *files found* (moves happen asynchronously)
+    :returns: the number of *files moved* (happens asynchronously)
     """
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', notmuch_query],
-        capture_output=True, text=True)
+    files = _collect_files(notmuch_query)
 
     target_cur = os.path.join(os.path.expanduser(target_dir), 'cur')
     os.makedirs(target_cur, exist_ok=True)
 
     moves: List[Tuple[str, str]] = []
-    found = 0
-    seen: set[str] = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
-            continue
-        seen.add(f)
-        found += 1
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
-            logger.debug('file gone (no match): %s', os.path.basename(f))
-            continue
-        f = resolved
+    for f in files:
         # Skip files already under the target directory — a file may
         # still match the query after a previous move if its tags
         # haven't changed (e.g. a rule with move_to but no tag_remove).
@@ -554,7 +550,7 @@ def move_files(notmuch_query: str, target_dir: str) -> int:
 
     if moves:
         _get_worker().enqueue(moves)
-    return found
+    return len(moves)
 
 
 def expunge_trash() -> int:
@@ -567,23 +563,11 @@ def expunge_trash() -> int:
 
     :returns: the number of files marked ``T``
     """
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', 'tag:trash'],
-        capture_output=True, text=True)
+    files = _collect_files('tag:trash')
 
     tagged = 0
-    for f in r.stdout.strip().split('\n'):
-        if not f:
-            continue
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
-            logger.debug('expunge: file gone: %s', os.path.basename(f))
-            continue
-        f = resolved
-
-        # Only touch files that actually live in a Trash folder
-        if '/Trash/' not in f and '/[Gmail]/Trash/' not in f:
+    for f in files:
+        if not _is_trash_path(f):
             logger.debug('expunge: not in trash folder: %s', f)
             continue
 
@@ -626,27 +610,11 @@ def restore_from_trash(notmuch_query: str) -> int:
 
     :returns: the number of files moved
     """
-    r = subprocess.run(
-        ['notmuch', 'search', '--exclude=false', '--output=files',
-         '--', notmuch_query],
-        capture_output=True, text=True)
+    files = _collect_files(notmuch_query)
 
     moves: List[Tuple[str, str]] = []
-    restored = 0
-    seen: set[str] = set()
-    for f in r.stdout.strip().split('\n'):
-        if not f or f in seen:
-            continue
-        seen.add(f)
-        restored += 1
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
-            logger.debug('restore: file gone: %s', os.path.basename(f))
-            continue
-        f = resolved
-
-        # Only restore files that are actually in a Trash folder
-        if '/Trash/' not in f and '/[Gmail]/Trash/' not in f:
+    for f in files:
+        if not _is_trash_path(f):
             logger.debug('restore: not in trash folder: %s', f)
             continue
 
@@ -667,4 +635,4 @@ def restore_from_trash(notmuch_query: str) -> int:
             capture_output=True, text=True)
         _get_worker().enqueue(moves)
 
-    return restored
+    return len(moves)
