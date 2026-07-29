@@ -215,6 +215,9 @@ class ThreadPanel(panel.Panel):
         info_area.addWidget(self.message_info)
         splitter.addWidget(info_area)
         splitter.addWidget(self._view_container)
+        # Info area keeps its height; message viewer absorbs all resize.
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
         self.layout().addWidget(splitter)
 
         # save splitter positions
