@@ -186,7 +186,7 @@ class RichTextEditor(QTextEdit):
             return f'src="cid:{content_id}"'
 
         html = re.sub(
-            r'src="file://([^"]+)"',
+            r'src="(?:file://)?(/[^"]+)"',
             _replace_src,
             html,
         )

@@ -19,8 +19,7 @@
 """Build MIME email messages from structured compose data.
 
 :func:`build_message` takes a :class:`ComposeData` and returns a
-:class:`~email.message.EmailMessage` ready to be piped into the
-sendmail command.  It handles:
+MIME message ready to be piped into the sendmail command.  It handles:
 
 * Plain-text-only messages (no HTML, no images)
 * HTML messages with or without inline images (``multipart/related``)
@@ -32,11 +31,15 @@ from __future__ import annotations
 import os
 import mimetypes
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import email.message
 import email.utils
 import email.policy
+import email.mime.multipart
+import email.mime.text
+import email.mime.image
+import email.mime.application
 
 
 @dataclass
@@ -70,87 +73,135 @@ def _guess_mime(path: str) -> tuple[str, str]:
     return ('application', 'octet-stream')
 
 
-def build_message(data: ComposeData) -> email.message.EmailMessage:
-    """Build an :class:`~email.message.EmailMessage` from *data*.
+def build_message(
+    data: ComposeData,
+) -> email.message.MIMEMultipart | email.message.EmailMessage:
+    """Build a MIME message from *data*.
 
-    The returned message respects the email policy (UTF-8, 78-char line
-    length) and is ready for sending via msmtp or similar.
+    Returns a :class:`~email.message.EmailMessage` for simple messages
+    or a :class:`~email.mime.multipart.MIMEMultipart` for complex ones
+    (HTML + inline images).  Both support ``.as_string()`` for piping
+    to msmtp.
     """
-    eml = email.message.EmailMessage(
-        policy=email.policy.EmailPolicy(utf8=False))
-
-    # Headers
-    eml['From'] = data.from_addr
-    if data.to:
-        eml['To'] = ', '.join(data.to)
-    if data.cc:
-        eml['Cc'] = ', '.join(data.cc)
-    if data.bcc:
-        eml['Bcc'] = ', '.join(data.bcc)
-    eml['Subject'] = data.subject
-
-    if data.message_id:
-        eml['Message-ID'] = data.message_id
-    else:
-        eml['Message-ID'] = email.utils.make_msgid()
-
-    eml['User-Agent'] = data.user_agent
-
     if not data.body_html and not data.body_text:
         data.body_text = ''
 
     # ------------------------------------------------------------------
-    # Case 1: Plain text only (no HTML, no inline images)
+    # Case 1: Plain text only
     # ------------------------------------------------------------------
     if not data.body_html and not data.inline_images:
+        eml = email.message.EmailMessage(
+            policy=email.policy.EmailPolicy(utf8=False))
+        _set_headers(eml, data)
         eml.set_content(data.body_text or '')
+        _add_attachments(eml, data)
+        return eml
 
     # ------------------------------------------------------------------
     # Case 2: HTML, no inline images
     # ------------------------------------------------------------------
-    elif not data.inline_images:
+    if not data.inline_images:
+        eml = email.message.EmailMessage(
+            policy=email.policy.EmailPolicy(utf8=False))
+        _set_headers(eml, data)
         eml.set_content(data.body_html or '', subtype='html')
         eml.add_alternative(data.body_text or '', subtype='plain')
+        _add_attachments(eml, data)
+        return eml
 
     # ------------------------------------------------------------------
-    # Case 3: HTML + inline images → multipart/related
+    # Case 3: HTML + inline images
+    #
+    # Correct structure (RFC 2387):
+    #   multipart/alternative
+    #     text/plain
+    #     multipart/related
+    #       text/html
+    #       image/png  (Content-ID: <...>)
+    #
+    # We use the older MIMEMultipart API because EmailMessage's
+    # add_alternative() wraps sub-messages as message/rfc822 instead
+    # of embedding them inline.
     # ------------------------------------------------------------------
-    else:
-        # Build the related sub-part
-        related = email.message.EmailMessage(
-            policy=email.policy.EmailPolicy(utf8=False))
-        related.set_content(data.body_html or '', subtype='html')
-        related.add_alternative(data.body_text or '', subtype='plain')
 
-        for cid, path in data.inline_images.items():
-            if not os.path.exists(path):
-                continue
-            maintype, subtype = _guess_mime(path)
-            with open(path, 'rb') as f:
-                img_data = f.read()
-            related.add_attachment(
-                img_data,
-                maintype=maintype,
-                subtype=subtype,
-                cid=cid,
-            )
+    # Build the multipart/related part: HTML body + inline images
+    related = email.mime.multipart.MIMEMultipart('related')
+    related.attach(email.mime.text.MIMEText(
+        data.body_html or '', 'html'))
 
-        eml.set_content(related)
+    for cid, path in data.inline_images.items():
+        if not os.path.exists(path):
+            continue
+        maintype, subtype = _guess_mime(path)
+        with open(path, 'rb') as f:
+            img_data = f.read()
 
-    # ------------------------------------------------------------------
-    # File attachments
-    # ------------------------------------------------------------------
+        if maintype == 'image':
+            img_part = email.mime.image.MIMEImage(img_data, _subtype=subtype)
+        else:
+            img_part = email.mime.application.MIMEApplication(
+                img_data, _subtype=subtype)
+        img_part['Content-ID'] = f'<{cid}>'
+        img_part['Content-Disposition'] = 'inline'
+        related.attach(img_part)
+
+    # Wrap in multipart/alternative: text/plain + multipart/related
+    alt = email.mime.multipart.MIMEMultipart('alternative')
+    alt.attach(email.mime.text.MIMEText(data.body_text or '', 'plain'))
+    alt.attach(related)
+
+    _set_headers(alt, data)
+    _add_attachments(alt, data)
+    return alt
+
+
+def _set_headers(
+    msg: email.message.MIMEMultipart | email.message.EmailMessage,
+    data: ComposeData,
+) -> None:
+    """Set common headers on *msg*."""
+    msg['From'] = data.from_addr
+    if data.to:
+        msg['To'] = ', '.join(data.to)
+    if data.cc:
+        msg['Cc'] = ', '.join(data.cc)
+    if data.bcc:
+        msg['Bcc'] = ', '.join(data.bcc)
+    msg['Subject'] = data.subject
+    msg['Message-ID'] = data.message_id or email.utils.make_msgid()
+    msg['User-Agent'] = data.user_agent
+
+
+def _add_attachments(
+    msg: email.message.MIMEMultipart | email.message.EmailMessage,
+    data: ComposeData,
+) -> None:
+    """Attach files from *data.attachments* to *msg*."""
     for att_path in data.attachments:
         if not os.path.exists(att_path):
             continue
         maintype, subtype = _guess_mime(att_path)
         with open(os.path.expanduser(att_path), 'rb') as f:
             att_data = f.read()
-        eml.add_attachment(
-            att_data,
-            maintype=maintype,
-            subtype=subtype,
-            filename=os.path.basename(att_path),
-        )
 
-    return eml
+        if hasattr(msg, 'add_attachment'):
+            msg.add_attachment(
+                att_data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=os.path.basename(att_path),
+            )
+        else:
+            # MIMEMultipart
+            if maintype == 'image':
+                part = email.mime.image.MIMEImage(
+                    att_data, _subtype=subtype)
+            elif maintype == 'application':
+                part = email.mime.application.MIMEApplication(
+                    att_data, _subtype=subtype)
+            else:
+                part = email.mime.text.MIMEText(
+                    att_data, _subtype=subtype)
+            part['Content-Disposition'] = (
+                f'attachment; filename="{os.path.basename(att_path)}"')
+            msg.attach(part)
