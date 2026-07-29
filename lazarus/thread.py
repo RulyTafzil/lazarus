@@ -57,7 +57,7 @@ class ThreadPanel(panel.Panel):
 
     This is the panel used for email viewing.
 
-    :param app: the unique instance of the :class:`~dodo.app.Dodo` app class
+    :param app: the unique instance of the :class:`~lazarus.app.Dodo` app class
     :param thread_id: the unique ID notmuch uses to identify this thread
     """
 
@@ -221,7 +221,7 @@ class ThreadPanel(panel.Panel):
         self.layout().addWidget(splitter)
 
         # save splitter positions
-        window_settings = QSettings("dodo", "dodo")
+        window_settings = QSettings("lazarus", "lazarus")
         main_state = window_settings.value("thread_splitter_state")
         splitter.splitterMoved.connect(
             lambda x: window_settings.setValue(

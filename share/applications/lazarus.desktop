@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lazarus
+Comment=Lazarus email client
+Exec=lazarus
+Icon=lazarus
+Terminal=false

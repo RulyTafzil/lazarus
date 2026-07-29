@@ -18,17 +18,17 @@
 
 """
 This module holds settings and sets their default values. The values set
-here should be overridden by the user in `~/.config/dodo/config.py`. This
+here should be overridden by the user in `~/.config/lazarus/config.py`. This
 can be done as follows:
 
 .. code-block:: python
 
-  import dodo
-  dodo.settings.email_address = 'First Last <me@domain.com>''
-  dodo.settings.sent_dir = '~/mail/work/Sent'
+  import lazarus
+  lazarus.settings.email_address = 'First Last <me@domain.com>''
+  lazarus.settings.sent_dir = '~/mail/work/Sent'
 
-The settings :func:`~dodo.settings.email_address` and
-:func:`~dodo.settings.sent_dir` are required. Dodo may not work correctly
+The settings :func:`~lazarus.settings.email_address` and
+:func:`~lazarus.settings.sent_dir` are required. Dodo may not work correctly
 unless you set them properly. The rest of the settings have reasonable
 defaults, as detailed below.
 """
@@ -45,7 +45,7 @@ email_address: Union[str, Dict[str, str]] = ''
 This is used both to populate the 'From' field of emails and to (mostly)
 avoid CC'ing yourself when replying to all. It can be given as 'NAME <ADDRESS@DOMAIN>'
 format. For just one email address, this can be given as a string. From multiple
-emails, use a dictionary mapping the account names in :func:`~dodo.settings.smtp_accounts`
+emails, use a dictionary mapping the account names in :func:`~lazarus.settings.smtp_accounts`
 to the associated email addresses.
 """
 
@@ -53,9 +53,9 @@ sent_dir = ''
 """Where to store sent messages (REQUIRED)
 
 This will usually be a subdirectory of the Maildir sync'ed with
-:func:`~dodo.settings.sync_mail_command`. This setting can be given either
+:func:`~lazarus.settings.sync_mail_command`. This setting can be given either
 as a string to use one global sent directory, or as a dictionary mapping
-account names in :func:`~dodo.settings.smtp_accounts` to their own sent dirs.
+account names in :func:`~lazarus.settings.smtp_accounts` to their own sent dirs.
 
 A value of None, either standalone or as one of the dict value, can be used to
 indicate the email should be discarded. This can be useful if the sendmail
@@ -118,7 +118,7 @@ sync_mail_command = 'offlineimap'
 """Command used to sync IMAP with local Maildir"""
 
 sync_mail_interval = 300
-"""Interval to run :func:`~dodo.settings.sync_mail_command` automatically, in seconds
+"""Interval to run :func:`~lazarus.settings.sync_mail_command` automatically, in seconds
 
 Set this to -1 to disable automatic syncing.
 """
@@ -225,23 +225,23 @@ use_signature = True
 """Whether to automatically insert a per-account signature when composing.
 
 Signatures are loaded from files (not from this settings module -- see
-:mod:`dodo.signature`), one per account:
+:mod:`lazarus.signature`), one per account:
 
 .. code-block:: text
 
-  $XDG_CONFIG_HOME/dodo/<account>/signature       (plain text)
-  $XDG_CONFIG_HOME/dodo/<account>/signature.html   (HTML)
+  $XDG_CONFIG_HOME/lazarus/<account>/signature       (plain text)
+  $XDG_CONFIG_HOME/lazarus/<account>/signature.html   (HTML)
 
 where ``<account>`` is one of the names in
-:func:`~dodo.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
+:func:`~lazarus.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
 ``~/.config``). Either file is optional; if only ``signature.html``
-exists its plaintext rendering (via :func:`~dodo.util.html2text`) is
+exists its plaintext rendering (via :func:`~lazarus.util.html2text`) is
 used until Dodo has a rich-text compose mode. Set this to False to
 disable signature insertion entirely.
 """
 
 filter_rules: List[rules.Rule] = []
-"""A list of :class:`dodo.rules.Rule` mail filters, applied automatically
+"""A list of :class:`lazarus.rules.Rule` mail filters, applied automatically
 after every sync (and on demand via the ``C-r`` keybinding).
 
 Each rule is a notmuch query plus tags to add/remove from anything
@@ -250,7 +250,7 @@ example.
 """
 
 filter_scope_query = 'tag:inbox and tag:unread'
-"""Notmuch query limiting which mail :func:`~dodo.settings.filter_rules`
+"""Notmuch query limiting which mail :func:`~lazarus.settings.filter_rules`
 are allowed to touch.
 
 Rules are applied as ``(filter_scope_query) and (rule.query)``, so
@@ -271,7 +271,7 @@ Set to ``'DEBUG'`` when troubleshooting, ``'WARNING'`` for normal use.
 log_file = ''
 """Path to a log file.  If empty, logs go to stderr only.
 
-Set to e.g. ``'~/.local/share/dodo/dodo.log'`` to persist logs across
+Set to e.g. ``'~/.local/share/lazarus/lazarus.log'`` to persist logs across
 sessions for diagnostics.
 """
 
@@ -295,7 +295,7 @@ html_confirm_open_links_trusted_hosts = []
 """A list of trusted hosts for HTML links.
 
 If a link is to a host in this list, it will be opened without confirmation, even if
-:func:`~dodo.settings.html_confirm_open_links` is True.
+:func:`~lazarus.settings.html_confirm_open_links` is True.
 """
 
 # visual
@@ -303,7 +303,7 @@ theme = themes.nord
 """The GUI theme
 
 A theme is a dictionary mapping a dozen or so named colors to HEX values.
-Several themes are defined in `dodo.themes`, based on the popular Nord,
+Several themes are defined in `lazarus.themes`, based on the popular Nord,
 Solarized and Gruvbox color palettes.
 """
 
@@ -336,7 +336,7 @@ search panel toggles that tag on the selected thread.
 
 Example::
 
-  dodo.settings.tag_hotkeys = {'1': 'Urgent', '2': 'ToDo', '3': 'spam'}
+  lazarus.settings.tag_hotkeys = {'1': 'Urgent', '2': 'ToDo', '3': 'spam'}
 """
 
 search_title_format = "{query} [{num_threads}]"
@@ -433,17 +433,17 @@ return ``None``, the default rendering is used.
 The default rendering runs the following functions in order, which might also be useful
 when writing your own filters:
 
-- :func:`~dodo.util.body_text` (to get a body string from the JSON)
-- :func:`~dodo.util.simple_escape` (to make the string HTML-safe)
-- :func:`~dodo.util.colorize_text` (to colorize quoted text)
-- :func:`~dodo.util.linkify` (to detect URLs)
+- :func:`~lazarus.util.body_text` (to get a body string from the JSON)
+- :func:`~lazarus.util.simple_escape` (to make the string HTML-safe)
+- :func:`~lazarus.util.colorize_text` (to colorize quoted text)
+- :func:`~lazarus.util.linkify` (to detect URLs)
 
 Example configuration using this feature to highlight markdown syntax:
 
 .. code-block:: python
 
   import pygments.formatters
-  from dodo import util
+  from lazarus import util
 
   def render_github(msg):
       # Double imports needed due to how dodo runs config.py
@@ -463,11 +463,11 @@ Example configuration using this feature to highlight markdown syntax:
       highlighted = pygments.highlight(text, lexer, formatter)
       return util.linkify(highlighted)
 
-  dodo.settings.message2html_filters = [render_github]
+  lazarus.settings.message2html_filters = [render_github]
 
   # Available styles: https://pygments.org/styles/
   pygments_css = pygments.formatters.HtmlFormatter(style="gruvbox-dark").get_style_defs()
-  dodo.settings.message_css += pygments_css.replace("{", "{{").replace("}", "}}")
+  lazarus.settings.message_css += pygments_css.replace("{", "{{").replace("}", "}}")
 """
 
 search_color_overrides = {}
@@ -486,9 +486,9 @@ using the built-in Gruvbox palette:
 
 .. code-block:: python
 
-  dodo.settings.search_color_overrides = {
+  lazarus.settings.search_color_overrides = {
       'urgent': {
-          'subject': dodo.themes.gruvbox_p['neutral_red'],
+          'subject': lazarus.themes.gruvbox_p['neutral_red'],
       }
   }
 """

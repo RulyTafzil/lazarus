@@ -77,7 +77,7 @@ class RichTextEditor(QTextEdit):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
-        self._temp_dir = tempfile.TemporaryDirectory(prefix='dodo-edit-')
+        self._temp_dir = tempfile.TemporaryDirectory(prefix='lazarus-edit-')
         self._images: Dict[str, str] = {}  # cid → filepath (populated on collect)
         self._image_counter = 0
 
@@ -181,7 +181,7 @@ class RichTextEditor(QTextEdit):
                 return m.group(0)  # leave unchanged
 
             cid = str(uuid.uuid4())[:8]
-            content_id = f'{cid}@dodo.inline'
+            content_id = f'{cid}@lazarus.inline'
             self._images[content_id] = filepath
             return f'src="cid:{content_id}"'
 

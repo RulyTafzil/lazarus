@@ -269,7 +269,7 @@ def move_to_trash(notmuch_query: str) -> int:
 
 class MarkableActionsMixin:
     """Shared "act on marked threads, or fall back to the current thread"
-    logic for :class:`~dodo.search.SearchPanel`.
+    logic for :class:`~lazarus.search.SearchPanel`.
 
     The panel previously implemented ``tag_thread``/``toggle_thread_tag``/
     ``archive_thread``/``delete_thread``/``archive_to_local`` inline;
@@ -283,7 +283,7 @@ class MarkableActionsMixin:
     cursor before a destructive action (delete/archive).
     """
 
-    app: object  # provided by the concrete panel (dodo.app.Dodo)
+    app: object  # provided by the concrete panel (lazarus.app.Dodo)
 
     def _marked_query(self) -> str:
         """Notmuch query matching "marked" threads in this panel's scope."""
@@ -500,7 +500,7 @@ def move_files(notmuch_query: str, target_dir: str) -> int:
     Callers that tag first should instead call :func:`collect_files`
     *before* tagging and pass the result to :func:`move_specific_files`
     directly (see :func:`move_to_archive` and
-    :func:`dodo.rules.apply_rules` for examples).
+    :func:`lazarus.rules.apply_rules` for examples).
 
     File moves are enqueued to the same background worker used by
     :func:`move_to_trash` and :func:`move_to_archive`, so rapid

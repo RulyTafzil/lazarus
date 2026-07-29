@@ -62,7 +62,7 @@ class ComposeData:
     message_id: str = ''
     in_reply_to: str = ''
     references: str = ''
-    user_agent: str = 'Dodo'
+    user_agent: str = 'Lazarus'
 
 
 def _guess_mime(path: str) -> tuple[str, str]:

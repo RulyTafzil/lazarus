@@ -34,14 +34,14 @@ logger = logging.getLogger(__name__)
 class Panel(QWidget):
     """A container widget that can handle key events and be shown on a tab
 
-    This is the base class for :class:`~dodo.search.SearchPanel`,
-    :class:`~dodo.thread.ThreadPanel`, and
-    :class:`~dodo.compose.ComposePanel`, which are the main top-level
+    This is the base class for :class:`~lazarus.search.SearchPanel`,
+    :class:`~lazarus.thread.ThreadPanel`, and
+    :class:`~lazarus.compose.ComposePanel`, which are the main top-level
     containers used by Dodo.
 
 
     :param keep_open: If this is True, keep the panel open even when instructed to close.
-                      This is used to make sure the "Inbox" :class:`~dodo.search.SearchPanel`
+                      This is used to make sure the "Inbox" :class:`~lazarus.search.SearchPanel`
                       always stays open.
     """
 
@@ -143,14 +143,14 @@ class Panel(QWidget):
         """Persist column widths if a geometry key is set."""
         if not self._geometry_key or not hasattr(self, 'tree'):
             return
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         conf.setValue(self._geometry_key, self.tree.header().saveState())
 
     def restore_tree_geometry(self) -> None:
         """Restore column widths from a previous session."""
         if not self._geometry_key or not hasattr(self, 'tree'):
             return
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         state = conf.value(self._geometry_key)
         if state:
             self.tree.header().restoreState(state)
@@ -215,12 +215,12 @@ class Panel(QWidget):
         """Passes key events to the appropriate keymap
 
         First a key press (possibly with modifiers) is translated into a string
-        representation using :func:`~dodo.util.key_string`. Then, if that string
+        representation using :func:`~lazarus.util.key_string`. Then, if that string
         is part of a keychord, start a timer to try to gather more input.
 
         Once we have the full keychord (or a timeout has occurred), check if the
         string of the keychord is in the keymap set via :func:`set_keymap`. If so,
-        fire the associated function. Otherwise, check :func:`~dodo.keymap.global_keymap`
+        fire the associated function. Otherwise, check :func:`~lazarus.keymap.global_keymap`
         and fire the associated function. If it is not in either, swallow the input and
         do nothing.
         """

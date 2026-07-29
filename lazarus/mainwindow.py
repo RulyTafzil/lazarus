@@ -50,10 +50,10 @@ def _position_to_orientation(
 class MainWindow(QMainWindow):
     def __init__(self, a: app.Dodo):
         super().__init__()
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         self.app = a
 
-        icon = os.path.dirname(__file__) + '/dodo.svg'
+        icon = os.path.dirname(__file__) + '/lazarus.svg'
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
         self.setWindowTitle("Dodo")
@@ -150,12 +150,12 @@ class MainWindow(QMainWindow):
     # -- splitter persistence -----------------------------------------------
 
     def _save_splitter_state(self) -> None:
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         key = f"main_splitter_state_{settings.thread_pane_position}"
         conf.setValue(key, self.main_splitter.saveState())
 
     def _restore_splitter_state(self) -> None:
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         key = f"main_splitter_state_{settings.thread_pane_position}"
         state = conf.value(key)
         if state:
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
 
     def _save_preview_state(self, hidden: bool) -> None:
         """Persist whether the thread preview is collapsed."""
-        QSettings('dodo', 'dodo').setValue('preview_hidden', hidden)
+        QSettings('lazarus', 'lazarus').setValue('preview_hidden', hidden)
 
     # -- status bar ---------------------------------------------------------
 
@@ -261,7 +261,7 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, e: QCloseEvent) -> None:
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         conf.setValue("main_window_geometry", self.saveGeometry())
         if self.before_close_all():
             e.accept()

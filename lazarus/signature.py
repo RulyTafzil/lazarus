@@ -23,16 +23,16 @@ not configuration) and lets non-Python tooling (a script, a symlink to
 a company-wide template, etc.) manage them independently of Dodo.
 
 For an account named ``ACCOUNT`` (i.e. one of the entries in
-:func:`~dodo.settings.smtp_accounts`), Dodo looks for:
+:func:`~lazarus.settings.smtp_accounts`), Dodo looks for:
 
-    $XDG_CONFIG_HOME/dodo/ACCOUNT/signature       (plain text)
-    $XDG_CONFIG_HOME/dodo/ACCOUNT/signature.html   (HTML)
+    $XDG_CONFIG_HOME/lazarus/ACCOUNT/signature       (plain text)
+    $XDG_CONFIG_HOME/lazarus/ACCOUNT/signature.html   (HTML)
 
 ($XDG_CONFIG_HOME defaults to ~/.config on Linux; resolved via Qt's
 QStandardPaths so this also does the right thing on macOS/Windows.)
 
 Either file is optional. If only ``signature.html`` exists, its
-plaintext form (via :func:`dodo.util.html2text`) is used as the
+plaintext form (via :func:`lazarus.util.html2text`) is used as the
 plaintext signature until Dodo has a rich-text compose mode -- at
 which point ``signature.html`` will be used directly instead of being
 downconverted. The HTML content is loaded and returned regardless, so
@@ -53,13 +53,13 @@ logger = logging.getLogger(__name__)
 
 
 def config_dir(account: str) -> str:
-    """Return $XDG_CONFIG_HOME/dodo/ACCOUNT for the given account name.
+    """Return $XDG_CONFIG_HOME/lazarus/ACCOUNT for the given account name.
 
-    Uses the same Qt ``ConfigLocation`` lookup as ``dodo.app`` uses to
+    Uses the same Qt ``ConfigLocation`` lookup as ``lazarus.app`` uses to
     find ``config.py``, so this stays consistent across platforms.
     """
     base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
-    return os.path.join(base, 'dodo', account)
+    return os.path.join(base, 'lazarus', account)
 
 
 def _read_file(path: str) -> Optional[str]:
@@ -76,10 +76,10 @@ def _read_file(path: str) -> Optional[str]:
 def load(account: str) -> Tuple[Optional[str], Optional[str]]:
     """Load the plaintext and HTML signature for ``account``.
 
-    :param account: an entry from :func:`~dodo.settings.smtp_accounts`
+    :param account: an entry from :func:`~lazarus.settings.smtp_accounts`
     :returns: a ``(text, html)`` pair. Either may be ``None`` if the
         corresponding file is absent. If only the HTML file exists,
-        ``text`` is filled in via :func:`dodo.util.html2text` so
+        ``text`` is filled in via :func:`lazarus.util.html2text` so
         plaintext composition still gets a usable signature.
     """
     d = config_dir(account)

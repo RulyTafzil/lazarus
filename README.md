@@ -1,11 +1,8 @@
-# Dodo
-This is a personal fork of Dodo: https://github.com/akissinger/dodo
-Planning to do extensive ai work on it, so didn't want to bother them.
+# Lazarus
 
-
-[![Documentation Status](https://readthedocs.org/projects/dodomail/badge/?version=latest)](https://dodomail.readthedocs.io/en/latest/?badge=latest)
-
-Dodo is a graphical email client written in Python/PyQt6, based on the command line email swiss-army-knife [notmuch](https://notmuchmail.org/).
+Lazarus is a fork of [Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger,
+a graphical email client written in Python/PyQt6, based on the command line
+email swiss-army-knife [notmuch](https://notmuchmail.org/).
 
 ![Dodo](/images/dodo-screen-plus-icon.png?raw=true)
 
@@ -18,9 +15,9 @@ It's main goals are to:
 
 This README has instructions on installation, usage, and basic configuration. For API documentation (which is also useful for configuration), check out the [Read the Docs](https://dodomail.readthedocs.io/en/latest/) page.
 
-As an email client, Dodo is pretty much feature-complete, but **not yet extensively tested**. Since it's based on notmuch, all of its features are non-destructive, so you shouldn't ever lose any email due to bugs. That being said, you might see some strange behaviour, so use at your own risk.
+As an email client, Lazarus is pretty much feature-complete, but **not yet extensively tested**. Since it's based on notmuch, all of its features are non-destructive, so you shouldn't ever lose any email due to bugs. That being said, you might see some strange behaviour, so use at your own risk.
 
-A lot of Dodo's design is inspired by two existing notmuch-based clients: [alot](https://github.com/pazz/alot) and [astroid](https://github.com/astroidmail/astroid).
+A lot of Lazarus's design is inspired by two existing notmuch-based clients: [alot](https://github.com/pazz/alot) and [astroid](https://github.com/astroidmail/astroid).
 
 
 ## Prerequisites
@@ -38,50 +35,50 @@ All of this is pretty standard stuff, and should be installable via your package
 
 ## Install and run
 
-Dodo requires Python 3.7+ and [PyQt6](https://riverbankcomputing.com/software/pyqt/intro) 6.2 or above. You can install the latest git version of Dodo and its dependencies using [pip](https://pypi.org/project/pip/):
+Lazarus requires Python 3.7+ and [PyQt6](https://riverbankcomputing.com/software/pyqt/intro) 6.2 or above. You can install the latest git version of Lazarus and its dependencies using [pip](https://pypi.org/project/pip/):
 
     git clone https://github.com/akissinger/dodo.git
-    cd dodo
+    cd lazarus
     pip install .
     
-Then, run Dodo with:
+Then, run Lazarus with:
 
-    dodo
+    lazarus
 
 If you don't have it already, you may need to add `~/.local/bin` to your `PATH`.
 
 ## Basic use
 
-Before you fire up Dodo for the first time, make sure you at least configure `email_address` and `sent_dir` in `config.py` (see next section).
+Before you fire up Lazarus for the first time, make sure you at least configure `email_address` and `sent_dir` in `config.py` (see next section).
 
-Most functionality in Dodo comes from keyboard shortcuts. Press `?` to get a full list of the key mappings at any time.
+Most functionality in Lazarus comes from keyboard shortcuts. Press `?` to get a full list of the key mappings at any time.
 
-Dodo has 4 different kinds of view: search views, thread views, compose views, and the tag view. It opens initially with a search view with the query `tag:inbox`. Pressing enter or double-clicking a thread with open that thread in the thread view. Pressing `c` at any time or `r` while looking at a message in the thread view will open the compose view. Pressing `T` will open a list of all the known tags in a new tab.
+Lazarus has 4 different kinds of view: search views, thread views, compose views, and the tag view. It opens initially with a search view with the query `tag:inbox`. Pressing enter or double-clicking a thread with open that thread in the thread view. Pressing `c` at any time or `r` while looking at a message in the thread view will open the compose view. Pressing `T` will open a list of all the known tags in a new tab.
 
 In the compose view, press `<enter>` to edit the message on your chosen editor. Once you save and exit, the message will be updated. Press `a` to add attachments (or use the special `A:` header). Press `S` to send.
 
 
 ## Configuration
 
-Dodo is configured via `~/.config/dodo/config.py`. This is just a Python file that gets `eval`-ed right before the main window is shown.
+Lazarus is configured via `~/.config/lazarus/config.py`. This is just a Python file that gets `eval`-ed right before the main window is shown.
 
 Settings and their default values are defined in [settings.py](https://github.com/akissinger/dodo/blob/master/dodo/settings.py). A complete list, with documentation, can be found [here](https://dodomail.readthedocs.io/en/latest/api.html#module-dodo.settings).
 
-Most settings have reasonable defaults (assuming your are using offlineimap/msmtp). The only two things that must be set for Dodo to work properly are your email address and the location of your sent mail folder. Some things you probably also want to set up are the text editor (for composing messages) and the file browser (for viewing attachments).
+Most settings have reasonable defaults (assuming your are using offlineimap/msmtp). The only two things that must be set for Lazarus to work properly are your email address and the location of your sent mail folder. Some things you probably also want to set up are the text editor (for composing messages) and the file browser (for viewing attachments).
 
 Here is an example `config.py`, with some settings similar to the ones I use:
 
 ```python
-import dodo
+import lazarus
 
 # required
-dodo.settings.email_address = 'First Last <me@domain.com>'
-dodo.settings.sent_dir = '/home/user/mail/Work/Sent'
+lazarus.settings.email_address = 'First Last <me@domain.com>'
+lazarus.settings.sent_dir = '/home/user/mail/Work/Sent'
 
 # optional
-dodo.settings.theme = dodo.themes.nord
-dodo.settings.editor_command = "kitty nvim '{file}'"
-dodo.settings.file_browser_command = "fman '{dir}' /home/user/Documents"
+lazarus.settings.theme = lazarus.themes.nord
+lazarus.settings.editor_command = "kitty nvim '{file}'"
+lazarus.settings.file_browser_command = "fman '{dir}' /home/user/Documents"
 ```
 
 A theme is just a Python dictionary mapping some fixed color names to HTML color codes. Currently, the themes implemented in [themes.py](https://github.com/akissinger/dodo/blob/master/dodo/themes.py) are `catppuccin_macchiato`, `nord`, `solarized_light` and `solarized_dark`. If you want more, feel free to roll your own, or (better) send me a pull request!
@@ -90,13 +87,13 @@ All of the settings of the form `..._command` are given as shell command. The `e
 
 The settings above replace the default text editor (`xterm -e vim`) with [neovim](https://neovim.io/) run inside a new [kitty](https://sw.kovidgoyal.net/kitty/) terminal. I am also using Michael Herrmann's excellent dual-pane file manager [fman](https://fman.io/) instead of the default (`nautilus`). With these settings, showing attachments will open `fman` with a fixed directory in the right pane (`/home/user/Documents`) and a directory containing the attachments on the left. A similar effect can be obtained with [ranger](https://github.com/ranger/ranger) using the `multipane` view mode.
 
-If you are using a file browser that supports it, you can also set a custom `file_picker_command` for choosing attachments. This setting is `None` by default, which tells Dodo to use the built-in file picker. This accepts a `{tempfile}` placeholder, where the names of the chosen files should be written after running the command. Here's an example using `ranger --choosefiles`:
+If you are using a file browser that supports it, you can also set a custom `file_picker_command` for choosing attachments. This setting is `None` by default, which tells Lazarus to use the built-in file picker. This accepts a `{tempfile}` placeholder, where the names of the chosen files should be written after running the command. Here's an example using `ranger --choosefiles`:
 
-    dodo.settings.file_picker_command = "kitty ranger --choosefiles='{tempfile}'"
+    lazarus.settings.file_picker_command = "kitty ranger --choosefiles='{tempfile}'"
 
 While Javascript is disabled in the HTML email viewer, you may want to set up a custom HTML sanitizer function as follows:
 
-    dodo.util.html2html = dodo.util.clean_html2html
+    lazarus.util.html2html = lazarus.util.clean_html2html
 
 The above function passes the HTML through the `Cleaner` object of the [bleach](https://github.com/mozilla/bleach) library. Note this still allows some dodgy stuff, such as calling home via embedded `img` tags, so remote requests from HTML messages are disabled by default via the setting `html_block_remote_requests`. Javascript is also disabled.
 
@@ -107,29 +104,29 @@ Key mappings can be customised by changing the dictionaries defined in [keymap.p
 To bind a single key, you can write something like this in `config.py`:
 
 ```python
-dodo.keymap.search_keymap['t'] = (
+lazarus.keymap.search_keymap['t'] = (
   'toggle todo',
   lambda p: p.toggle_thread_tag('todo'))
 ```
 or you can replace the keymap completely from `config.py`, e.g.:
 ```python
-dodo.keymap.search_keymap = {
+lazarus.keymap.search_keymap = {
   'C-n': ('next thread', lambda p: p.next_thread()),
   'C-p': ('previous thread', lambda p: p.previous_thread()),
   # ...
 }
 ```
 
-The keymaps used by Dodo are `global_keymap`, `search_keymap`, `thread_keymap`, and `command_bar_keymap`. All the keymaps except `command_bar_keymap` also support keychords, which are represented as space-separated sequences of keypresses, e.g.
+The keymaps used by Lazarus are `global_keymap`, `search_keymap`, `thread_keymap`, and `command_bar_keymap`. All the keymaps except `command_bar_keymap` also support keychords, which are represented as space-separated sequences of keypresses, e.g.
 ```python
-dodo.keymap.global_keymap['C-x C-c'] = (
-  'exit emacs ... erm, I mean Dodo',
+lazarus.keymap.global_keymap['C-x C-c'] = (
+  'exit emacs ... erm, I mean Lazarus',
   lambda a: a.quit())
 ```
 
 You can unmap a single key by deleting it from the dictionary:
 ```python
-del dodo.keymap.global_keymap['Q']
+del lazarus.keymap.global_keymap['Q']
 ```
 
 
@@ -138,13 +135,13 @@ del dodo.keymap.global_keymap['Q']
 If you are using something like [msmtp](https://marlam.de/msmtp/) to send emails, it is possible to send mail from multiple accounts. To set this up, simply set a list of account names your SMTP client recognises in `config.py`. You can also provide per-account email addresses and sent directories by passing dictionaries to `email_address` and `sent_dir` settings, respectively. The `gnupg_keyid` setting can also be set to a dictionary mapping account names to GPG key IDs. If an account name is missing, signing is automatically disabled when switching to the account in question.
 
 ```python
-import dodo
+import lazarus
 
-dodo.settings.smtp_accounts = ['work', 'fun']
+lazarus.settings.smtp_accounts = ['work', 'fun']
 
-dodo.settings.email_address = {'work': 'First Last <me@super-serious-company.com>',
+lazarus.settings.email_address = {'work': 'First Last <me@super-serious-company.com>',
                                'fun': 'First Last <me@super-silly-domain.ninja>'}
-dodo.settings.sent_dir =      {'work': '/home/user/mail/Work/Sent',
+lazarus.settings.sent_dir =      {'work': '/home/user/mail/Work/Sent',
                                'fun': '/home/user/mail/Fun/Sent'}
 ```
 
@@ -155,43 +152,43 @@ For multiple incoming mail accounts, just sync all accounts into subdirectories 
 
 ### Signatures
 
-Signatures are per-account and are loaded from files, not from `config.py` — that keeps a signature (personal data) separate from configuration (which you might keep in version control), and lets you manage it with other tools (a symlink to a company template, a script, etc.) independently of Dodo.
+Signatures are per-account and are loaded from files, not from `config.py` — that keeps a signature (personal data) separate from configuration (which you might keep in version control), and lets you manage it with other tools (a symlink to a company template, a script, etc.) independently of Lazarus.
 
-For each account name in `dodo.settings.smtp_accounts`, Dodo looks for:
+For each account name in `lazarus.settings.smtp_accounts`, Lazarus looks for:
 
 ```
-$XDG_CONFIG_HOME/dodo/<account>/signature       # plain text
-$XDG_CONFIG_HOME/dodo/<account>/signature.html  # HTML
+$XDG_CONFIG_HOME/lazarus/<account>/signature       # plain text
+$XDG_CONFIG_HOME/lazarus/<account>/signature.html  # HTML
 ```
 
 (`$XDG_CONFIG_HOME` defaults to `~/.config`.) So, continuing the two-account example above, you'd create:
 
 ```
-~/.config/dodo/work/signature
-~/.config/dodo/fun/signature
+~/.config/lazarus/work/signature
+~/.config/lazarus/fun/signature
 ```
 
-Either file is optional, and you don't need both. If only `signature.html` exists, its plain-text rendering (via `dodo.util.html2text`) is used as a fallback in the meantime — Dodo's compose editor is currently plain text, so `signature.html` is read and stored but not yet inserted directly; it'll be used as-is once a rich-text compose mode lands.
+Either file is optional, and you don't need both. If only `signature.html` exists, its plain-text rendering (via `lazarus.util.html2text`) is used as a fallback in the meantime — Lazarus's compose editor is currently plain text, so `signature.html` is read and stored but not yet inserted directly; it'll be used as-is once a rich-text compose mode lands.
 
-The signature is inserted automatically when you open a new message, reply, or forward, right after the area where you type and before any quoted or forwarded text below it. Set `dodo.settings.use_signature = False` to disable this entirely.
+The signature is inserted automatically when you open a new message, reply, or forward, right after the area where you type and before any quoted or forwarded text below it. Set `lazarus.settings.use_signature = False` to disable this entirely.
 
 
 ### Mail filters
 
-Filter rules let Dodo automatically tag and file incoming mail based on a
+Filter rules let Lazarus automatically tag and file incoming mail based on a
 notmuch query, similar to filters/rules in other mail clients. They run
 automatically after every sync, and can also be re-run on demand with the
 ``C-r`` key (useful for testing a new rule against mail you already have,
 without waiting for the next sync).
 
-Configure a list of ``dodo.rules.Rule`` objects as
-``dodo.settings.filter_rules`` in ``config.py``:
+Configure a list of ``lazarus.rules.Rule`` objects as
+``lazarus.settings.filter_rules`` in ``config.py``:
 
 ```python
-import dodo
-from dodo.rules import Rule
+import lazarus
+from lazarus.rules import Rule
 
-dodo.settings.filter_rules = [
+lazarus.settings.filter_rules = [
     # GitHub notifications: tag, remove from inbox, and file to Archive
     Rule(
         name='github notifications',
@@ -244,13 +241,13 @@ unnecessarily, so matching your tags to your scope is the right fix.
 Adjust the scope in ``config.py`` if your workflow needs it:
 
 ```python
-dodo.settings.filter_scope_query = 'tag:inbox and tag:unread and date:7d..'
+lazarus.settings.filter_scope_query = 'tag:inbox and tag:unread and date:7d..'
 ```
 
-If you want folder-based filing that runs whether or not Dodo itself is
+If you want folder-based filing that runs whether or not Lazarus itself is
 open (e.g. mapping a Gmail label to a local folder), that belongs at the
 notmuch-hook level (``~/.config/notmuch/default/hooks/post-new``).  Rules
-here are for things you want tagged and organised whenever Dodo happens
+here are for things you want tagged and organised whenever Lazarus happens
 to sync.
 
 
@@ -259,7 +256,7 @@ to sync.
 By default, the command bar can be opened in two modes, `'search'` and `'tag'`, for searching and tagging messages, respectively. You can create more modes on-the-fly from `config.py` by passing a new name and a Python callback function to [CommandBar.open](https://dodomail.readthedocs.io/en/latest/api.html#dodo.commandbar.CommandBar.open). Here's an example which creates a new mode called `'notmuch'` for running arbitrary notmuch commands:
 
 ```python
-import dodo
+import lazarus
 import subprocess
 
 def run_notmuch(app):
@@ -268,7 +265,7 @@ def run_notmuch(app):
         app.refresh_panels()
     app.command_bar.open('notmuch', callback)
 
-dodo.keymap.global_keymap['N'] = ('run notmuch from command bar', run_notmuch)
+lazarus.keymap.global_keymap['N'] = ('run notmuch from command bar', run_notmuch)
 ```
 
 ### Custom layouts
@@ -290,13 +287,13 @@ def my_layout(self):
     self.layout().addWidget(splitter)
 
     # save splitter position
-    window_settings = QSettings("dodo", "dodo")
+    window_settings = QSettings("lazarus", "lazarus")
     state = window_settings.value("thread_splitter_state")
     splitter.splitterMoved.connect(
             lambda x: window_settings.setValue("thread_splitter_state", splitter.saveState()))
     if state: splitter.restoreState(state)
 
-dodo.thread.ThreadPanel.layout_panel = my_layout
+lazarus.thread.ThreadPanel.layout_panel = my_layout
 ```
 
 Note that everything in `PyQt6.QtCore` and `PyQt6.QtWidgets` is already imported before `config.py` is exec'ed.
@@ -304,7 +301,7 @@ Note that everything in `PyQt6.QtCore` and `PyQt6.QtWidgets` is already imported
 
 ### Snooze
 
-Snoozing lets you temporarily hide messages to help clear your inbox (and your mind) for a few days at a time. After the snooze is up, they pop back into the inbox as unread messages again. Using `notmuch` hooks and Dodo, it is easy to set up some basic snooze functionality. Here's how I do it.
+Snoozing lets you temporarily hide messages to help clear your inbox (and your mind) for a few days at a time. After the snooze is up, they pop back into the inbox as unread messages again. Using `notmuch` hooks and Lazarus, it is easy to set up some basic snooze functionality. Here's how I do it.
 
 The basic idea is to tag messages with `zzz-` plus the date you want to see them again, then archive them. To make sure they pop back into the inbox on the correct date, add the following `~/MAILDIR/.notmuch/hooks/pre-new`:
 
@@ -324,10 +321,10 @@ def snooze(days, mode='tag'):
         search.tag_thread(f'-inbox -unread +zzz-{d}', mode)
     return f
 
-dodo.keymap.search_keymap['z z'] = ("snooze for 1 day", snooze(days=1))
-dodo.keymap.search_keymap['z w'] = ("snooze for 1 week", snooze(days=7))
-dodo.keymap.search_keymap['z Z'] = ("snooze marked for 1 day", snooze(days=1, mode='tag marked'))
-dodo.keymap.search_keymap['z W'] = ("snooze marked for 1 week", snooze(days=7, mode='tag marked'))
+lazarus.keymap.search_keymap['z z'] = ("snooze for 1 day", snooze(days=1))
+lazarus.keymap.search_keymap['z w'] = ("snooze for 1 week", snooze(days=7))
+lazarus.keymap.search_keymap['z Z'] = ("snooze marked for 1 day", snooze(days=1, mode='tag marked'))
+lazarus.keymap.search_keymap['z W'] = ("snooze marked for 1 week", snooze(days=7, mode='tag marked'))
 ```
 
 This allows snoozing single messages or bulk snoozing all marked messages (by default, you can (un)mark messages with `<space>`).
@@ -414,9 +411,9 @@ Here's a `~/.notmuch-config` which is roughly like the one I use:
 
 The thread view panel will show the signature status of pgp-signed messages as reported by notmuch. notmuch tags them with te automatic tag `signed`.
 
-Outgoing mail can be signed by setting dodo.settings.gnupg_keyid to the id of the key which will be used to do the signing. It can be disabled/enabled on a per-message basis in the comopose view by pressing the 's' key (or the key that is mapped to the `toggle_pgp_sign` function).
+Outgoing mail can be signed by setting lazarus.settings.gnupg_keyid to the id of the key which will be used to do the signing. It can be disabled/enabled on a per-message basis in the comopose view by pressing the 's' key (or the key that is mapped to the `toggle_pgp_sign` function).
 
-You might also have to set dodo.settings.gnupg_home.
+You might also have to set lazarus.settings.gnupg_home.
 
 ### Encryption
 

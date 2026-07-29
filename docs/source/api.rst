@@ -1,80 +1,86 @@
 API reference
 =============
 
-dodo.app
---------
-
-.. automodule:: dodo.app
-   :members:
-   :show-inheritance:
-
-dodo.commandbar
----------------
-
-.. automodule:: dodo.commandbar
-   :members:
-   :show-inheritance:
-
-dodo.compose
-------------
-
-.. automodule:: dodo.compose
-   :members:
-   :show-inheritance:
-
-dodo.helpwindow
----------------
-
-.. automodule:: dodo.helpwindow
-   :members:
-   :show-inheritance:
-
-dodo.keymap
+lazarus.app
 -----------
 
-.. automodule:: dodo.keymap
+.. automodule:: lazarus.app
    :members:
    :show-inheritance:
 
-dodo.panel
-----------
+lazarus.commandbar
+------------------
 
-.. automodule:: dodo.panel
+.. automodule:: lazarus.commandbar
    :members:
    :show-inheritance:
 
-dodo.search
------------
+lazarus.compose
+---------------
 
-.. automodule:: dodo.search
+.. automodule:: lazarus.compose
    :members:
    :show-inheritance:
 
-dodo.settings
+lazarus.helpwindow
+------------------
+
+.. automodule:: lazarus.helpwindow
+   :members:
+   :show-inheritance:
+
+lazarus.keymap
+--------------
+
+.. automodule:: lazarus.keymap
+   :members:
+   :show-inheritance:
+
+lazarus.notmuch
+---------------
+
+.. automodule:: lazarus.notmuch
+   :members:
+   :show-inheritance:
+
+lazarus.panel
 -------------
 
-.. automodule:: dodo.settings
+.. automodule:: lazarus.panel
    :members:
    :show-inheritance:
 
-dodo.themes
------------
+lazarus.search
+--------------
 
-.. automodule:: dodo.themes
+.. automodule:: lazarus.search
    :members:
    :show-inheritance:
 
-dodo.thread
------------
+lazarus.settings
+----------------
 
-.. automodule:: dodo.thread
+.. automodule:: lazarus.settings
    :members:
    :show-inheritance:
 
-dodo.util
----------
+lazarus.themes
+--------------
 
-.. automodule:: dodo.util
+.. automodule:: lazarus.themes
    :members:
    :show-inheritance:
 
+lazarus.thread
+--------------
+
+.. automodule:: lazarus.thread
+   :members:
+   :show-inheritance:
+
+lazarus.util
+------------
+
+.. automodule:: lazarus.util
+   :members:
+   :show-inheritance:

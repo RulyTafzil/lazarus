@@ -1,13 +1,15 @@
-# mydodo — Lazarus Mail Client
+# lazarus — Lazarus Mail Client
 
 ## Identity
 - **Name**: Lazarus — a fork of [Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger
-- **Package**: `dodo-mail` on PyPI (v0.2 upstream)
+- **Package**: `lazarus-mail`
 - **Original Author**: Aleks Kissinger <aleks0@gmail.com>
 - **Fork Maintainer**: Ruly Tafzil
 - **License**: GPLv3
 - **Local dir**: `~/Projects/mydodo`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/mydodo.git`
+- **CLI**: `lazarus`
+- **Config**: `~/.config/lazarus/config.py`
 - **Install**: `pipx install -e ~/Projects/mydodo` (editable)
 
 ## What It Is
@@ -102,7 +104,7 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 | `compose_threads.py` | 160 | `EditorThread` (external editor escape hatch) + `SendmailThread` (msmtp + sent-folder save) |
 | `rules.py` | 129 | `Rule` dataclass + `apply_rules()` — tag/add/remove/move mail filters |
 | `helpwindow.py` | 99 | `HelpWindow` — three-column keybinding reference rendered as HTML |
-| `signature.py` | 92 | Per-account signature loading from `~/.config/dodo/<account>/signature[.html]` |
+| `signature.py` | 92 | Per-account signature loading from `~/.config/lazarus/<account>/signature[.html]` |
 | `__init__.py` | 23 | Package re-exports |
 | `__main__.py` | 22 | Entry point (`app.main()`) |
 
@@ -176,8 +178,8 @@ the list panel or the thread preview directly.
 
 ## Configuration
 
-Config is a Python file at `~/.config/dodo/config.py` that is `exec()`'d at
-startup.  All settings live in `dodo.settings` with documented defaults.
+Config is a Python file at `~/.config/lazarus/config.py` that is `exec()`'d at
+startup.  All settings live in `lazarus.settings` with documented defaults.
 
 ### Required Settings
 | Setting | Purpose |
@@ -209,7 +211,7 @@ startup.  All settings live in `dodo.settings` with documented defaults.
 | `use_signature` | `True` | Enable per-account signatures |
 
 ### Per-Account Signatures
-Loaded from `~/.config/dodo/<account>/signature` (plain text) and
+Loaded from `~/.config/lazarus/<account>/signature` (plain text) and
 `signature.html` (HTML, optional).  Swapped automatically when cycling accounts.
 
 ## Ruly's Setup

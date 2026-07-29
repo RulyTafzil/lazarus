@@ -65,7 +65,7 @@ def w3m_html2text(s: str) -> str:
             check=True,
         )
     except (OSError, subprocess.CalledProcessError) as e:
-        return f"dodo w3m error: {e}"
+        return f"lazarus w3m error: {e}"
     return p.stdout
 
 def linkify(s: str) -> str:
@@ -106,7 +106,7 @@ def html2html(s: str) -> str:
 html2text = w3m_html2text
 """Function used to convert HTML to plain text
 
-This is set to :func:`~dodo.util.w3m_html2text` by default, but can be changed
+This is set to :func:`~lazarus.util.w3m_html2text` by default, but can be changed
 by the user in "config.py".
 """
 
@@ -322,7 +322,7 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
     """
 
     if not m: return ('', [])
-    temp_dir = tempfile.mkdtemp(prefix='dodo-')
+    temp_dir = tempfile.mkdtemp(prefix='lazarus-')
     file_paths = []
 
     for part in message_parts(m):
@@ -360,7 +360,7 @@ def email_is_me(e: str) -> bool:
 
     This compares settings.email_address with the provided email, after calling
     :func:`strip_email_address` on both. This method is used e.g. by
-    :class:`dodo.compose.Compose` to filter out the user's own email when forming
+    :class:`lazarus.compose.Compose` to filter out the user's own email when forming
     a "reply-to-all" message.
     """
     if isinstance(settings.email_address, dict):
@@ -377,7 +377,7 @@ def email_is_me(e: str) -> bool:
 def email_smtp_account_index(e: str) -> Optional[int]:
     """Index in settings.smtp_accounts of account having the provided email address
 
-    This method is used e.g. by :class:`dodo.compose.Compose` to autmatically
+    This method is used e.g. by :class:`lazarus.compose.Compose` to autmatically
     select the account to be used when replying to a mail. It returns the index
     of first matching account or None if provided email does not match
     any smtp account.  """
@@ -404,7 +404,7 @@ def separate_headers(s: str) -> Tuple[str, str]:
     return (h, b)
 
 def wrap_message(s: str) -> str:
-    """Hard wrap message body using :func:`~dodo.settings.wrap_column`
+    """Hard wrap message body using :func:`~lazarus.settings.wrap_column`
 
     Wrap the body part of the message. Headers and quoted text are not affected.
     """

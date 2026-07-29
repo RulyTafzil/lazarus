@@ -315,7 +315,7 @@ gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 def apply_theme(theme: dict) -> None:
     """"Apply the given theme to GUI components
 
-    This is called when :class:`~dodo.app.Dodo` is initialised."""
+    This is called when :class:`~lazarus.app.Dodo` is initialised."""
 
     # Force the style to be the same on all OSs:
     QApplication.setStyle("Fusion")

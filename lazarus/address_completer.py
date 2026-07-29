@@ -20,7 +20,7 @@
 
 :class:`AddressCompleter` is a :class:`~PyQt6.QtWidgets.QCompleter`
 subclass that works exactly like the tag completer in
-:mod:`dodo.commandbar`: load every address once (in a background thread,
+:mod:`lazarus.commandbar`: load every address once (in a background thread,
 since ``notmuch address`` scans messages and takes a few seconds), shove
 them into the model, then let Qt's built-in ``MatchContains`` filter do
 the rest — instant results, no Python filtering, no per-keystroke
@@ -151,7 +151,7 @@ def preload_addresses() -> None:
 class AddressCompleter(QCompleter):
     """A QCompleter backed by notmuch's address index.
 
-    Unlike the tag completer in :class:`dodo.commandbar.CommandBar`
+    Unlike the tag completer in :class:`lazarus.commandbar.CommandBar`
     (which is its own QLineEdit), we complete addresses in an existing
     QLineEdit.  Because ``QLineEdit.setCompleter()`` forces inline
     completion that can't be suppressed, we do NOT attach the completer
@@ -202,7 +202,7 @@ class AddressCompleter(QCompleter):
         """Filter the model and show/hide the popup.
 
         Identical pattern to
-        :meth:`dodo.commandbar.CommandBar.handleTextChanged`.
+        :meth:`lazarus.commandbar.CommandBar.handleTextChanged`.
         """
         prefix = _extract_active_token(text)
         self._current_prefix = prefix

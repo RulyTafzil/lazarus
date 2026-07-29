@@ -19,20 +19,20 @@
 
 A :class:`Rule` is a notmuch query plus a set of tags to add/remove
 and an optional target folder to move matching mail into. Configure a
-list of them as :func:`~dodo.settings.filter_rules` in ``config.py``
+list of them as :func:`~lazarus.settings.filter_rules` in ``config.py``
 -- see the "Mail filters" section of README.md for a worked example.
 
 Rules are applied automatically after every successful sync (see the
-``done()`` callback in :func:`dodo.app.Dodo.sync_mail`), scoped by
-:func:`~dodo.settings.filter_scope_query` so a full mailbox isn't
+``done()`` callback in :func:`lazarus.app.Dodo.sync_mail`), scoped by
+:func:`~lazarus.settings.filter_scope_query` so a full mailbox isn't
 re-tagged on every run. Tag operations are idempotent -- safe to
 re-apply to a message that already has the tags. File moves (for rules
 with a ``move_to`` folder) are enqueued to the same background worker
-used by :func:`~dodo.actions.move_files`, so they're serialised and
+used by :func:`~lazarus.actions.move_files`, so they're serialised and
 ``notmuch new`` runs after each batch lands on disk.
 
 Re-run the whole rule set by hand with ``C-r``
-(:func:`~dodo.app.Dodo.apply_filter_rules`) -- useful for testing a
+(:func:`~lazarus.app.Dodo.apply_filter_rules`) -- useful for testing a
 new rule against existing mail without waiting for the next sync.
 """
 

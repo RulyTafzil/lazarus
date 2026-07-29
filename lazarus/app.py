@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 class SyncMailThread(QThread):
     """A QThread used for syncing local Maildir and notmuch with IMAP
 
-    Called by the :func:`~dodo.app.Dodo.sync_mail` method."""
+    Called by the :func:`~lazarus.app.Dodo.sync_mail` method."""
 
     progress = pyqtSignal(str)
 
@@ -68,7 +68,7 @@ class SyncMailThread(QThread):
         self.notmuch_rc: int = 0
 
     def run(self) -> None:
-        """Run :func:`~dodo.settings.sync_mail_command` then `notmuch new`"""
+        """Run :func:`~lazarus.settings.sync_mail_command` then `notmuch new`"""
         self._proc = subprocess.Popen(settings.sync_mail_command, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE,
                                       shell=True, start_new_session=True,
@@ -146,11 +146,11 @@ class Dodo(QApplication):
             handlers=[logging.StreamHandler(sys.stderr)],
         )
 
-        self.setApplicationName('Dodo')
-        self.setDesktopFileName("dodo")
+        self.setApplicationName('Lazarus')
+        self.setDesktopFileName("lazarus")
 
         # find a load config.py
-        self.config_file = QStandardPaths.locate(QStandardPaths.StandardLocation.ConfigLocation, 'dodo/config.py')
+        self.config_file = QStandardPaths.locate(QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py')
         if self.config_file:
             try:
                 exec(open(self.config_file).read())
@@ -159,7 +159,7 @@ class Dodo(QApplication):
                 sys.exit(1)
         else:
             config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
-            print('No config.py found in:\n' + '\n'.join([f'  {d}/dodo' for d in config_locs]))
+            print('No config.py found in:\n' + '\n'.join([f'  {d}/lazarus' for d in config_locs]))
             sys.exit(1)
 
         # Reconfigure logging now that user settings are available.
@@ -477,7 +477,7 @@ class Dodo(QApplication):
     def sync_mail(self, quiet: bool=True) -> None:
         """Sync mail with IMAP server
 
-        This method runs :func:`~dodo.settings.sync_mail_command`, then 'notmuch new'
+        This method runs :func:`~lazarus.settings.sync_mail_command`, then 'notmuch new'
 
         :param quiet: If this is True, do not change the window title during sync.
                       Status bar messages are always shown."""
@@ -547,10 +547,10 @@ class Dodo(QApplication):
         t.start()
 
     def apply_filter_rules(self) -> None:
-        """Manually (re-)apply :func:`~dodo.settings.filter_rules`
+        """Manually (re-)apply :func:`~lazarus.settings.filter_rules`
 
         Runs the same rules :func:`sync_mail` applies automatically after
-        every sync, against the same :func:`~dodo.settings.filter_scope_query`
+        every sync, against the same :func:`~lazarus.settings.filter_scope_query`
         scope. Useful for testing a rule you just added without waiting for
         (or forcing) a full sync.
         """
@@ -569,7 +569,7 @@ class Dodo(QApplication):
     def expunge_trash(self) -> None:
         """Permanently expunge all messages tagged ``trash``.
 
-        Runs :func:`dodo.actions.expunge_trash` to add the Maildir
+        Runs :func:`lazarus.actions.expunge_trash` to add the Maildir
         ``T`` flag to every file in a Trash folder.  Shows a
         confirmation dialog with a message count first — this action
         is irreversible.
@@ -666,7 +666,7 @@ class Dodo(QApplication):
 
     def _save_open_searches(self) -> None:
         """Save non-keep-open search queries to QSettings."""
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         queries = []
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
@@ -676,7 +676,7 @@ class Dodo(QApplication):
 
     def _restore_open_searches(self) -> None:
         """Restore search panels from the previous session."""
-        conf = QSettings('dodo', 'dodo')
+        conf = QSettings('lazarus', 'lazarus')
         queries = conf.value('open_searches')
         if queries:
             for q in queries:
@@ -686,5 +686,5 @@ class Dodo(QApplication):
 def main() -> None:
     """Main entry point for Dodo"""
 
-    dodo = Dodo()
-    dodo.exec()
+    lazarus = Dodo()
+    lazarus.exec()

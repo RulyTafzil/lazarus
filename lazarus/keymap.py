@@ -90,8 +90,8 @@ global_keymap = {
 """The global keymap
 
 Every key delegates either to the thread list or the thread preview
-pane directly (via :func:`~dodo.app.Dodo.delegate_to_list` or
-:func:`~dodo.app.Dodo.delegate_to_thread`), so all bindings work
+pane directly (via :func:`~lazarus.app.Dodo.delegate_to_list` or
+:func:`~lazarus.app.Dodo.delegate_to_thread`), so all bindings work
 regardless of which pane has keyboard focus.
 """
 
@@ -148,7 +148,7 @@ tag_keymap = {
 """The local keymap for the tag panel
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.search.TagPanel` as input.
+taking :class:`~lazarus.search.TagPanel` as input.
 """
 
 compose_keymap = {
@@ -166,7 +166,7 @@ compose_keymap = {
 """The local keymap for compose panels
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.compose.ComposePanel` as input.
+taking :class:`~lazarus.compose.ComposePanel` as input.
 """
 
 command_bar_keymap = {
@@ -178,7 +178,7 @@ command_bar_keymap = {
 """The keymap active when the command bar is visible
 
 A dictionary from key strings to pairs consisting of a short docstring and a function
-taking :class:`~dodo.compose.CommandBar` as input. Unlike the other keymaps, the
+taking :class:`~lazarus.compose.CommandBar` as input. Unlike the other keymaps, the
 command bar keymap doesn't accept keychords. Also, you should avoid mapping alphanumeric
 keys to commands, as this will interfere with typing.
 """

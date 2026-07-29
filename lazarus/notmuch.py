@@ -78,7 +78,7 @@ def search_files(query: str, exclude_false: bool = False) -> List[str]:
 
     :param exclude_false: pass ``--exclude=false`` so results include
         files that would otherwise be hidden by
-        :func:`~dodo.settings.exclude_tags` -- needed whenever the
+        :func:`~lazarus.settings.exclude_tags` -- needed whenever the
         caller is about to act on files by tag (trash/archive/rules)
         rather than displaying a search result list.
     """
@@ -95,7 +95,7 @@ def search_json(query: str) -> str:
 
     Raises :class:`subprocess.CalledProcessError` on failure -- callers
     are expected to catch it and fall back to stale data plus an error
-    message (see :class:`dodo.search.SearchModel`).
+    message (see :class:`lazarus.search.SearchModel`).
     """
     r = run('search', '--format=json', '--', query, check=True)
     return r.stdout
