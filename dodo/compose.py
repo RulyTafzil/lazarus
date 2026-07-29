@@ -20,9 +20,8 @@ from __future__ import annotations
 from typing import Optional, List, Set
 
 from PyQt6.QtCore import *
-from PyQt6.QtGui import QColor, QFont, QKeyEvent, QTextCursor
+from PyQt6.QtGui import QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import *
-from PyQt6.QtWebEngineWidgets import *
 import mailbox
 import email
 import email.utils
@@ -95,7 +94,6 @@ class ComposePanel(panel.Panel):
 
         self.pgp_sign = self.gnupg_keyid() is not None
         self.pgp_encrypt = False
-        self.wrap_message = settings.wrap_message
 
         # ── Signatures ───────────────────────────────────────────────
         self.signature_text: Optional[str] = None
@@ -219,26 +217,17 @@ class ComposePanel(panel.Panel):
         self.subject_field.setStyleSheet(self._field_style())
         lay.addWidget(self.subject_field)
 
-        # --- Mode toggle bar ---
-        lay.addWidget(self._make_mode_bar())
+        # --- Bcc field ---
+        self.bcc_field = QLineEdit()
+        self.bcc_field.setPlaceholderText('Bcc')
+        self.bcc_field.setStyleSheet(self._field_style())
+        self._bcc_completer = address_completer.AddressCompleter(self)
+        self._bcc_completer.set_line_edit(self.bcc_field)
+        lay.addWidget(self.bcc_field)
 
-        # --- Editor / Preview stack ---
-        self.editor_stack = QStackedWidget()
-
-        # Page 0: Rich text editor
+        # --- Editor ---
         self.editor = editor_mod.RichTextEditor(self)
-        self.editor_stack.addWidget(self.editor)
-
-        # Page 1: HTML preview
-        self.message_view = QWebEngineView()
-        self.message_view.setStyleSheet(
-            f'background-color: {settings.theme["bg"]};')
-        self.message_view.page().setBackgroundColor(
-            QColor(settings.theme['bg']))
-        self.message_view.setZoomFactor(1.2)
-        self.editor_stack.addWidget(self.message_view)
-
-        lay.addWidget(self.editor_stack, stretch=1)
+        lay.addWidget(self.editor, stretch=1)
 
         # --- Attachment bar ---
         self.attachment_bar = QWidget()
@@ -252,9 +241,6 @@ class ComposePanel(panel.Panel):
         # Intercept compose command keys before QTextEdit can eat them
         self.editor.installEventFilter(self)
 
-        # Start in editor mode
-        self._show_editor()
-
     def _make_header_bar(self) -> QWidget:
         """Build the top bar showing account selector + PGP status."""
         bar = QWidget()
@@ -264,31 +250,6 @@ class ComposePanel(panel.Panel):
         hlay.addWidget(self.account_label)
         hlay.addStretch()
         hlay.addWidget(self.status_label)
-        return bar
-
-    def _make_mode_bar(self) -> QWidget:
-        """Build the bar with preview toggle, wrap toggle, and external
-        editor button."""
-        bar = QWidget()
-        hlay = QHBoxLayout()
-        hlay.setContentsMargins(0, 0, 0, 0)
-        bar.setLayout(hlay)
-
-        self.mode_btn = QPushButton('Edit')
-        self.mode_btn.setFlat(True)
-        self.mode_btn.setStyleSheet(
-            f'color: {settings.theme["fg_bright"]}; font-weight: bold;')
-        self.mode_btn.clicked.connect(self._toggle_mode)
-        hlay.addWidget(self.mode_btn)
-
-        hlay.addStretch()
-
-        self.wrap_btn = QPushButton('Wrap' if self.wrap_message else 'NoWrap')
-        self.wrap_btn.setFlat(True)
-        self.wrap_btn.setStyleSheet(f'color: {settings.theme["fg"]};')
-        self.wrap_btn.clicked.connect(self.toggle_wrap)
-        hlay.addWidget(self.wrap_btn)
-
         return bar
 
     def _field_style(self) -> str:
@@ -303,28 +264,9 @@ class ComposePanel(panel.Panel):
             f'font-size: {settings.message_font_size}pt;'
         )
 
-    # ── Mode switching ───────────────────────────────────────────────
-
-    def _show_editor(self) -> None:
-        self.editor_stack.setCurrentIndex(0)
-        self.mode_btn.setText('Edit')
-        self.editor.setFocus()
-
-    def _show_preview(self) -> None:
-        self._sync_data_from_fields()
-        self._update_preview()
-        self.editor_stack.setCurrentIndex(1)
-        self.mode_btn.setText('Preview')
-
-    def _toggle_mode(self) -> None:
-        if self.editor_stack.currentIndex() == 0:
-            self._show_preview()
-        else:
-            self._show_editor()
-
-    def toggle_preview(self) -> None:
-        """Toggle between editor and preview (Ctrl+P)."""
-        self._toggle_mode()
+    def insert_newline(self) -> None:
+        """Insert a newline at the editor cursor position."""
+        self.editor.insertPlainText('\n')
 
     # ── Panel interface ──────────────────────────────────────────────
 
@@ -360,42 +302,7 @@ class ComposePanel(panel.Panel):
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg"]}; font-style: italic;')
 
-        if self.editor_stack.currentIndex() == 1:
-            self._update_preview()
-
         super().refresh()
-
-    def _update_preview(self) -> None:
-        """Render the message as HTML in the preview pane."""
-        self._sync_data_from_fields()
-
-        # Build header block
-        headers_html = ''
-        if self._data.to:
-            headers_html += (f'<b>To:</b> '
-                             f'{util.simple_escape(", ".join(self._data.to))}<br>')
-        if self._data.cc:
-            headers_html += (f'<b>Cc:</b> '
-                             f'{util.simple_escape(", ".join(self._data.cc))}<br>')
-        headers_html += (f'<b>Subject:</b> '
-                         f'{util.simple_escape(self._data.subject)}<br>')
-
-        # Body: show escaped plaintext — the WebEngineView can't resolve
-        # file:// references from the editor, and QTextEdit's HTML has
-        # Qt-specific styling that looks odd outside the widget.
-        escaped = util.simple_escape(self._data.body_text or '')
-        body_html = (f'<pre style="white-space: pre-wrap">'
-                     f'{util.colorize_text(escaped)}</pre>')
-
-        self.message_view.setHtml(f"""<html>
-        <style type="text/css">
-        {util.make_message_css()}
-        </style>
-        <body>
-        <div style="color:{settings.theme['fg_dim']}">{headers_html}</div>
-        <hr style="border-color:{settings.theme['bg_button']}">
-        {body_html}
-        </body></html>""")
 
     def _sync_data_from_fields(self) -> None:
         """Pull values from UI fields into self._data.
@@ -406,6 +313,7 @@ class ComposePanel(panel.Panel):
         self._data.from_addr = self.email_address()
         self._data.to = _parse_address_list(self.to_field.text())
         self._data.cc = _parse_address_list(self.cc_field.text())
+        self._data.bcc = _parse_address_list(self.bcc_field.text())
         self._data.subject = self.subject_field.text()
         self._data.body_html = self.editor.body_html()
         self._data.body_text = self.editor.toPlainText()
@@ -589,11 +497,6 @@ class ComposePanel(panel.Panel):
         self.pgp_encrypt = not self.pgp_encrypt
         self.refresh()
 
-    def toggle_wrap(self) -> None:
-        self.wrap_message = not self.wrap_message
-        self.wrap_btn.setText('Wrap' if self.wrap_message else 'NoWrap')
-        self.refresh()
-
     # ── External editor (escape hatch) ───────────────────────────────
 
     def edit_externally(self) -> None:
@@ -684,10 +587,6 @@ class ComposePanel(panel.Panel):
         self._data.body_html = self.editor.body_html()
         self._data.body_text = self.editor.body_text()
 
-        # Use plain body text if there's no HTML content
-        if not self._data.body_html.strip():
-            self._data.body_html = ''
-
         self.status_label.setText('sending...')
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg_bright"]}; font-style: italic;')
@@ -724,14 +623,6 @@ class ComposePanel(panel.Panel):
             self.setFocus()
         else:
             self.editor.setFocus()
-
-    def insert_newline(self) -> None:
-        """Insert a newline at the editor cursor position.
-
-        Bound to ``<enter>`` — only active when the editor has focus.
-        """
-        if self.editor_stack.currentIndex() == 0:
-            self.editor.insertPlainText('\n')
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """Override to let certain keys pass through to child line edits

@@ -161,13 +161,8 @@ compose_keymap = {
   'a':           ('attach file', lambda p: p.attach_file()),
   'e':           ('toggle PGP-encrypt', lambda p: p.toggle_pgp_encrypt()),
   'p':           ('toggle PGP-sign', lambda p: p.toggle_pgp_sign()),
-  'w':           ('toggle word wrap', lambda p: p.toggle_wrap()),
-  'C-p':         ('toggle preview', lambda p: p.toggle_preview()),
   ']':           ('next SMTP account', lambda p: p.next_account()),
   '[':           ('previous SMTP account', lambda p: p.previous_account()),
-  'C-b':         ('bold', lambda p: p.editor.toggle_bold() if hasattr(p, 'editor') else None),
-  'C-i':         ('italic', lambda p: p.editor.toggle_italic() if hasattr(p, 'editor') else None),
-  'C-u':         ('underline', lambda p: p.editor.toggle_underline() if hasattr(p, 'editor') else None),
 }
 """The local keymap for compose panels
 
