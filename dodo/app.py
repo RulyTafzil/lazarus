@@ -451,6 +451,18 @@ class Dodo(QApplication):
         """Open command bar for searching"""
         self.command_bar.open('search', callback=self.open_search)
 
+    def edit_search_query(self) -> None:
+        """Open command bar pre-filled with the current search tab's query.
+
+        Editing and pressing Enter replaces the tab's query in-place rather
+        than opening a new tab.  Bound to ``C-/``.
+        """
+        w = self.tabs.currentWidget()
+        if not isinstance(w, search.SearchPanel):
+            return
+        self.command_bar.open('search', callback=w.set_query)
+        self.command_bar.setText(w.q)
+
     def tag_bar(self, mode: Literal['tag', 'tag marked']='tag') -> None:
         """Open command bar for tagging"""
         def callback(tag_expr: str) -> None:

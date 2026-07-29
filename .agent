@@ -79,7 +79,7 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `app.py` | 683 | `Dodo(QApplication)` — global commands, sync, logging setup, signal handling, `main()` |
+| `app.py` | 690 | `Dodo(QApplication)` — global commands, sync, logging setup, signal handling, `main()` |
 | `compose.py` | 686 | `ComposePanel` — compose/reply/forward UI; field sync, account switching, PGP, signature insertion |
 | `actions.py` | 638 | `MarkableActionsMixin` (tag/archive/delete hooks for SearchPanel), `_BulkMoveWorker` (async file moves), `move_to_trash`, `move_to_archive`, `expunge_trash`, `restore_from_trash` |
 | `util.py` | 609 | HTML/text helpers (w3m, linkify, colorize), email parsing/matching, key-to-string mapping, message CSS |
@@ -95,8 +95,9 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 | `webengine.py` | 229 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor` |
 | `tag.py` | 215 | `TagPanel` + `TagModel` — tag browser with unread/total counts |
 | `mime_builder.py` | 207 | `ComposeData` dataclass + `build_message()` — structured MIME construction (plain, HTML, multipart/related) |
+| `notmuch.py` | 128 | Thin wrapper around the `notmuch` CLI — `count()`, `tags()`, `search_files()`, `search_json()`, `tag()`, `new()`, plus raw `run()` |
 | `commandbar.py` | 195 | `CommandBar(QLineEdit)` — tag autocomplete, command history, search/tag modes |
-| `keymap.py` | 182 | All keymaps (global, search, thread, compose, tag, command_bar, navigation) |
+| `keymap.py` | 184 | All keymaps (global, search, thread, compose, tag, command_bar, navigation) |
 | `pgp_util.py` | 162 | PGP/MIME signing and encryption via python-gnupg |
 | `compose_threads.py` | 160 | `EditorThread` (external editor escape hatch) + `SendmailThread` (msmtp + sent-folder save) |
 | `rules.py` | 129 | `Rule` dataclass + `apply_rules()` — tag/add/remove/move mail filters |
@@ -148,6 +149,7 @@ the list panel or the thread preview directly.
 | `I` / `U` / `F` / `D` | Show inbox / unread / flagged / inbox |
 | `T` | Tag browser |
 | `/` | Search bar |
+| `C-/` | Edit current tab's query in-place |
 | `` ` `` | Manual sync |
 | `C-r` | Apply filter rules |
 | `Q` | Quit |

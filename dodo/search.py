@@ -310,6 +310,17 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             self._select_near_row(current_row)
         super().refresh()
 
+    def set_query(self, q: str) -> None:
+        """Replace this panel's query and refresh in-place."""
+        if not q.strip():
+            return
+        self.q = q
+        self.model = SearchModel(q)
+        self.tree.setModel(self.model)
+        self.model.modelReset.connect(self.on_data_refresh)
+        self.dirty = True
+        self.refresh()
+
     def update_thread(self, thread_id: str, msg_id: str|None= None) -> None:
         logger.info("Search '%s': updating thread '%s'", self.q, thread_id)
         # If any thread is unknown to the current search, just do a full refresh
