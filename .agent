@@ -6,11 +6,11 @@
 - **Original Author**: Aleks Kissinger <aleks0@gmail.com>
 - **Fork Maintainer**: Ruly Tafzil
 - **License**: GPLv3
-- **Local dir**: `~/Projects/mydodo`
+- **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/mydodo.git`
 - **CLI**: `lazarus`
 - **Config**: `~/.config/lazarus/config.py`
-- **Install**: `pipx install -e ~/Projects/mydodo` (editable)
+- **Install**: `pipx install -e ~/Projects/lazarus` (editable)
 
 ## What It Is
 A graphical, keyboard-driven email client in Python/PyQt6 built on the

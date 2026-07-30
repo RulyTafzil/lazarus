@@ -5,12 +5,11 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 # linux desktop entry and icons
-pngs = [(f'share/icons/hicolor/{res}x{res}/apps', [f'share/icons/hicolor/{res}x{res}/apps/dodo.png'])
+pngs = [(f'share/icons/hicolor/{res}x{res}/apps', [f'share/icons/hicolor/{res}x{res}/apps/lazarus.png'])
         for res in [16, 32, 64, 128, 256, 512, 1024]]
 
 data_files = [
         ('share/applications', ['share/applications/lazarus.desktop']),
-        ('share/icons/hicolor/scalable/apps', ['share/icons/hicolor/scalable/apps/dodo.svg']),
         ] + pngs
 
 setuptools.setup(
