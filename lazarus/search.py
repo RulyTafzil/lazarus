@@ -308,6 +308,9 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
                 self.model.index(self.model.threads[current_id], 0))
         else:
             self._select_near_row(current_row)
+        # If the list is empty (last thread deleted), close the preview.
+        if self.model.rowCount() == 0:
+            self.app.main_window.clear_thread()
         super().refresh()
 
     def set_query(self, q: str) -> None:
