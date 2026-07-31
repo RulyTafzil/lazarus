@@ -242,6 +242,7 @@ class MainWindow(QMainWindow):
         )
         self.status_label.setText(message)
         self.status_label.setVisible(True)
+        logger.info('[%s] %s', kind, message)
         if duration > 0:
             self.status_timer.start(duration)
         else:

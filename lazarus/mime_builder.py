@@ -167,6 +167,7 @@ def _set_headers(
     if data.bcc:
         msg['Bcc'] = ', '.join(data.bcc)
     msg['Subject'] = data.subject
+    msg['Date'] = email.utils.formatdate(localtime=True)
     msg['Message-ID'] = data.message_id or email.utils.make_msgid()
     msg['User-Agent'] = data.user_agent
 

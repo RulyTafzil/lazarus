@@ -498,11 +498,15 @@ class Dodo(QApplication):
             self.refresh_tab_titles()
             # Parse mbsync summary for status bar
             if t.sync_rc != 0:
+                if t.sync_stderr:
+                    logger.error('mbsync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
                 msg = f'Sync error (exit {t.sync_rc})'
                 if t.sync_stderr:
                     msg += f': {t.sync_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
             elif t.notmuch_rc != 0:
+                if t.notmuch_stderr:
+                    logger.error('notmuch failed (exit %d): %s', t.notmuch_rc, t.notmuch_stderr)
                 msg = f'notmuch error (exit {t.notmuch_rc})'
                 if t.notmuch_stderr:
                     msg += f': {t.notmuch_stderr[:200]}'
