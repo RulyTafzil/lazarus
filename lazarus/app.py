@@ -51,48 +51,37 @@ from .webengine import LOCAL_PROTOCOLS
 logger = logging.getLogger(__name__)
 
 class SyncMailThread(QThread):
-    """A QThread used for syncing local Maildir and notmuch with IMAP
+    """A QThread used for syncing local Maildir and notmuch with IMAP.
 
-    Called by the :func:`~lazarus.app.Dodo.sync_mail` method."""
+    Runs ``mbsync -V <account>`` in parallel for every account found via
+    ``mbsync -l``, then runs ``notmuch new`` once when all complete.
+    """
 
     progress = pyqtSignal(str)
 
     def __init__(self, parent: QObject=None) -> None:
         super().__init__(parent)
-        self._proc: subprocess.Popen | None = None
+        self._procs: list[subprocess.Popen] = []
         self._stopping = False
         self.sync_stderr: str = ''
         self.sync_rc: int = 0
-        self.sync_summary: str = ''
+        self.sync_summaries: list[str] = []
         self.notmuch_stderr: str = ''
         self.notmuch_rc: int = 0
 
     def run(self) -> None:
-        """Run :func:`~lazarus.settings.sync_mail_command` then `notmuch new`"""
-        self._proc = subprocess.Popen(settings.sync_mail_command, stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE,
-                                      shell=True, start_new_session=True,
-                                      universal_newlines=True)
-        assert self._proc.stdout
-        for line in self._proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            # Emit progress: show mailbox names as they sync
-            if line.startswith('Channel '):
-                self.progress.emit(f'Syncing: {line[8:]}...')
-            elif line.startswith('Opening far side box '):
-                box = line[21:].rstrip('...')
-                self.progress.emit(f'  {box}')
-            elif line.startswith('Channels:'):
-                self.sync_summary = line
-        self._proc.wait()
-        self.sync_rc = self._proc.returncode
-        if self._proc.stderr:
-            self.sync_stderr = self._proc.stderr.read().strip()
-        self._proc = None
+        """Run ``mbsync`` per account in parallel, then ``notmuch new``."""
+        accounts = settings.smtp_accounts
+        if not accounts:
+            # No accounts configured; fall back to the shell command
+            self.progress.emit('Syncing (all)...')
+            self._run_single(settings.sync_mail_command)
+        else:
+            self._run_parallel(accounts)
+
         if self._stopping:
             return
+
         self.progress.emit('Indexing...')
         self._proc = subprocess.Popen(['notmuch', 'new'], stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE,
@@ -109,20 +98,102 @@ class SyncMailThread(QThread):
             self.notmuch_stderr = self._proc.stderr.read().strip()
         self._proc = None
 
-    def _kill_proc(self) -> None:
-        """Kill the running subprocess and its entire process group"""
-        proc = self._proc
-        if proc is None:
-            return
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
+    def _run_parallel(self, accounts: list[str]) -> None:
+        """Spawn ``mbsync -V <acct>`` for every account in parallel."""
+        import select
+
+        procs: dict[int, tuple[subprocess.Popen, str]] = {}  # fd → (proc, account)
+        for acct in accounts:
+            self.progress.emit(f'Syncing: {acct}...')
+            p = subprocess.Popen(['mbsync', '-V', acct],
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,
+                                 start_new_session=True,
+                                 universal_newlines=True)
+            procs[p.stdout.fileno()] = (p, acct)
+            self._procs.append(p)
+
+        combined_stderr: list[str] = []
+        summaries: list[str] = []
+        done_accounts: set[str] = set()
+
+        while procs:
+            if self._stopping:
+                break
+            try:
+                readable, _, _ = select.select(list(procs), [], [], 0.5)
+            except (ValueError, OSError):
+                break
+
+            for fd in readable:
+                proc, acct = procs[fd]
+                line = proc.stdout.readline()
+                if not line:
+                    # Process finished
+                    proc.wait()
+                    if proc.returncode != 0 and acct not in done_accounts:
+                        self.sync_rc = proc.returncode
+                    if proc.stderr:
+                        stderr = proc.stderr.read().strip()
+                        if stderr:
+                            combined_stderr.append(f'{acct}: {stderr}')
+                    done_accounts.add(acct)
+                    del procs[fd]
+                    continue
+
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith('Opening far side box '):
+                    box = line[21:].rstrip('...')
+                    self.progress.emit(f'  {acct}: {box}')
+                elif line.startswith('Channels:'):
+                    summaries.append(f'{acct}: {line}')
+
+        self.sync_stderr = '\n'.join(combined_stderr)
+        self.sync_summaries = summaries
+
+    def _run_single(self, cmd: str) -> None:
+        """Run a single shell sync command (fallback for custom configs)."""
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             shell=True, start_new_session=True,
+                             universal_newlines=True)
+        self._procs = [p]
+        assert p.stdout
+        for line in p.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith('Channel '):
+                self.progress.emit(f'Syncing: {line[8:]}...')
+            elif line.startswith('Opening far side box '):
+                box = line[21:].rstrip('...')
+                self.progress.emit(f'  {box}')
+            elif line.startswith('Channels:'):
+                self.sync_summaries.append(line)
+        p.wait()
+        self.sync_rc = p.returncode
+        if p.stderr:
+            self.sync_stderr = p.stderr.read().strip()
+
+    def _kill_procs(self) -> None:
+        """Kill all running subprocesses and their process groups."""
+        for proc in self._procs:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+        if hasattr(self, '_proc') and self._proc is not None:
+            try:
+                os.killpg(self._proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
 
     def stop(self) -> None:
-        """Terminate the running subprocess and wait for the thread to finish"""
+        """Terminate all running subprocesses and wait for the thread to finish."""
         self._stopping = True
-        self._kill_proc()
+        self._kill_procs()
         self.wait()
 
 
@@ -512,27 +583,26 @@ class Dodo(QApplication):
                     msg += f': {t.notmuch_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
             else:
-                # Parse Far: +N *N #N -N from mbsync summary
+                # Aggregate Far: stats across all accounts
                 import re
-                summary = t.sync_summary
-                parts = {}
-                if summary:
+                new = flagged = expunged = deleted = 0
+                for summary in t.sync_summaries:
                     m = re.search(r'Far:\s*\+(\d+)\s*\*(\d+)\s*#(\d+)\s*-(\d+)', summary)
                     if m:
-                        new, flagged, expunged, deleted = m.groups()
-                        bits = []
-                        if new != '0': bits.append(f'+{new} new')
-                        if flagged != '0': bits.append(f'*{flagged} flagged')
-                        if expunged != '0': bits.append(f'{expunged} cleaned')
-                        if deleted != '0': bits.append(f'{deleted} deleted')
-                        if bits:
-                            self.status_message('Sync: ' + ', '.join(bits), 'info')
-                        else:
-                            self.status_message('Sync: up to date', 'info')
-                    else:
-                        self.status_message('Sync complete', 'info')
+                        new += int(m.group(1))
+                        flagged += int(m.group(2))
+                        expunged += int(m.group(3))
+                        deleted += int(m.group(4))
+
+                bits = []
+                if new != 0: bits.append(f'+{new} new')
+                if flagged != 0: bits.append(f'*{flagged} flagged')
+                if expunged != 0: bits.append(f'{expunged} cleaned')
+                if deleted != 0: bits.append(f'{deleted} deleted')
+                if bits:
+                    self.status_message('Sync: ' + ', '.join(bits), 'info')
                 else:
-                    self.status_message('Sync complete', 'info')
+                    self.status_message('Sync: up to date', 'info')
             if not quiet:
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
