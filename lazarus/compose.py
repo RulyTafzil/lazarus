@@ -124,20 +124,24 @@ class ComposePanel(panel.Panel):
                 self.subject_field.setText(subject)
 
             quoted = util.quote_body_text(msg)
-            # Build body: signature, then quoted text below it.
-            # Done explicitly rather than via cursor-append to
-            # guarantee the order regardless of cursor state.
+            # Build body with blank-line separators between sections:
+            #   [typing area]  ← cursor starts here
+            #
+            #   -- \n        ← signature
+            #   signature
+            #
+            #   > quoted...  ← quoted text
             sig_block = ''
             if self.signature_text:
                 sig_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
-            body = sig_block
+            body = '\n'  # leading empty line for the cursor
+            if sig_block:
+                body += sig_block
             if quoted:
-                if body:
-                    body += '\n'
-                body += quoted
-            if body:
-                self.editor.setPlainText(body)
-                self._sig_block = sig_block
+                body += '\n' + quoted
+            body = body.rstrip('\n') + '\n'  # normalise trailing newline
+            self.editor.setPlainText(body)
+            self._sig_block = sig_block
 
         elif msg and mode == 'forward':
             if 'Subject' in msg['headers']:
@@ -153,19 +157,20 @@ class ComposePanel(panel.Panel):
             for fi in att:
                 self._add_attachment_file(fi)
 
-            # Build body: signature, then forwarded text below it.
+            # Build body with blank-line separators (same layout as reply).
             sig_block = ''
             if self.signature_text:
                 sig_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
-            fwd_text = '\n---------- Forwarded message ---------\n'
+            fwd_text = '---------- Forwarded message ---------\n'
             for h in ['From', 'Date', 'Subject', 'To']:
                 if h in msg['headers']:
                     fwd_text += f'{h}: {msg["headers"][h]}\n'
             fwd_text += '\n' + util.body_text(msg) + '\n'
-            body = sig_block
-            if body:
-                body += '\n'
-            body += fwd_text
+            body = '\n'  # leading empty line for the cursor
+            if sig_block:
+                body += sig_block
+            body += '\n' + fwd_text
+            body = body.rstrip('\n') + '\n'
             self.editor.setPlainText(body)
             self._sig_block = sig_block
 
@@ -430,12 +435,16 @@ class ComposePanel(panel.Panel):
                 self._sig_block = new_block
                 return
 
-        # No old signature — append at end
+        # No old signature — append at end.
+        # Prepend a leading newline when the document is empty so the
+        # cursor (which lands at Start) has a blank line above the sig.
         if not new_block:
             return
         cursor = self.editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        if full_text and not full_text.endswith('\n'):
+        if not full_text:
+            cursor.insertText('\n')
+        elif not full_text.endswith('\n'):
             cursor.insertText('\n')
         cursor.insertText(new_block)
         self._sig_block = new_block
