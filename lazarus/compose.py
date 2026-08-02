@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, List
 
 from PyQt6.QtCore import *
-from PyQt6.QtGui import QKeyEvent, QTextCursor
+from PyQt6.QtGui import QKeyEvent, QShowEvent, QTextCursor
 from PyQt6.QtWidgets import *
 import email.utils
 import email.policy
@@ -172,17 +172,6 @@ class ComposePanel(panel.Panel):
             self.to_field.setFocus()
             self._insert_signature()
 
-        # Place cursor at the top of the editor so the user starts
-        # typing above the signature (and quoted text, for replies).
-        # Deferred via singleShot(0) because __init__ runs before the
-        # panel is added to the QTabWidget/QSplitter and shown — Qt's
-        # lazy layout can otherwise scroll the viewport to the bottom
-        # even though textCursor().position() is logically 0.
-        def _reset_cursor_to_top() -> None:
-            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
-            self.editor.verticalScrollBar().setValue(0)
-        QTimer.singleShot(0, _reset_cursor_to_top)
-
         self._sync_data_from_fields()
         self.editor_thread: Optional[compose_threads.EditorThread] = None
         self.sendmail_thread: Optional[compose_threads.SendmailThread] = None
@@ -319,6 +308,21 @@ class ComposePanel(panel.Panel):
             f'color: {settings.theme["fg"]}; font-style: italic;')
 
         super().refresh()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Reset editor cursor to top on first show.
+
+        Cursor placement during __init__ happens before the panel is
+        added to the QTabWidget/QSplitter and laid out — Qt can scroll
+        the viewport to the bottom during the initial geometry pass.
+        Waiting until the first showEvent guarantees the widget has
+        real geometry and the scrollbar reset will stick.
+        """
+        super().showEvent(event)
+        if not getattr(self, '_cursor_placed', False):
+            self._cursor_placed = True
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+            self.editor.verticalScrollBar().setValue(0)
 
     def _sync_data_from_fields(self) -> None:
         """Pull values from UI fields into self._data.
