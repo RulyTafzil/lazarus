@@ -7,7 +7,7 @@
 - **Fork Maintainer**: Ruly Tafzil
 - **License**: GPLv3
 - **Local dir**: `~/Projects/lazarus`
-- **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/mydodo.git`
+- **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git`
 - **CLI**: `lazarus`
 - **Config**: `~/.config/lazarus/config.py`
 - **Install**: `pipx install -e ~/Projects/lazarus` (editable)
@@ -81,7 +81,7 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `app.py` | 690 | `Dodo(QApplication)` — global commands, sync, logging setup, signal handling, `main()` |
+| `app.py` | 730 | `Dodo(QApplication)` — global commands, sync, logging setup, signal handling, `main()`, `install_desktop()` |
 | `compose.py` | 686 | `ComposePanel` — compose/reply/forward UI; field sync, account switching, PGP, signature insertion |
 | `actions.py` | 638 | `MarkableActionsMixin` (tag/archive/delete hooks for SearchPanel), `_BulkMoveWorker` (async file moves), `move_to_trash`, `move_to_archive`, `expunge_trash`, `restore_from_trash` |
 | `util.py` | 609 | HTML/text helpers (w3m, linkify, colorize), email parsing/matching, key-to-string mapping, message CSS |
@@ -91,7 +91,7 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 | `thread_model.py` | 402 | `ThreadModel` + `ThreadItem` — thread-tree data model with conversation/thread modes |
 | `themes.py` | 337 | Nord, Solarized, Gruvbox, Catppuccin palettes + `apply_theme()` |
 | `editor.py` | 328 | `RichTextEditor(QTextEdit)` — built-in compose editor with inline image paste/drag-and-drop |
-| `mainwindow.py` | 261 | `MainWindow` — split-pane, tab widget, thread preview container, command bar, status bar |
+| `mainwindow.py` | 268 | `MainWindow` — split-pane, tab widget, thread preview container, command bar, status bar; sets window icon via `QIcon.fromTheme('lazarus')` with bundled PNG fallback |
 | `address_completer.py` | 245 | `AddressCompleter` — notmuch-backed autocomplete; addresses preloaded once in background thread |
 | `panel.py` | 238 | `Panel(QWidget)` — keychord handling, dirty tracking, temp-dir cleanup, auto-open debounce |
 | `webengine.py` | 229 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor` |
@@ -107,6 +107,21 @@ Filters:  C-r → rules.apply_rules(settings.filter_rules, scope_query)
 | `signature.py` | 92 | Per-account signature loading from `~/.config/lazarus/<account>/signature[.html]` |
 | `__init__.py` | 23 | Package re-exports |
 | `__main__.py` | 22 | Entry point (`app.main()`) |
+
+## Icons & Desktop Integration
+
+### Window Icon
+Uses ``QIcon.fromTheme('lazarus')`` first (XDG hicolor lookup in
+``~/.local/share/icons/``), with a bundled 1024px PNG fallback shipped as
+``package_data``.  The original ``lazarus.svg`` was removed; all sizes come
+from the hicolor PNG set.
+
+### Desktop Entry
+Run ``lazarus --install-desktop`` once to copy the ``.desktop`` file into
+``~/.local/share/applications/`` and the hicolor icons (16–1024 px) into
+``~/.local/share/icons/hicolor/``.  This is a one-shot explicit step — pipx
+cannot install desktop files or icons automatically.  System packaging later
+will use the existing ``data_files`` in ``setup.py``.
 
 ## Key Bindings
 

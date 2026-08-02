@@ -53,9 +53,17 @@ class MainWindow(QMainWindow):
         conf = QSettings('lazarus', 'lazarus')
         self.app = a
 
-        icon = os.path.dirname(__file__) + '/lazarus.svg'
-        if os.path.exists(icon):
-            self.setWindowIcon(QIcon(icon))
+        # Try XDG theme first (picks up ~/.local/share/icons if installed),
+        # fall back to the bundled 1024px PNG shipped in the package.
+        icon = QIcon.fromTheme('lazarus')
+        if icon.isNull():
+            bundled = os.path.join(os.path.dirname(__file__),
+                                   'icons', 'hicolor', '1024x1024',
+                                   'apps', 'lazarus.png')
+            if os.path.exists(bundled):
+                icon = QIcon(bundled)
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         self.setWindowTitle("Lazarus")
 
         w = QWidget(self)

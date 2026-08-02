@@ -30,7 +30,7 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     packages=["lazarus"],
-    package_data={'': ['*.svg']},
+    package_data={'lazarus': ['icons/hicolor/*/apps/lazarus.png']},
     data_files=data_files,
     install_requires=["PyQt6>=6.2", "PyQt6-WebEngine>=6.2", "bleach>=5.0"],
     python_requires=">=3.7",

@@ -757,8 +757,71 @@ class Dodo(QApplication):
                 self.open_search(q)
 
 
+_DESKTOP_ENTRY = """\
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lazarus
+Comment=Lazarus email client
+Exec=lazarus
+Icon=lazarus
+Terminal=false
+"""
+
+
+def install_desktop() -> None:
+    """Install .desktop file and hicolor icons into ~/.local/share.
+
+    Desktop environments (and ``QIcon.fromTheme``) look for icons under
+    ``~/.local/share/icons/hicolor/`` by default.  This copies the bundled
+    PNGs there so the app appears with its proper icon in launchers, docks,
+    and alt-tab switchers, and writes the desktop entry so Lazarus shows up
+    in application menus.
+    """
+    import shutil
+
+    xdg_data = os.path.join(os.path.expanduser('~'), '.local', 'share')
+    icons_dst = os.path.join(xdg_data, 'icons', 'hicolor')
+    apps_dst = os.path.join(xdg_data, 'applications')
+
+    # -- icons (bundled as package_data) ---------------------------------
+    icons_src = os.path.join(os.path.dirname(__file__), 'icons', 'hicolor')
+    if os.path.isdir(icons_src):
+        for root, dirs, files in os.walk(icons_src):
+            for f in files:
+                src = os.path.join(root, f)
+                rel = os.path.relpath(src, icons_src)
+                dst = os.path.join(icons_dst, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                print(f'  {rel}')
+        print('Icons installed to', icons_dst)
+    else:
+        print('No bundled icons found at', icons_src, file=sys.stderr)
+        sys.exit(1)
+
+    # -- desktop entry (embedded) ---------------------------------------
+    os.makedirs(apps_dst, exist_ok=True)
+    desktop_path = os.path.join(apps_dst, 'lazarus.desktop')
+    with open(desktop_path, 'w') as f:
+        f.write(_DESKTOP_ENTRY)
+    print('Desktop entry installed to', desktop_path)
+
+    # Update the icon cache so Qt/GNOME/KDE pick up the new icons
+    # immediately without needing a logout.
+    if shutil.which('update-desktop-database'):
+        subprocess.run(['update-desktop-database', apps_dst],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print('\nDone. You may need to log out and back in for some launchers to refresh.')
+
+
 def main() -> None:
     """Main entry point for Lazarus"""
+
+    if '--install-desktop' in sys.argv:
+        install_desktop()
+        return
 
     lazarus = Dodo()
     lazarus.exec()

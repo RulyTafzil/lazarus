@@ -1,1 +1,1 @@
-include lazarus/lazarus.svg
+recursive-include lazarus/icons *.png
