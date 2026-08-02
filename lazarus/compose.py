@@ -244,6 +244,14 @@ class ComposePanel(panel.Panel):
 
         # --- Editor ---
         self.editor = editor_mod.RichTextEditor(self)
+
+        # DEBUG: trace every cursor position change
+        def _debug_cursor_moved():
+            print(f'[cursor-debug] moved to {self.editor.textCursor().position()}', flush=True)
+            import traceback
+            traceback.print_stack(limit=8)
+        self.editor.cursorPositionChanged.connect(_debug_cursor_moved)
+
         lay.addWidget(self.editor, stretch=1)
 
         # --- Attachment bar ---
