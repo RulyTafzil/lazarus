@@ -435,6 +435,10 @@ class ComposePanel(panel.Panel):
             old_block = self._sig_block
             idx = full_text.find(old_block)
             if idx >= 0:
+                # Save the widget's cursor position before the replace —
+                # QTextCursor(doc) still shares the document, so insertText
+                # through it can push the widget cursor forward.
+                old_pos = self.editor.textCursor().position()
                 cursor = QTextCursor(doc)
                 cursor.setPosition(idx)
                 cursor.setPosition(
@@ -445,6 +449,17 @@ class ComposePanel(panel.Panel):
                 else:
                     cursor.removeSelectedText()
                 self._sig_block = new_block
+                # Restore widget cursor, adjusting for sig length change
+                # if the cursor was after the replaced block.
+                len_diff = len(new_block) - len(old_block)
+                if old_pos > idx + len(old_block):
+                    old_pos += len_diff
+                elif old_pos > idx:
+                    old_pos = idx + len(new_block)
+                if self.editor.textCursor().position() != old_pos:
+                    c = self.editor.textCursor()
+                    c.setPosition(old_pos)
+                    self.editor.setTextCursor(c)
                 return
 
         # No old signature — append at end.
