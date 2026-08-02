@@ -123,13 +123,21 @@ class ComposePanel(panel.Panel):
                     subject = 'RE: ' + subject
                 self.subject_field.setText(subject)
 
-            self._insert_signature()
             quoted = util.quote_body_text(msg)
+            # Build body: signature, then quoted text below it.
+            # Done explicitly rather than via cursor-append to
+            # guarantee the order regardless of cursor state.
+            sig_block = ''
+            if self.signature_text:
+                sig_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
+            body = sig_block
             if quoted:
-                cursor = self.editor.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-                cursor.insertText('\n' + quoted)
-                self.editor.setTextCursor(cursor)
+                if body:
+                    body += '\n'
+                body += quoted
+            if body:
+                self.editor.setPlainText(body)
+                self._sig_block = sig_block
 
         elif msg and mode == 'forward':
             if 'Subject' in msg['headers']:
@@ -145,20 +153,29 @@ class ComposePanel(panel.Panel):
             for fi in att:
                 self._add_attachment_file(fi)
 
-            self._insert_signature()
-            fwd_text = ('\n---------- Forwarded message ---------\n')
+            # Build body: signature, then forwarded text below it.
+            sig_block = ''
+            if self.signature_text:
+                sig_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
+            fwd_text = '\n---------- Forwarded message ---------\n'
             for h in ['From', 'Date', 'Subject', 'To']:
                 if h in msg['headers']:
                     fwd_text += f'{h}: {msg["headers"][h]}\n'
             fwd_text += '\n' + util.body_text(msg) + '\n'
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            cursor.insertText(fwd_text)
-            self.editor.setTextCursor(cursor)
+            body = sig_block
+            if body:
+                body += '\n'
+            body += fwd_text
+            self.editor.setPlainText(body)
+            self._sig_block = sig_block
 
         else:
             self.to_field.setFocus()
             self._insert_signature()
+
+        # Place cursor at the top of the editor so the user starts
+        # typing above the signature (and quoted text, for replies).
+        self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
         self._sync_data_from_fields()
         self.editor_thread: Optional[compose_threads.EditorThread] = None
