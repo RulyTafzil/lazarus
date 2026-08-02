@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, List
 
 from PyQt6.QtCore import *
-from PyQt6.QtGui import QKeyEvent, QShowEvent, QTextCursor
+from PyQt6.QtGui import QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import *
 import email.utils
 import email.policy
@@ -309,21 +309,6 @@ class ComposePanel(panel.Panel):
 
         super().refresh()
 
-    def showEvent(self, event: QShowEvent) -> None:
-        """Reset editor cursor to top on first show.
-
-        Cursor placement during __init__ happens before the panel is
-        added to the QTabWidget/QSplitter and laid out — Qt can scroll
-        the viewport to the bottom during the initial geometry pass.
-        Waiting until the first showEvent guarantees the widget has
-        real geometry and the scrollbar reset will stick.
-        """
-        super().showEvent(event)
-        if not getattr(self, '_cursor_placed', False):
-            self._cursor_placed = True
-            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
-            self.editor.verticalScrollBar().setValue(0)
-
     def _sync_data_from_fields(self) -> None:
         """Pull values from UI fields into self._data.
 
@@ -451,7 +436,9 @@ class ComposePanel(panel.Panel):
             cursor.insertText('\n')
         cursor.insertText(new_block)
         self._sig_block = new_block
-        self.editor.setTextCursor(cursor)
+        # Don't move the editor's visual cursor — leave it wherever it
+        # was before the insertion (position 0 for a fresh document) so
+        # the user starts typing at the top, above the signature.
 
     def _reload_signature(self) -> None:
         """Swap the signature when the account changes."""
