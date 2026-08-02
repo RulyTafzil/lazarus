@@ -172,6 +172,16 @@ class ComposePanel(panel.Panel):
             self.to_field.setFocus()
             self._insert_signature()
 
+        # Always start the cursor at the very first line, regardless of
+        # mode — whether that's an empty document, before a signature,
+        # or before a signature + quoted/forwarded text.
+        # Deferred via singleShot(0) so it fires after the panel is
+        # added to the QTabWidget/QSplitter and has real geometry.
+        def _reset_cursor_to_top() -> None:
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+            self.editor.verticalScrollBar().setValue(0)
+        QTimer.singleShot(0, _reset_cursor_to_top)
+
         self._sync_data_from_fields()
         self.editor_thread: Optional[compose_threads.EditorThread] = None
         self.sendmail_thread: Optional[compose_threads.SendmailThread] = None
