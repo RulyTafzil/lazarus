@@ -129,9 +129,7 @@ class ComposePanel(panel.Panel):
             #            [quoted text]
             # When there is no signature, the body starts with a leading
             # newline so the cursor has room before the quoted text.
-            sig_block = ''
-            if self.signature_text:
-                sig_block = '\n-- \n' + self.signature_text.rstrip('\n') + '\n'
+            sig_block = self._sig_block_text()
             body = sig_block if sig_block else '\n'
             if quoted:
                 body += '\n' + quoted
@@ -154,9 +152,7 @@ class ComposePanel(panel.Panel):
                 self._add_attachment_file(fi)
 
             # Build body (same layout as reply).
-            sig_block = ''
-            if self.signature_text:
-                sig_block = '\n-- \n' + self.signature_text.rstrip('\n') + '\n'
+            sig_block = self._sig_block_text()
             fwd_text = '---------- Forwarded message ---------\n'
             for h in ['From', 'Date', 'Subject', 'To']:
                 if h in msg['headers']:
@@ -402,6 +398,16 @@ class ComposePanel(panel.Panel):
 
     # ── Signatures ───────────────────────────────────────────────────
 
+    def _sig_block_text(self) -> str:
+        """Return the current account's signature block.
+
+        Includes a leading newline so a blank line always separates the
+        user's text from the signature, in every context.
+        """
+        if not self.signature_text:
+            return ''
+        return '\n-- \n' + self.signature_text.rstrip('\n') + '\n'
+
     def _insert_signature(self) -> None:
         """Insert the current account's plaintext signature.
 
@@ -413,11 +419,7 @@ class ComposePanel(panel.Panel):
         doc = self.editor.document()
         full_text = doc.toPlainText()
 
-        new_block = ''
-        if self.signature_text:
-            # Leading newline ensures a blank line always separates
-            # the user's text from the signature, in every context.
-            new_block = '\n-- \n' + self.signature_text.rstrip('\n') + '\n'
+        new_block = self._sig_block_text()
 
         # If we have a cached block (even empty — meaning "no sig yet"),
         # replace it in-place so the signature always stays above quoted text.
