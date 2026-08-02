@@ -174,7 +174,14 @@ class ComposePanel(panel.Panel):
 
         # Place cursor at the top of the editor so the user starts
         # typing above the signature (and quoted text, for replies).
-        self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+        # Deferred via singleShot(0) because __init__ runs before the
+        # panel is added to the QTabWidget/QSplitter and shown — Qt's
+        # lazy layout can otherwise scroll the viewport to the bottom
+        # even though textCursor().position() is logically 0.
+        def _reset_cursor_to_top() -> None:
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+            self.editor.verticalScrollBar().setValue(0)
+        QTimer.singleShot(0, _reset_cursor_to_top)
 
         self._sync_data_from_fields()
         self.editor_thread: Optional[compose_threads.EditorThread] = None
