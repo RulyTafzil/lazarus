@@ -446,9 +446,12 @@ class ComposePanel(panel.Panel):
             cursor.insertText('\n')
         cursor.insertText(new_block)
         self._sig_block = new_block
-        # Don't move the editor's visual cursor — leave it wherever it
-        # was before the insertion (position 0 for a fresh document) so
-        # the user starts typing at the top, above the signature.
+        # textCursor() shares the document with the widget — inserting
+        # through it pushes the widget's own cursor forward when it was
+        # sitting at the insertion point.  This branch only ever runs
+        # on an empty document (mailto / blank-compose), so force the
+        # cursor back to the start explicitly.
+        self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
     def _reload_signature(self) -> None:
         """Swap the signature when the account changes."""
