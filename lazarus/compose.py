@@ -167,6 +167,7 @@ class ComposePanel(panel.Panel):
             body = body.rstrip('\n') + '\n'
             self.editor.setPlainText(body)
             self._sig_block = sig_block
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
         else:
             self.to_field.setFocus()
