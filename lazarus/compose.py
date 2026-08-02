@@ -138,7 +138,6 @@ class ComposePanel(panel.Panel):
             body = body.rstrip('\n') + '\n'
             self.editor.setPlainText(body)
             self._sig_block = sig_block
-            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
         elif msg and mode == 'forward':
             if 'Subject' in msg['headers']:
@@ -168,7 +167,6 @@ class ComposePanel(panel.Panel):
             body = body.rstrip('\n') + '\n'
             self.editor.setPlainText(body)
             self._sig_block = sig_block
-            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
         else:
             self.to_field.setFocus()
@@ -244,14 +242,6 @@ class ComposePanel(panel.Panel):
 
         # --- Editor ---
         self.editor = editor_mod.RichTextEditor(self)
-
-        # DEBUG: trace every cursor position change
-        def _debug_cursor_moved():
-            print(f'[cursor-debug] moved to {self.editor.textCursor().position()}', flush=True)
-            import traceback
-            traceback.print_stack(limit=8)
-        self.editor.cursorPositionChanged.connect(_debug_cursor_moved)
-
         lay.addWidget(self.editor, stretch=1)
 
         # --- Attachment bar ---
