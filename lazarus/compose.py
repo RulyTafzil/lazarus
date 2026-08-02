@@ -412,8 +412,9 @@ class ComposePanel(panel.Panel):
         if self.signature_text:
             new_block = '-- \n' + self.signature_text.rstrip('\n') + '\n'
 
-        # If we have a cached old signature, replace it in-place
-        if getattr(self, '_sig_block', None):
+        # If we have a cached block (even empty — meaning "no sig yet"),
+        # replace it in-place so the signature always stays above quoted text.
+        if getattr(self, '_sig_block', None) is not None:
             old_block = self._sig_block
             idx = full_text.find(old_block)
             if idx >= 0:
