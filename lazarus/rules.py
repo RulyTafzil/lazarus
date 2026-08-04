@@ -112,15 +112,26 @@ def apply_rules(rules: List[Rule], scope_query: str) -> int:
                 continue
 
         if rule.move_to:
-            try:
-                actions.move_specific_files(files, rule.move_to)
-            except OSError as e:
+            if not files:
                 logger.warning(
-                    'Filter rule %r file move to %r failed: %s',
-                    rule.describe(), rule.move_to, e)
-                continue
+                    'Filter rule %r: matched %d thread(s) but no files '
+                    'collected for move to %r — notmuch file paths may '
+                    'be stale or unresolvable on disk.  Run `notmuch new` '
+                    'and try again.',
+                    rule.describe(), count, rule.move_to)
+            else:
+                try:
+                    actions.move_specific_files(files, rule.move_to)
+                except OSError as e:
+                    logger.warning(
+                        'Filter rule %r file move to %r failed: %s',
+                        rule.describe(), rule.move_to, e)
+                    continue
 
         matched += 1
-        logger.info('Filter rule %r matched %d thread(s)', rule.describe(), count)
+        logger.info('Filter rule %r matched %d thread(s)%s',
+                     rule.describe(), count,
+                     f' → {len(files)} file(s) moved to {rule.move_to}'
+                     if rule.move_to and files else '')
 
     return matched
