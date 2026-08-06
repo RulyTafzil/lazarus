@@ -80,6 +80,7 @@ class SendmailThread(QThread):
         super().__init__(parent)
         self.panel = panel
         self.send_success = False
+        self.send_error: str = ''
 
     def run(self) -> None:
         try:
@@ -142,15 +143,14 @@ class SendmailThread(QThread):
                      self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
                     notmuch.tag('+replied', 'id:' + self.panel.msg['id'])
-                self.panel.set_status('sent', color='fg_good')
                 self.send_success = True
             else:
-                self.panel.set_status('error', color='fg_bad')
+                self.send_error = 'msmtp returned non-zero'
                 self.send_success = False
         except TimeoutExpired:
-            self.panel.set_status('timed out', color='fg_bad')
+            self.send_error = 'timed out after 30s'
         except pgp_util.GpgError as e:
-            self.panel.set_status(f'GPG error: {e}', color='fg_bad')
+            self.send_error = f'GPG error: {e}'
         except Exception:
             traceback.print_exc()
-            self.panel.set_status('exception (see stderr)', color='fg_bad')
+            self.send_error = 'exception (see stderr)'

@@ -627,28 +627,46 @@ class ComposePanel(panel.Panel):
         self._data.body_html = self.editor.body_html()
         self._data.body_text = self.editor.body_text()
 
+        # Disable editing while the message is being sent.
+        self._set_fields_enabled(False)
         self.status_label.setText('sending...')
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg_bright"]}; font-style: italic;')
-        self.refresh()
+        self.app.status_message('Sending...', 'info', duration=0)
 
         self.sendmail_thread = compose_threads.SendmailThread(self, parent=self)
-        self.sendmail_thread.send_success = False
 
         def done() -> None:
+            # Re-enable fields regardless of outcome.
+            self._set_fields_enabled(True)
             if self.sendmail_thread:
                 success = self.sendmail_thread.send_success
+                error = self.sendmail_thread.send_error
                 self.sendmail_thread.deleteLater()
                 self.sendmail_thread = None
             else:
                 success = False
+                error = ''
             self.app.refresh_panels()
             if success and self.is_open:
                 self.app.status_message('Email sent', 'info')
                 self.app.close_panel(self)
+            elif error and self.is_open:
+                self.status_label.setText(error)
+                self.status_label.setStyleSheet(
+                    f'color: {settings.theme["fg_bad"]};')
+                self.app.status_message(f'Send failed: {error}', 'error')
 
         self.sendmail_thread.finished.connect(done)
         self.sendmail_thread.start()
+
+    def _set_fields_enabled(self, enabled: bool) -> None:
+        """Enable or disable all input fields and the editor."""
+        self.editor.setEnabled(enabled)
+        self.to_field.setEnabled(enabled)
+        self.cc_field.setEnabled(enabled)
+        self.bcc_field.setEnabled(enabled)
+        self.subject_field.setEnabled(enabled)
 
     def escape_focus(self) -> None:
         """Toggle focus between the editor and the compose panel chrome.
