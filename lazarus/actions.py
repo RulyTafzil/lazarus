@@ -33,7 +33,7 @@ import os
 import re
 import logging
 import queue
-from typing import Set, Optional, List, Tuple, Literal, Callable
+from typing import Set, Optional, List, Tuple, Literal
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -92,19 +92,6 @@ class _BulkMoveWorker(QThread):
 # Singleton worker, started on first use
 _worker: _BulkMoveWorker | None = None
 
-# External callbacks connected to every worker's batch_done signal.
-# The worker recycles (exits after 30s idle), so callbacks must be
-# reconnected each time a new worker is created.
-_batch_callbacks: List[Callable] = []
-
-
-def register_batch_callback(cb: Callable) -> None:
-    """Register *cb* to be called after every batch of file moves.
-
-    Survives worker recycling — reconnected to each new worker.
-    """
-    _batch_callbacks.append(cb)
-
 
 def _run_notmuch_new() -> None:
     """Re-index after a batch of file moves has actually landed on disk.
@@ -123,8 +110,6 @@ def _get_worker() -> _BulkMoveWorker:
     if _worker is None or not _worker.isRunning():
         _worker = _BulkMoveWorker()
         _worker.batch_done.connect(_run_notmuch_new)
-        for cb in _batch_callbacks:
-            _worker.batch_done.connect(cb)
         _worker.start()
     return _worker
 

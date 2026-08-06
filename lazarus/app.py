@@ -275,8 +275,8 @@ class Dodo(QApplication):
         self.aboutToQuit.connect(self._cleanup_sync)
 
         # Refresh panels after background file moves (filter, trash,
-        # archive) complete — survives worker recycling.
-        actions.register_batch_callback(self.refresh_panels)
+        # archive) complete and notmuch new finishes re-indexing.
+        actions._get_worker().batch_done.connect(self.refresh_panels)
 
         # Preload the address book in the background so autocomplete
         # is ready by the time the user opens the compose panel.
