@@ -249,13 +249,19 @@ def move_to_trash(notmuch_query: str) -> int:
 
     moves: List[Tuple[str, str]] = []
     for f in files:
-        result = _mail_file_account(f)
+        # Re-resolve — notmuch.tag may have renamed the file
+        # (synchronize_flags=true renames files when tags change).
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('file gone after tagging: %s', os.path.basename(f))
+            continue
+        result = _mail_file_account(resolved)
         if result is None:
             continue
         account, _ = result
         trash_dir = _find_trash_dir(account)
-        basename = _strip_uid_annotation(os.path.basename(f))
-        moves.append((f, _unique_dest(os.path.join(trash_dir, basename))))
+        basename = _strip_uid_annotation(os.path.basename(resolved))
+        moves.append((resolved, _unique_dest(os.path.join(trash_dir, basename))))
 
     if moves:
         _get_worker().enqueue(moves)
@@ -512,14 +518,18 @@ def move_specific_files(files: List[str], target_dir: str) -> int:
 
     moves: List[Tuple[str, str]] = []
     for f in files:
-        # Skip files already under the target directory — a file may
-        # still be in the list after a previous move if its tags
-        # haven't changed (e.g. a rule with move_to but no tag_remove).
-        if f.startswith(target_cur + os.sep):
-            logger.debug('skip (already in target): %s', os.path.basename(f))
+        # Re-resolve the path — notmuch.tag may have renamed the file
+        # since collect_files() ran (synchronize_flags=true renames
+        # files on disk when tags like 'unread' change).
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('file gone after tagging: %s', os.path.basename(f))
             continue
-        basename = _strip_uid_annotation(os.path.basename(f))
-        moves.append((f, _unique_dest(os.path.join(target_cur, basename))))
+        if resolved.startswith(target_cur + os.sep):
+            logger.debug('skip (already in target): %s', os.path.basename(resolved))
+            continue
+        basename = _strip_uid_annotation(os.path.basename(resolved))
+        moves.append((resolved, _unique_dest(os.path.join(target_cur, basename))))
 
     if moves:
         _get_worker().enqueue(moves)
