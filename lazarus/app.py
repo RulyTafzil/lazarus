@@ -220,17 +220,12 @@ class Dodo(QApplication):
         self.setApplicationName('Lazarus')
         self.setDesktopFileName("lazarus")
 
-        # find a load config.py
-        self.config_file = QStandardPaths.locate(QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py')
-        if self.config_file:
-            try:
-                exec(open(self.config_file).read())
-            except Exception as e:
-                print(f'Error loading config file {self.config_file}: {e}', file=sys.stderr)
-                sys.exit(1)
-        else:
-            config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
-            print('No config.py found in:\n' + '\n'.join([f'  {d}/lazarus' for d in config_locs]))
+        # find & validate config.py (via lazarus.config)
+        from .config import load_config, ConfigError
+        try:
+            self.config_file, _warnings = load_config()
+        except ConfigError as e:
+            print(f"\n{e}\n", file=sys.stderr)
             sys.exit(1)
 
         # Reconfigure logging now that user settings are available.
