@@ -33,6 +33,7 @@ import os
 import re
 import logging
 import queue
+import threading
 from typing import Set, Optional, List, Tuple, Literal
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -47,36 +48,41 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class _BulkMoveWorker(QThread):
-    """Serialises file moves and runs ``notmuch new`` after each batch."""
+    """Serialises file moves and runs ``notmuch new`` after each batch.
+
+    The worker lives for the lifetime of the process — it blocks on
+    ``queue.get()`` when idle instead of exiting after a timeout.  This
+    avoids the previous race where ``_batches_pending`` was mutated from
+    both the UI thread (enqueue) and the worker thread (run) without
+    synchronisation, causing ``notmuch new`` to fire before a second
+    batch landed on disk.
+    """
 
     batch_done = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
         self.queue: queue.Queue[Tuple[str, str] | None] = queue.Queue()
+        self._lock = threading.Lock()
         self._batches_pending = 0
 
     def enqueue(self, moves: List[Tuple[str, str]]) -> None:
         """Push a batch of (src, dst) moves, followed by a sentinel."""
-        self._batches_pending += 1
+        with self._lock:
+            self._batches_pending += 1
         for src, dst in moves:
             self.queue.put((src, dst))
         self.queue.put(None)  # sentinel marking end of batch
 
     def run(self) -> None:
         while True:
-            try:
-                item = self.queue.get(timeout=30)
-            except queue.Empty:
-                return
+            item = self.queue.get()  # block forever — worker is long-lived
             if item is None:
                 # Sentinel: a batch of enqueued moves is done.
-                self._batches_pending -= 1
-                # If no more batches were enqueued while we were
-                # draining the current one, exit.
-                if self._batches_pending <= 0:
-                    self.batch_done.emit()
-                    return
+                with self._lock:
+                    self._batches_pending -= 1
+                # Always emit — the caller (notmuch new + UI refresh)
+                # must run after *every* batch, not just the last one.
                 self.batch_done.emit()
                 continue
             src, dst = item
@@ -89,7 +95,7 @@ class _BulkMoveWorker(QThread):
                 logger.warning('move failed: %s → %s: %s', src, dst, e)
 
 
-# Singleton worker, started on first use
+# Singleton worker, started on first use and kept alive for the session.
 _worker: _BulkMoveWorker | None = None
 
 
@@ -107,7 +113,7 @@ def _run_notmuch_new() -> None:
 
 def _get_worker() -> _BulkMoveWorker:
     global _worker
-    if _worker is None or not _worker.isRunning():
+    if _worker is None or _worker.isFinished():
         _worker = _BulkMoveWorker()
         _worker.batch_done.connect(_run_notmuch_new)
         _worker.start()
