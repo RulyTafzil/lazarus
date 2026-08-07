@@ -162,6 +162,7 @@ class ThreadModel(QAbstractItemModel):
         self.raw_data: list = []
         self.roots: list[ThreadItem] = []
         self._mode: Literal['conversation', 'thread'] = mode
+        self.error_msg: str | None = None
 
     # -- properties ---------------------------------------------------------
 
@@ -251,9 +252,11 @@ class ThreadModel(QAbstractItemModel):
         try:
             matches = self._fetch_matching_ids()
             data = self._fetch_full_thread()
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             logger.exception("Refresh failed: %s", self.thread_id)
+            self.error_msg = f"notmuch: {e.stderr.strip()[:200] if e.stderr else str(e)}"
             return
+        self.error_msg = None
 
         if not data:
             raise EmptyThreadError()
@@ -280,9 +283,11 @@ class ThreadModel(QAbstractItemModel):
                 check=True,
             )
             matches = self._fetch_matching_ids()
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             logger.exception("Single refresh failed: %s", msg_id)
+            self.error_msg = f"notmuch: {e.stderr.strip()[:200] if e.stderr else str(e)}"
             return
+        self.error_msg = None
 
         msg = next(
             (m for m in iter_thread_messages(json.loads(r.stdout))

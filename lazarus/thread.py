@@ -248,6 +248,10 @@ class ThreadPanel(panel.Panel):
             self.model.refresh()
         except EmptyThreadError:
             self.app.close_panel(self)
+            return
+        if self.model.error_msg:
+            self.app.status_message(self.model.error_msg, 'error',
+                                    duration=6000)
 
     def refresh_info(self) -> None:
         """Refresh the header/metadata area without re-fetching content."""

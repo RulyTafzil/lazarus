@@ -127,11 +127,10 @@ class SendmailThread(QThread):
             # injection by using shlex.split + shell=False.
             cmd = cmd.replace('{account}', account)
             argv = shlex.split(cmd)
-            sendmail = Popen(argv, stdin=PIPE, encoding='utf8', shell=False)
-            if sendmail.stdin:
-                sendmail.stdin.write(eml.as_string())
-                sendmail.stdin.close()
-            sendmail.wait(30)
+            sendmail = Popen(argv, stdin=PIPE, stdout=PIPE,
+                             stderr=PIPE, encoding='utf8', shell=False)
+            stdout, stderr = sendmail.communicate(eml.as_string(), timeout=30)
+            # communicate waits; no separate wait() needed
 
             if sendmail.returncode == 0:
                 # Save to sent folder
@@ -140,9 +139,12 @@ class SendmailThread(QThread):
                 else:
                     sent_dir = settings.sent_dir
                 if sent_dir is not None:
-                    m = mailbox.MaildirMessage(eml.as_bytes())
-                    m.set_flags('S')
-                    mailbox.Maildir(sent_dir).add(m)
+                    try:
+                        m = mailbox.MaildirMessage(eml.as_bytes())
+                        m.set_flags('S')
+                        mailbox.Maildir(sent_dir).add(m)
+                    except OSError as e:
+                        logger.warning('Failed to save sent mail to %s: %s', sent_dir, e)
 
                 notmuch.new(no_hooks=settings.no_hooks_on_send)
 
@@ -152,12 +154,17 @@ class SendmailThread(QThread):
                     notmuch.tag('+replied', 'id:' + self.panel.msg['id'])
                 self.send_success = True
             else:
-                self.send_error = 'msmtp returned non-zero'
+                err = (stderr or '').strip()[:300]
+                self.send_error = f'msmtp exited {sendmail.returncode}'
+                if err:
+                    self.send_error += f': {err}'
                 self.send_success = False
         except TimeoutExpired:
             self.send_error = 'timed out after 30s'
+            logger.warning('msmtp timed out after 30s for account %s', account)
         except pgp_util.GpgError as e:
             self.send_error = f'GPG error: {e}'
-        except Exception:
+        except Exception as e:
             traceback.print_exc()
-            self.send_error = 'exception (see stderr)'
+            logger.exception('Unexpected send error')
+            self.send_error = f'exception: {e}'
