@@ -25,6 +25,10 @@ import os
 from typing import Optional
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import commandbar
 from . import panel
 from . import settings
@@ -48,7 +52,7 @@ def _position_to_orientation(
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, a: app.Dodo):
+    def __init__(self, a: "Dodo | AppController"):
         super().__init__()
         conf = QSettings('lazarus', 'lazarus')
         self.app = a

@@ -50,151 +50,7 @@ from .webengine import LOCAL_PROTOCOLS
 
 logger = logging.getLogger(__name__)
 
-class SyncMailThread(QThread):
-    """A QThread used for syncing local Maildir and notmuch with IMAP.
-
-    Runs ``mbsync -V <account>`` in parallel for every account found via
-    ``mbsync -l``, then runs ``notmuch new`` once when all complete.
-    """
-
-    progress = pyqtSignal(str)
-
-    def __init__(self, parent: QObject=None) -> None:
-        super().__init__(parent)
-        self._procs: list[subprocess.Popen] = []
-        self._stopping = False
-        self.sync_stderr: str = ''
-        self.sync_rc: int = 0
-        self.sync_summaries: list[str] = []
-        self.notmuch_stderr: str = ''
-        self.notmuch_rc: int = 0
-
-    def run(self) -> None:
-        """Run ``mbsync`` per account in parallel, then ``notmuch new``."""
-        accounts = settings.smtp_accounts
-        if not accounts:
-            # No accounts configured; fall back to the shell command
-            self.progress.emit('Syncing (all)...')
-            self._run_single(settings.sync_mail_command)
-        else:
-            self._run_parallel(accounts)
-
-        if self._stopping:
-            return
-
-        self.progress.emit('Indexing...')
-        self._proc = subprocess.Popen(['notmuch', 'new'], stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE,
-                                      start_new_session=True,
-                                      universal_newlines=True)
-        assert self._proc.stdout
-        for line in self._proc.stdout:
-            line = line.strip()
-            if line.startswith('Processed'):
-                self.progress.emit(line)
-        self._proc.wait()
-        self.notmuch_rc = self._proc.returncode
-        if self._proc.stderr:
-            self.notmuch_stderr = self._proc.stderr.read().strip()
-        self._proc = None
-
-    def _run_parallel(self, accounts: list[str]) -> None:
-        """Spawn ``mbsync -V <acct>`` for every account in parallel."""
-        import select
-
-        procs: dict[int, tuple[subprocess.Popen, str]] = {}  # fd → (proc, account)
-        for acct in accounts:
-            self.progress.emit(f'Syncing: {acct}...')
-            p = subprocess.Popen(['mbsync', '-V', acct],
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE,
-                                 start_new_session=True,
-                                 universal_newlines=True)
-            procs[p.stdout.fileno()] = (p, acct)
-            self._procs.append(p)
-
-        combined_stderr: list[str] = []
-        summaries: list[str] = []
-        done_accounts: set[str] = set()
-
-        while procs:
-            if self._stopping:
-                break
-            try:
-                readable, _, _ = select.select(list(procs), [], [], 0.5)
-            except (ValueError, OSError):
-                break
-
-            for fd in readable:
-                proc, acct = procs[fd]
-                line = proc.stdout.readline()
-                if not line:
-                    # Process finished
-                    proc.wait()
-                    if proc.returncode != 0 and acct not in done_accounts:
-                        self.sync_rc = proc.returncode
-                    if proc.stderr:
-                        stderr = proc.stderr.read().strip()
-                        if stderr:
-                            combined_stderr.append(f'{acct}: {stderr}')
-                    done_accounts.add(acct)
-                    del procs[fd]
-                    continue
-
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('Opening far side box '):
-                    box = line[21:].rstrip('...')
-                    self.progress.emit(f'  {acct}: {box}')
-                elif line.startswith('Channels:'):
-                    summaries.append(f'{acct}: {line}')
-
-        self.sync_stderr = '\n'.join(combined_stderr)
-        self.sync_summaries = summaries
-
-    def _run_single(self, cmd: str) -> None:
-        """Run a single shell sync command (fallback for custom configs)."""
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE,
-                             shell=True, start_new_session=True,
-                             universal_newlines=True)
-        self._procs = [p]
-        assert p.stdout
-        for line in p.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith('Channel '):
-                self.progress.emit(f'Syncing: {line[8:]}...')
-            elif line.startswith('Opening far side box '):
-                box = line[21:].rstrip('...')
-                self.progress.emit(f'  {box}')
-            elif line.startswith('Channels:'):
-                self.sync_summaries.append(line)
-        p.wait()
-        self.sync_rc = p.returncode
-        if p.stderr:
-            self.sync_stderr = p.stderr.read().strip()
-
-    def _kill_procs(self) -> None:
-        """Kill all running subprocesses and their process groups."""
-        for proc in self._procs:
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except OSError:
-                pass
-        if hasattr(self, '_proc') and self._proc is not None:
-            try:
-                os.killpg(self._proc.pid, signal.SIGTERM)
-            except OSError:
-                pass
-
-    def stop(self) -> None:
-        """Terminate all running subprocesses and wait for the thread to finish."""
-        self._stopping = True
-        self._kill_procs()
-        self.wait()
+from .controller import SyncMailThread  # canonical impl lives in controller.py
 
 
 class Dodo(QApplication):
@@ -220,17 +76,12 @@ class Dodo(QApplication):
         self.setApplicationName('Lazarus')
         self.setDesktopFileName("lazarus")
 
-        # find a load config.py
-        self.config_file = QStandardPaths.locate(QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py')
-        if self.config_file:
-            try:
-                exec(open(self.config_file).read())
-            except Exception as e:
-                print(f'Error loading config file {self.config_file}: {e}', file=sys.stderr)
-                sys.exit(1)
-        else:
-            config_locs = QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)
-            print('No config.py found in:\n' + '\n'.join([f'  {d}/lazarus' for d in config_locs]))
+        # find & validate config.py (via lazarus.config)
+        from .config import load_config, ConfigError
+        try:
+            self.config_file, _warnings = load_config()
+        except ConfigError as e:
+            print(f"\n{e}\n", file=sys.stderr)
             sys.exit(1)
 
         # Reconfigure logging now that user settings are available.
@@ -263,6 +114,11 @@ class Dodo(QApplication):
         self.command_bar = self.main_window.command_bar
         self.lastWindowClosed.connect(self.quit)
 
+        # Controller owns panel registry + commands; Dodo keeps shims
+        # so keymap (which is typed against Dodo) keeps working.
+        from .controller import AppController
+        self.controller = AppController(self, self.main_window)
+
         # set timer to sync email periodically
         self.sync_thread: SyncMailThread | None = None
         self.sync_timer: QTimer | None = None
@@ -276,7 +132,8 @@ class Dodo(QApplication):
 
         # Refresh panels after background file moves (filter, trash,
         # archive) complete and notmuch new finishes re-indexing.
-        actions._get_worker().batch_done.connect(self.refresh_panels)
+        # Single wiring via controller; Dodo.refresh_panels delegates there.
+        actions._get_worker().batch_done.connect(self.controller.refresh_panels)
 
         # Preload the address book in the background so autocomplete
         # is ready by the time the user opens the compose panel.
@@ -348,417 +205,121 @@ class Dodo(QApplication):
         self.help_window.show()
 
     def raise_panel(self, p: panel.Panel) -> None:
-        self.tabs.setCurrentWidget(p)
-        self.main_window.activateWindow()
-        # self.main_window.setWindowState(self.main_window.windowState() ^ Qt.WindowActive)
+        return self.controller.raise_panel(p)  # type: ignore[attr-defined]
+
 
     def message(self, title, body) -> None:
-        QMessageBox.warning(self.main_window, title, body)
+        return self.controller.message(title, body)
+
 
     def status_message(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
-        """Show a transient status bar message."""
-        self.main_window.show_status(message, kind, duration)
+        return self.controller.status_message(message, kind, duration)
+
 
     def navigate_list(self, direction: str) -> None:
-        """Navigate the current list panel's thread selection.
+        return self.controller.navigate_list(direction)
 
-        Always targets the list side, even when the thread preview has focus.
-        """
-        w = self.tabs.currentWidget()
-        if w and hasattr(w, 'next_thread') and hasattr(w, 'previous_thread'):
-            if direction == 'next':
-                w.next_thread()
-            elif direction == 'previous':
-                w.previous_thread()
 
     def mark_and_advance(self) -> None:
-        """Toggle marked on the current thread and advance, list-side."""
-        w = self.tabs.currentWidget()
-        if w and hasattr(w, 'toggle_thread_tag') and hasattr(w, 'next_thread'):
-            w.toggle_thread_tag('marked')
-            w.next_thread()
+        return self.controller.mark_and_advance()
+
 
     def delegate_to_list(self, method: str, **kwargs: object) -> None:
-        """Call *method* on the current list panel with *kwargs*.
+        return self.controller.delegate_to_list(method, **kwargs)
 
-        Always targets the list tab, even when the thread preview
-        has focus.  Silently no-ops if the panel doesn't have the method.
-        """
-        w = self.tabs.currentWidget()
-        if w and hasattr(w, method):
-            getattr(w, method)(**kwargs)
 
     def delegate_to_thread(self, method: str, **kwargs: object) -> None:
-        """Call *method* on the active thread preview with *kwargs*.
+        return self.controller.delegate_to_thread(method, **kwargs)
 
-        Silently no-ops if no thread is showing or the method is missing.
-        """
-        tp = self.main_window.active_thread()
-        if tp is not None and hasattr(tp, method):
-            getattr(tp, method)(**kwargs)
 
     def toggle_tag_hotkey(self, key: str) -> None:
-        """Toggle the tag configured for hotkey *key* on the current
-        list panel's selected thread.  Used by global 1-9 hotkeys."""
-        tag = settings.tag_hotkeys.get(key)
-        if not tag:
-            return
-        w = self.tabs.currentWidget()
-        if w and hasattr(w, 'toggle_thread_tag'):
-            w.toggle_thread_tag(tag)
+        return self.controller.toggle_tag_hotkey(key)
+
 
     def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
-        """Add a panel to the tab view
+        return self.controller.add_panel(p, focus=focus)  # type: ignore[arg-type]
 
-        This method is used by the :func:`search`, :func:`thread`, and :func:`compose`
-        methods to open new panels. In general, this method shouldn't be called directly
-        from key mappings."""
-
-        self.tabs.addTab(p, p.title())
-        p.has_refreshed.connect(self.refresh_tab_titles)
-
-        if focus:
-            self.tabs.setCurrentWidget(p)
-            p.setFocus()
 
     def next_panel(self) -> None:
-        """Go to the next panel"""
+        return self.controller.next_panel()
 
-        i = self.tabs.currentIndex() + 1
-        if i < self.tabs.count():
-            self.tabs.setCurrentIndex(i)
 
     def previous_panel(self) -> None:
-        """Go to the previous panel"""
+        return self.controller.previous_panel()
 
-        i = self.tabs.currentIndex() - 1
-        if i >= 0:
-            self.tabs.setCurrentIndex(i)
 
     def close_panel(self, to_close: int|panel.Panel|None=None) -> None:
-        """Close the panel at `index` (if provided) or the current panel
+        return self.controller.close_panel(to_close)  # type: ignore[arg-type]
 
-        Only closes panels in the tab bar, never the thread preview pane.
-        If the panel to close is the active thread preview, it is
-        cleared (replaced with placeholder) instead.
-        """
-
-        if isinstance(to_close, panel.Panel):
-            # Check if it's the thread preview pane
-            if to_close is self.main_window.active_thread():
-                self.main_window.clear_thread()
-                self.main_window.focus_list()
-                return
-
-        if not to_close:
-            index = self.tabs.currentIndex()
-        elif isinstance(to_close, int):
-            index = to_close
-        else:
-            index = self.tabs.indexOf(to_close)
-
-        w = self.tabs.widget(index)
-        if w and isinstance(w, panel.Panel) and not w.keep_open:
-            if w.before_close():
-                # remove this panel from the history
-                if w in self.panel_history:
-                    self.panel_history.remove(w)
-                # focus the last focused panel
-                if len(self.panel_history) > 0:
-                    w0 = self.panel_history.pop()
-                    self.tabs.setCurrentWidget(w0)
-                # remove the panel itself
-                self.tabs.removeTab(index)
 
     def open_search(self, query: str, keep_open: bool=False) -> None:
-        """Open a search panel with the given query
+        return self.controller.open_search(query, keep_open=keep_open)
 
-        If a panel with this query is already open, switch to it rather than
-        opening another copy."""
-        if not query:
-            return
-
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, search.SearchPanel) and w.q == query:
-                self.tabs.setCurrentIndex(i)
-                return
-
-        p = search.SearchPanel(self, query, keep_open=keep_open)
-        self.add_panel(p)
 
     def open_thread(self, thread_id: str, query: str) -> None:
-        """Open a thread in the persistent preview pane.
+        return self.controller.open_thread(thread_id, query)
 
-        Replaces any previously shown thread.  Does NOT create a tab.
-        """
-        p = thread.ThreadPanel(self, thread_id, query)
-        self.main_window.show_thread(p)
 
     def open_compose(self, mode: str='', msg: Optional[dict]=None) -> None:
-        """Open a compose panel
+        return self.controller.open_compose(mode, msg)
 
-        If reply_to is provided, set populate the 'To' and 'In-Reply-To' headers
-        appropriately, and quote the text in this message.
-
-        :param msg: A JSON message referenced in a reply or forward
-        :param mode: Composition mode. Possible values are '', 'reply', 'replyall',
-                     and 'forward'
-        """
-
-        p = compose.ComposePanel(self, mode, msg)
-        self.add_panel(p)
 
     def open_tags(self, keep_open: bool=False) -> None:
-        """Open tag panel"""
+        return self.controller.open_tags(keep_open=keep_open)
 
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, tag.TagPanel):
-                w.keep_open = keep_open
-                self.tabs.setCurrentIndex(i)
-                return
-
-        p = tag.TagPanel(self, keep_open)
-        self.add_panel(p)
 
     def search_bar(self) -> None:
-        """Open command bar for searching"""
-        self.command_bar.open('search', callback=self.open_search)
+        return self.controller.search_bar()
+
 
     def edit_search_query(self) -> None:
-        """Open command bar pre-filled with the current search tab's query.
+        return self.controller.edit_search_query()
 
-        Editing and pressing Enter replaces the tab's query in-place rather
-        than opening a new tab.  Bound to ``C-/``.
-        """
-        w = self.tabs.currentWidget()
-        if not isinstance(w, search.SearchPanel):
-            return
-        self.command_bar.open('search', callback=w.set_query)
-        self.command_bar.setText(w.q)
 
     def tag_bar(self, mode: Literal['tag', 'tag marked']='tag') -> None:
-        """Open command bar for tagging"""
-        def callback(tag_expr: str) -> None:
-            w = self.tabs.currentWidget()
-            if w and isinstance(w, panel.Panel):
-                if isinstance(w, search.SearchPanel): w.tag_thread(tag_expr, mode)
-                elif isinstance(w, thread.ThreadPanel): w.tag_message(tag_expr)
+        return self.controller.tag_bar(mode)  # type: ignore[arg-type]
 
-                w.refresh()
-        self.command_bar.open(mode, callback)
 
-    def sync_mail(self, quiet: bool=True) -> None:
-        """Sync mail with IMAP server
-
-        This method runs :func:`~lazarus.settings.sync_mail_command`, then 'notmuch new'
-
-        :param quiet: If this is True, do not change the window title during sync.
-                      Status bar messages are always shown."""
-
-        if self.sync_thread is not None and self.sync_thread.isRunning():
-            return
-
-        t = SyncMailThread(parent=self)
-        self.sync_thread = t
-
-        def done() -> None:
-            if t.notmuch_rc == 0 and settings.filter_rules:
-                try:
-                    rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
-                except Exception as e:
-                    logger.warning('Error applying filter rules: %s', e)
-            self.refresh_panels()
-            self.refresh_tab_titles()
-            # Parse mbsync summary for status bar
-            if t.sync_rc != 0:
-                if t.sync_stderr:
-                    logger.error('mbsync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
-                msg = f'Sync error (exit {t.sync_rc})'
-                if t.sync_stderr:
-                    msg += f': {t.sync_stderr[:200]}'
-                self.status_message(msg, 'error', duration=8000)
-            elif t.notmuch_rc != 0:
-                if t.notmuch_stderr:
-                    logger.error('notmuch failed (exit %d): %s', t.notmuch_rc, t.notmuch_stderr)
-                msg = f'notmuch error (exit {t.notmuch_rc})'
-                if t.notmuch_stderr:
-                    msg += f': {t.notmuch_stderr[:200]}'
-                self.status_message(msg, 'error', duration=8000)
-            else:
-                # Aggregate Far: stats across all accounts
-                import re
-                new = flagged = expunged = deleted = 0
-                for summary in t.sync_summaries:
-                    m = re.search(r'Far:\s*\+(\d+)\s*\*(\d+)\s*#(\d+)\s*-(\d+)', summary)
-                    if m:
-                        new += int(m.group(1))
-                        flagged += int(m.group(2))
-                        expunged += int(m.group(3))
-                        deleted += int(m.group(4))
-
-                bits = []
-                if new != 0: bits.append(f'+{new} new')
-                if flagged != 0: bits.append(f'*{flagged} flagged')
-                if expunged != 0: bits.append(f'{expunged} cleaned')
-                if deleted != 0: bits.append(f'{deleted} deleted')
-                if bits:
-                    self.status_message('Sync: ' + ', '.join(bits), 'info')
-                else:
-                    self.status_message('Sync: up to date', 'info')
-            if not quiet:
-                title = self.main_window.windowTitle()
-                self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
-                self.main_window.update()
-            self.sync_thread = None
-            t.deleteLater()
-
-        self.status_message('Syncing...', 'info')
-        t.progress.connect(lambda msg: self.status_message(msg, 'info', duration=0))
-        if not quiet:
-            title = self.main_window.windowTitle()
-            self.main_window.setWindowTitle(title + ' [syncing]')
-            self.main_window.update()
-
-        t.finished.connect(done)
-        t.start()
+    def sync_mail(self, quiet: bool = True) -> None:
+        return self.controller.sync_mail(quiet=quiet)  # type: ignore[attr-defined]
 
     def apply_filter_rules(self) -> None:
-        """Manually (re-)apply :func:`~lazarus.settings.filter_rules`
+        return self.controller.apply_filter_rules()
 
-        Runs the same rules :func:`sync_mail` applies automatically after
-        every sync, against the same :func:`~lazarus.settings.filter_scope_query`
-        scope. Useful for testing a rule you just added without waiting for
-        (or forcing) a full sync.
-        """
-        if not settings.filter_rules:
-            self.status_message('No filter_rules configured', 'info')
-            return
-        try:
-            n = rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
-        except Exception as e:
-            logger.warning('Error applying filter rules: %s', e)
-            self.status_message(f'Error applying filter rules: {e}', 'error')
-            return
-        self.refresh_panels()
-        self.status_message(f'Applied filter rules ({n} matched)', 'info')
 
     def expunge_trash(self) -> None:
-        """Permanently expunge all messages tagged ``trash``.
+        return self.controller.expunge_trash()
 
-        Runs :func:`lazarus.actions.expunge_trash` to add the Maildir
-        ``T`` flag to every file in a Trash folder.  Shows a
-        confirmation dialog with a message count first — this action
-        is irreversible.
-
-        Bound to the ``d d`` keychord.
-        """
-        # Count first, confirm, then expunge
-        count = notmuch.count('tag:trash', output='files')
-
-        if count == 0:
-            self.status_message('Trash is empty', 'info')
-            return
-
-        reply = QMessageBox.warning(
-            self.main_window,
-            'Empty trash',
-            f'Permanently delete {count} message{"s" if count != 1 else ""} '
-            f'from trash?\n\nThis cannot be undone.',
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        tagged = actions.expunge_trash()
-        self.refresh_panels()
-        if tagged:
-            self.status_message(
-                f'{tagged} message{"s" if tagged != 1 else ""} '
-                f'will be expunged on next sync', 'info')
-        else:
-            self.status_message('Nothing to expunge', 'info')
 
     def num_panels(self) -> int:
-        """Returns the number of panels (i.e. tabs) currently open"""
+        return self.controller.num_panels()
 
-        return self.tabs.count()
 
     def refresh_tab_titles(self) -> None:
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, panel.Panel):
-                self.tabs.setTabText(i, w.title())
+        return self.controller.refresh_tab_titles()
+
 
     def refresh_panels(self) -> None:
-        """Refresh current panel and mark the others as out of date
+        return self.controller.refresh_panels()
 
-        This method gets called whenever tags have been changed or a new message has
-        been sent. The refresh will happen the next time a panel is switched to."""
-
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, panel.Panel):
-                w.dirty = True
-
-        w = self.tabs.currentWidget()
-        if w and isinstance(w, panel.Panel):
-            w.refresh()
-
-        # Also mark the thread preview dirty
-        tp = self.main_window.active_thread()
-        if tp is not None:
-            tp.dirty = True
-            tp.refresh()
 
     def update_single_thread(self, thread_id: str, msg_id: str|None=None):
-        current = self.tabs.currentWidget()
-        for i in range(self.num_panels()):
-            w = self.tabs.widget(i)
-            if isinstance(w, panel.Panel):
-                w.update_thread(thread_id, msg_id=msg_id)
-                if w == current and w.dirty:
-                    w.refresh()
+        return self.controller.update_single_thread(thread_id, msg_id=msg_id)
 
-        # Also update the thread preview if it shows this thread
-        tp = self.main_window.active_thread()
-        if tp is not None:
-            if isinstance(tp, thread.ThreadPanel) and tp.thread_id == thread_id:
-                tp.update_thread(thread_id, msg_id=msg_id)
-                tp.refresh()
 
     def _cleanup_sync(self) -> None:
-        """Stop the sync timer and terminate any running sync thread"""
-        if self.sync_timer is not None:
-            self.sync_timer.stop()
-        if self.sync_thread is not None and self.sync_thread.isRunning():
-            self.sync_thread.stop()
+        return self.controller._cleanup_sync()  # type: ignore[attr-defined]
 
     def prompt_quit(self) -> None:
-        """A 'soft' quit function, which gives each open tab the opportunity to prompt
-        the user and possible cancel closing."""
-        self._save_open_searches()
-        self.main_window.close()
+        return self.controller.prompt_quit()
+
 
     def _save_open_searches(self) -> None:
-        """Save non-keep-open search queries to QSettings."""
-        conf = QSettings('lazarus', 'lazarus')
-        queries = []
-        for i in range(self.tabs.count()):
-            w = self.tabs.widget(i)
-            if isinstance(w, search.SearchPanel) and not w.keep_open:
-                queries.append(w.q)
-        conf.setValue('open_searches', queries)
+        return self.controller._save_open_searches()
+
 
     def _restore_open_searches(self) -> None:
-        """Restore search panels from the previous session."""
-        conf = QSettings('lazarus', 'lazarus')
-        queries = conf.value('open_searches')
-        if queries:
-            for q in queries:
-                self.open_search(q)
+        return self.controller._restore_open_searches()
 
 
 _DESKTOP_ENTRY = """\
