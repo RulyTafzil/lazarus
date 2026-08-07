@@ -388,7 +388,81 @@ class AppController(QObject):
         pass
 
     def sync_mail(self, quiet: bool = True) -> None:
-        self.app.sync_mail(quiet=quiet)  # type: ignore[attr-defined]
+        """Sync mail with IMAP server
+
+        This method runs :func:`~lazarus.settings.sync_mail_command`, then 'notmuch new'
+
+        :param quiet: If this is True, do not change the window title during sync.
+                      Status bar messages are always shown."""
+
+        if self.sync_thread is not None and self.sync_thread.isRunning():
+            return
+
+        t = SyncMailThread(parent=self.app)
+        self.sync_thread = t
+        self.app.sync_thread = t  # type: ignore[attr-defined]  # keep Dodo shim in sync
+
+        def done() -> None:
+            if t.notmuch_rc == 0 and settings.filter_rules:
+                try:
+                    rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+                except Exception as e:
+                    logger.warning('Error applying filter rules: %s', e)
+            self.refresh_panels()
+            self.refresh_tab_titles()
+            # Parse mbsync summary for status bar
+            if t.sync_rc != 0:
+                if t.sync_stderr:
+                    logger.error('mbsync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
+                msg = f'Sync error (exit {t.sync_rc})'
+                if t.sync_stderr:
+                    msg += f': {t.sync_stderr[:200]}'
+                self.status_message(msg, 'error', duration=8000)
+            elif t.notmuch_rc != 0:
+                if t.notmuch_stderr:
+                    logger.error('notmuch failed (exit %d): %s', t.notmuch_rc, t.notmuch_stderr)
+                msg = f'notmuch error (exit {t.notmuch_rc})'
+                if t.notmuch_stderr:
+                    msg += f': {t.notmuch_stderr[:200]}'
+                self.status_message(msg, 'error', duration=8000)
+            else:
+                # Aggregate Far: stats across all accounts
+                import re
+                new = flagged = expunged = deleted = 0
+                for summary in t.sync_summaries:
+                    m = re.search(r'Far:\s*\+(\d+)\s*\*(\d+)\s*#(\d+)\s*-(\d+)', summary)
+                    if m:
+                        new += int(m.group(1))
+                        flagged += int(m.group(2))
+                        expunged += int(m.group(3))
+                        deleted += int(m.group(4))
+
+                bits = []
+                if new != 0: bits.append(f'+{new} new')
+                if flagged != 0: bits.append(f'*{flagged} flagged')
+                if expunged != 0: bits.append(f'{expunged} cleaned')
+                if deleted != 0: bits.append(f'{deleted} deleted')
+                if bits:
+                    self.status_message('Sync: ' + ', '.join(bits), 'info')
+                else:
+                    self.status_message('Sync: up to date', 'info')
+            if not quiet:
+                title = self.main_window.windowTitle()
+                self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
+                self.main_window.update()
+            self.sync_thread = None
+            self.app.sync_thread = None  # type: ignore[attr-defined]
+            t.deleteLater()
+
+        self.status_message('Syncing...', 'info')
+        t.progress.connect(lambda msg: self.status_message(msg, 'info', duration=0))
+        if not quiet:
+            title = self.main_window.windowTitle()
+            self.main_window.setWindowTitle(title + ' [syncing]')
+            self.main_window.update()
+
+        t.finished.connect(done)
+        t.start()
 
     def apply_filter_rules(self) -> None:
         if not settings.filter_rules:
@@ -463,9 +537,13 @@ class AppController(QObject):
             tp.refresh()
 
     def _cleanup_sync(self) -> None:
-        if self.app.sync_timer is not None and self.app.sync_timer.isActive():  # type: ignore[attr-defined]
+        if self.sync_timer is not None and self.sync_timer.isActive():
+            self.sync_timer.stop()
+        elif self.app.sync_timer is not None and self.app.sync_timer.isActive():  # type: ignore[attr-defined]
             self.app.sync_timer.stop()  # type: ignore[attr-defined]
-        if self.app.sync_thread is not None and self.app.sync_thread.isRunning():  # type: ignore[attr-defined]
+        if self.sync_thread is not None and self.sync_thread.isRunning():
+            self.sync_thread.stop()
+        elif self.app.sync_thread is not None and self.app.sync_thread.isRunning():  # type: ignore[attr-defined]
             self.app.sync_thread.stop()  # type: ignore[attr-defined]
 
     def prompt_quit(self) -> None:
