@@ -263,6 +263,11 @@ class Dodo(QApplication):
         self.command_bar = self.main_window.command_bar
         self.lastWindowClosed.connect(self.quit)
 
+        # Controller owns panel registry + commands; Dodo keeps shims
+        # so keymap (which is typed against Dodo) keeps working.
+        from .controller import AppController
+        self.controller = AppController(self, self.main_window)
+
         # set timer to sync email periodically
         self.sync_thread: SyncMailThread | None = None
         self.sync_timer: QTimer | None = None
@@ -277,6 +282,7 @@ class Dodo(QApplication):
         # Refresh panels after background file moves (filter, trash,
         # archive) complete and notmuch new finishes re-indexing.
         actions._get_worker().batch_done.connect(self.refresh_panels)
+        actions._get_worker().batch_done.connect(self.controller.refresh_panels)  # type: ignore[attr-defined]
 
         # Preload the address book in the background so autocomplete
         # is ready by the time the user opens the compose panel.

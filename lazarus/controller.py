@@ -1,0 +1,338 @@
+#     Lazarus - A fork of Dodo, a graphical, hackable email client based on notmuch
+#     Copyright (C) 2025 - Ruly Tafzil
+#
+# This file is part of Lazarus
+#
+# Lazarus is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Lazarus is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
+"""AppController — owns tab/panel orchestration, sync, and app-level commands.
+
+Split from ``lazarus.app.Dodo`` (which subclasses ``QApplication``) so that
+``Dodo`` stays a thin bootstrap (logging, config, signal plumbing, keymap
+wiring) while all panel-registry and sync-orchestration logic lives here.
+
+Motivation
+----------
+* ``Dodo(QApplication)`` was an 800-line god object: it owned the Qt app
+  lifecycle, ``QSettings`` persistence, ``SyncMailThread`` lifecycle,
+  command-bar delegation, and every ``open_*/close_panel/add_panel``
+  method.  Panels imported ``app.Dodo`` for typing, closing the cycle
+  ``app → search → app``.
+* With a dedicated controller, panels depend on ``Controller`` (a plain
+  ``QObject``), tests can instantiate a ``Controller`` with a stub
+  ``QApplication``, and ``Dodo`` can defer panel imports.
+
+This module is intentionally **not** imported by ``lazarus.app`` at load
+time — it lazy-imports panel modules inside methods to break the cycle.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Optional, Literal
+
+from PyQt6.QtCore import QObject, QSettings, QTimer
+from PyQt6.QtWidgets import QMessageBox
+
+from . import settings
+from . import rules
+from . import actions
+from . import notmuch
+
+if TYPE_CHECKING:
+    from .mainwindow import MainWindow
+    from .app import Dodo, SyncMailThread
+    from .panel import Panel
+
+logger = logging.getLogger(__name__)
+
+
+class AppController(QObject):
+    """Panel registry + app-level commands, owned by ``Dodo``.
+
+    Constructed inside ``Dodo.__init__`` after ``MainWindow`` exists;
+    handed the ``QApplication`` so it can hook ``aboutToQuit`` and
+    show dialogs parented to ``MainWindow``.
+
+    All ``open_*`` methods previously on ``Dodo`` now live here; a thin
+    delegation shim on ``Dodo`` keeps external callers (e.g. ``keymap``)
+    working without changes.
+    """
+
+    def __init__(self, app: "Dodo", main_window: "MainWindow") -> None:
+        super().__init__(main_window)
+        self.app = app
+        self.main_window = main_window
+        self.tabs = main_window.tabs
+        self.command_bar = main_window.command_bar
+
+        # Mirrors Dodo fields so delegation shims can move gradually.
+        self.panel_history: list["Panel"] = app.panel_history
+
+        self.sync_thread: "SyncMailThread | None" = app.sync_thread  # type: ignore[assignment]
+        self.sync_timer: QTimer | None = app.sync_timer
+
+        self._wire_sync_timer()
+
+    # -- panel orchestration (moved from Dodo) ------------------------------
+
+    def raise_panel(self, p: "Panel") -> None:  # type: ignore[no-redef]
+        self.tabs.setCurrentWidget(p)
+        self.main_window.activateWindow()
+
+    def message(self, title: str, body: str) -> None:
+        QMessageBox.warning(self.main_window, title, body)
+
+    def status_message(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
+        self.main_window.show_status(message, kind, duration)
+
+    def navigate_list(self, direction: str) -> None:
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'next_thread') and hasattr(w, 'previous_thread'):
+            if direction == 'next':
+                w.next_thread()  # type: ignore[attr-defined]
+            elif direction == 'previous':
+                w.previous_thread()  # type: ignore[attr-defined]
+
+    def mark_and_advance(self) -> None:
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'toggle_thread_tag') and hasattr(w, 'next_thread'):
+            w.toggle_thread_tag('marked')  # type: ignore[attr-defined]
+            w.next_thread()  # type: ignore[attr-defined]
+
+    def delegate_to_list(self, method: str, **kwargs: object) -> None:
+        from . import panel as panel_mod  # lazy to avoid cycle
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, method):
+            getattr(w, method)(**kwargs)
+
+    def delegate_to_thread(self, method: str, **kwargs: object) -> None:
+        tp = self.main_window.active_thread()
+        if tp is not None and hasattr(tp, method):
+            getattr(tp, method)(**kwargs)
+
+    def toggle_tag_hotkey(self, key: str) -> None:
+        tag = settings.tag_hotkeys.get(key)
+        if not tag:
+            return
+        w = self.tabs.currentWidget()
+        if w and hasattr(w, 'toggle_thread_tag'):
+            w.toggle_thread_tag(tag)  # type: ignore[attr-defined]
+
+    def add_panel(self, p: "Panel", focus: bool = True) -> None:
+        self.tabs.addTab(p, p.title())
+        p.has_refreshed.connect(self.refresh_tab_titles)  # type: ignore[attr-defined]
+        if focus:
+            self.tabs.setCurrentWidget(p)
+            p.setFocus()
+
+    def next_panel(self) -> None:
+        i = self.tabs.currentIndex() + 1
+        if i < self.tabs.count():
+            self.tabs.setCurrentIndex(i)
+
+    def previous_panel(self) -> None:
+        i = self.tabs.currentIndex() - 1
+        if i >= 0:
+            self.tabs.setCurrentIndex(i)
+
+    def close_panel(self, to_close: int | "Panel" | None = None) -> None:
+        from . import panel as panel_mod
+        if isinstance(to_close, panel_mod.Panel):
+            if to_close is self.main_window.active_thread():
+                self.main_window.clear_thread()
+                self.main_window.focus_list()
+                return
+
+        if not to_close:
+            index = self.tabs.currentIndex()
+        elif isinstance(to_close, int):
+            index = to_close
+        else:
+            index = self.tabs.indexOf(to_close)
+
+        w = self.tabs.widget(index)
+        if w and isinstance(w, panel_mod.Panel) and not w.keep_open:
+            if w.before_close():
+                if w in self.panel_history:
+                    self.panel_history.remove(w)
+                if len(self.panel_history) > 0:
+                    w0 = self.panel_history.pop()
+                    self.tabs.setCurrentWidget(w0)
+                self.tabs.removeTab(index)
+
+    def open_search(self, query: str, keep_open: bool = False) -> None:
+        if not query:
+            return
+        from . import search
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, search.SearchPanel) and w.q == query:
+                self.tabs.setCurrentIndex(i)
+                return
+        p = search.SearchPanel(self, query, keep_open=keep_open)  # type: ignore[arg-type]
+        self.add_panel(p)
+
+    def open_thread(self, thread_id: str, query: str) -> None:
+        from . import thread as thread_mod
+        p = thread_mod.ThreadPanel(self, thread_id, query)  # type: ignore[arg-type]
+        self.main_window.show_thread(p)
+
+    def open_compose(self, mode: str = '', msg: Optional[dict] = None) -> None:
+        from . import compose
+        p = compose.ComposePanel(self, mode, msg)  # type: ignore[arg-type]
+        self.add_panel(p)
+
+    def open_tags(self, keep_open: bool = False) -> None:
+        from . import tag as tag_mod
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, tag_mod.TagPanel):
+                w.keep_open = keep_open  # type: ignore[attr-defined]
+                self.tabs.setCurrentIndex(i)
+                return
+        p = tag_mod.TagPanel(self, keep_open)  # type: ignore[arg-type]
+        self.add_panel(p)
+
+    def search_bar(self) -> None:
+        self.command_bar.open('search', callback=self.open_search)
+
+    def edit_search_query(self) -> None:
+        from . import search
+        w = self.tabs.currentWidget()
+        if not isinstance(w, search.SearchPanel):
+            return
+        self.command_bar.open('search', callback=w.set_query)  # type: ignore[arg-type]
+        self.command_bar.setText(w.q)
+
+    def tag_bar(self, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
+        from . import search as search_mod
+        from . import thread as thread_mod
+        from . import panel as panel_mod
+
+        def callback(tag_expr: str) -> None:
+            w = self.tabs.currentWidget()
+            if w and isinstance(w, panel_mod.Panel):
+                if isinstance(w, search_mod.SearchPanel):
+                    w.tag_thread(tag_expr, mode)  # type: ignore[arg-type]
+                elif isinstance(w, thread_mod.ThreadPanel):
+                    w.tag_message(tag_expr)  # type: ignore[attr-defined]
+                w.refresh()
+
+        self.command_bar.open(mode, callback)
+
+    def _wire_sync_timer(self) -> None:
+        # Timer still lives on Dodo; controller will take ownership later.
+        pass
+
+    def sync_mail(self, quiet: bool = True) -> None:
+        self.app.sync_mail(quiet=quiet)  # type: ignore[attr-defined]
+
+    def apply_filter_rules(self) -> None:
+        if not settings.filter_rules:
+            self.status_message('No filter_rules configured', 'info')
+            return
+        try:
+            n = rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+        except Exception as e:
+            logger.warning('Error applying filter rules: %s', e)
+            self.status_message(f'Error applying filter rules: {e}', 'error')
+            return
+        self.refresh_panels()
+        self.status_message(f'Applied filter rules ({n} matched)', 'info')
+
+    def expunge_trash(self) -> None:
+        count = notmuch.count('tag:trash', output='files')
+        if count == 0:
+            self.status_message('Trash is empty', 'info')
+            return
+        reply = QMessageBox.warning(
+            self.main_window, 'Empty trash',
+            f'Permanently delete {count} message{"s" if count != 1 else ""} from trash?\n\nThis cannot be undone.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        tagged = actions.expunge_trash()
+        self.refresh_panels()
+        if tagged:
+            self.status_message(f'{tagged} message{"s" if tagged != 1 else ""} will be expunged on next sync', 'info')
+        else:
+            self.status_message('Nothing to expunge', 'info')
+
+    def num_panels(self) -> int:
+        return self.tabs.count()
+
+    def refresh_tab_titles(self) -> None:
+        from . import panel as panel_mod
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, panel_mod.Panel):
+                self.tabs.setTabText(i, w.title())
+
+    def refresh_panels(self) -> None:
+        from . import panel as panel_mod
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, panel_mod.Panel):
+                w.dirty = True
+        w = self.tabs.currentWidget()
+        if w and isinstance(w, panel_mod.Panel):
+            w.refresh()
+        tp = self.main_window.active_thread()
+        if tp is not None:
+            tp.dirty = True  # type: ignore[attr-defined]
+            tp.refresh()
+
+    def update_single_thread(self, thread_id: str, msg_id: str | None = None) -> None:
+        from . import panel as panel_mod
+        from . import thread as thread_mod
+        current = self.tabs.currentWidget()
+        for i in range(self.num_panels()):
+            w = self.tabs.widget(i)
+            if isinstance(w, panel_mod.Panel):
+                w.update_thread(thread_id, msg_id=msg_id)
+                if w == current and w.dirty:
+                    w.refresh()
+        tp = self.main_window.active_thread()
+        if tp is not None and isinstance(tp, thread_mod.ThreadPanel) and tp.thread_id == thread_id:  # type: ignore[attr-defined]
+            tp.update_thread(thread_id, msg_id=msg_id)  # type: ignore[attr-defined]
+            tp.refresh()
+
+    def _cleanup_sync(self) -> None:
+        if self.app.sync_timer is not None and self.app.sync_timer.isActive():  # type: ignore[attr-defined]
+            self.app.sync_timer.stop()  # type: ignore[attr-defined]
+        if self.app.sync_thread is not None and self.app.sync_thread.isRunning():  # type: ignore[attr-defined]
+            self.app.sync_thread.stop()  # type: ignore[attr-defined]
+
+    def prompt_quit(self) -> None:
+        self._save_open_searches()
+        self.main_window.close()
+
+    def _save_open_searches(self) -> None:
+        from . import search
+        conf = QSettings('lazarus', 'lazarus')
+        queries: list[str] = []
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, search.SearchPanel) and not w.keep_open:
+                queries.append(w.q)
+        conf.setValue('open_searches', queries)
+
+    def _restore_open_searches(self) -> None:
+        conf = QSettings('lazarus', 'lazarus')
+        queries = conf.value('open_searches')
+        if queries:
+            for q in queries:
+                self.open_search(q)
