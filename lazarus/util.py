@@ -16,337 +16,44 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-from __future__ import annotations
-from typing import Iterator, List, Tuple, Dict, Optional
+"""Compatibility shim — re-exports the split helper modules.
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
-import re
-import os
-import sys
-import os.path
-import tempfile
-import subprocess
-import email
-import email.header
-import email.message
+``lazarus.util`` was previously a 609-line grab-bag covering HTML/text
+rendering, mail-content, email/account helpers, header wrapping, and key
+handling.  It has been split into focused modules, but this file keeps
+every symbol importable from ``lazarus.util`` for backward compat so
+``config.py`` example code and ``from lazarus.util import X`` imports
+continue to work.
+
+New code should import from the owning module directly:
+
+* HTML/text:  :mod:`lazarus.html_utils` (linkify, colorize, html2text, …)
+* Mail parts: :mod:`lazarus.mail_utils` (message_parts, body_text, write_attachments, …)
+* Keys:       :mod:`lazarus.keys` (key_string, basic_keytab, keytab)
+* This file:  email identity + header/header-wrap helpers
+
+A ``DeprecationWarning`` is not yet emitted to avoid spamming on every
+start — clean imports at your leisure.
+"""
+
+from __future__ import annotations
+
 import email.utils
-import email.policy
+import re
 import textwrap
-from bleach.sanitizer import Cleaner
-from bleach.linkifier import Linker
+from typing import List, Tuple, Dict, Optional
 
 from . import settings
 
-def clean_html2html(s: str) -> str:
-    """Sanitize the given HTML string
-
-    This cleans the input string using :class:`~lxml.html.clean.Cleaner` with the default
-    settings. Set the global util.html2html to this function to enable.
-
-    :param s: an HTML input string
-
-    """
-    c = Cleaner()
-    return c.clean(s)
-
-def w3m_html2text(s: str) -> str:
-    """Convert HTML to plain text using "w3m -dump"
-
-    :param s: an HTML input string
-    :returns: plain text representation of the HTML
-    """
-    try:
-        p = subprocess.run(
-            ["w3m", "-T", "text/html", "-O", "utf8", "-dump"],
-            stdout=subprocess.PIPE,
-            encoding="utf8",
-            input=s,
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as e:
-        return f"lazarus w3m error: {e}"
-    return p.stdout
-
-def linkify(s: str) -> str:
-    """Link URLs and email addresses
-
-    :param s: a plaintext input string
-    :returns: HTML with URLs and emails linked
-    """
-    lnk = Linker()
-    lnk_email = Linker(parse_email=True)
-
-    # using 2 instances of Linker() so explicit 'mailto:' links
-    # get preference over email addresses
-    return lnk_email.linkify(lnk.linkify(s))
-
+# -- email / account helpers (owned here) ---------------------------------
 
 def get_header_addresses(
     headers: Dict[str, str], header_keys: List[str]
 ) -> List[Tuple[str, str]]:
-    """Extract realnames and email addresses from message headers.
-
-    The given header_keys are considered, e.g. ['From', 'Reply-To'] to get senders,
-    or ['To', 'Cc'] to get recipients.
-    """
+    """Extract realnames and email addresses from message headers."""
     header_values = [headers[key] for key in header_keys if key in headers]
     return email.utils.getaddresses(header_values)
 
-
-def html2html(s: str) -> str:
-    """Function used to process HTML messages
-
-    This is the identity by default, but can be set to another function to
-    do HTML sanitization, (de)formatting, etc.
-    """
-    return s
-
-
-html2text = w3m_html2text
-"""Function used to convert HTML to plain text
-
-This is set to :func:`~lazarus.util.w3m_html2text` by default, but can be changed
-by the user in "config.py".
-"""
-
-def simple_escape(s: str) -> str:
-    """Provide (limited) HTML escaping
-
-    This function only escapes &, <, and >."""
-
-    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
-def decode_header(s: str) -> str:
-    """Decode any charset-encoded parts of an email header"""
-
-    return str(email.header.make_header(email.header.decode_header(s)))
-
-def colorize_text(s: str, has_headers: bool=False) -> str:
-    """Add some colors to HTML-escaped plaintext, for use inside <pre> tag
-    """
-
-    s1 = ""
-    quoted = re.compile(r'^\s*&gt;')
-    empty = re.compile(r'^\s*$')
-
-    headers = has_headers
-    for ln in s.splitlines():
-        if headers:
-            if empty.match(ln):
-                headers = False
-                s1 += '\n'
-            elif ':' in ln:
-                parts = ln.split(':', 1)
-                s1 += f'<span class="headername">{parts[0]}:</span>'
-                s1 += f'<span class="headertext">{parts[1]}</span>\n'
-            else:
-                s1 += ln + '\n'
-        else:
-            if quoted.match(ln):
-                s1 += f'<span class="quoted">{ln}</span>\n'
-            else:
-                s1 += ln + '\n'
-
-    return s1
-
-
-
-def chop_s(s: str) -> str:
-    if len(s) > 20:
-        return s[0:20] + '...'
-    else:
-        return s
-
-def message_parts(m: dict) -> Iterator[dict]:
-    """
-    Iterate over JSON message parts recursively, in depth-first order
-
-    This is method roughly emulates the behavior of :func:`~email.message.Message.walk`, but
-    for JSON representations of an email message rather than :class:`~email.message.Message`
-    objects.
-
-    Note that if parts are nested, their data will be returned multiple times, first
-    as a sub-object of their parent, then as the part itself.
-
-    :param m: a JSON message
-    :returns: an iterator which returns each JSON-subobject corresponding
-              to a message part.
-    """
-
-    if 'body' in m:
-        for part in m['body']:
-            yield from message_parts(part)
-    elif 'content' in m:
-        yield m
-        if isinstance(m['content'], list):
-            for part in m['content']:
-                yield from message_parts(part)
-    else:
-        yield m
-
-def is_attachment(part: dict) -> bool:
-    """Check whether a message part should be shown an attachment.
-
-    All parts with content-disposition equal to "attachment" are considered
-    attachments, except for PGP signatures and parts without a filename.
-
-    Some clients also send attachments without a Content-Disposition header.
-    We consider any unknown binary part an attachment.
-    """
-    content_disposition = part.get("content-disposition")
-    content_type = part.get("content-type")
-    return (
-        "filename" in part
-        and content_type != "application/pgp-signature"
-        and (
-            content_disposition == "attachment"
-            or (
-                content_disposition is None
-                and content_type == "application/octet-stream"
-            )
-        )
-    )
-
-def find_content(m: dict, content_type: str) -> List[str]:
-    """Return a flat list consisting of the 'content' field of each message
-    part with the given content-type."""
-
-    return [part['content'] for part in message_parts(m)
-              if 'content' in part and part.get('content-type', '').casefold() == content_type.casefold()]
-
-def body_text(m: dict) -> str:
-    """Get the body text of a message
-
-    Search a message recursively for the first part with content-type equal to
-    "text/plain" and return it.
-
-    :param m: a JSON message
-    """
-
-    global html2text
-    tc = find_content(m, 'text/plain')
-    if len(tc) != 0:
-        return tc[0]
-    else:
-        hc = find_content(m, 'text/html')
-        if len(hc) != 0:
-            return html2text(hc[0])
-    return ''
-
-def body_html(m: dict) -> str:
-    """Get the body HTML of a message
-
-    Search a message recursively for the first part with content-type equal to
-    "text/html" and return it.
-
-    :param m: a JSON message
-    """
-
-    global html2html
-    hc = find_content(m, 'text/html')
-    if len(hc) != 0: return hc[0]
-    else: return ''
-
-def quote_body_text(m: dict) -> str:
-    """Return the body text of the message, with '>' prepended to each line"""
-
-    text = body_text(m)
-    if not text: return ''
-    name, addr = email.utils.parseaddr(m['headers']['From'])
-    date = email.utils.parsedate_to_datetime(m['headers']['Date'])
-    prefix = f'On {date.strftime("%c")}, {name if name else addr} wrote:\n'
-    return ''.join([prefix] + [f'> {ln}\n' for ln in text.splitlines()])
-
-
-def sanitize_filename(name: str) -> str:
-    """Replace invalid filename characters.
-
-    Note: This should be used for the basename, as it also removes the path
-    separator.
-    """
-    # Remove chars which can't be encoded in the filename encoding.
-    encoding = sys.getfilesystemencoding()
-    name = name.encode(encoding, errors="replace").decode(encoding)
-
-    # See also
-    # https://en.wikipedia.org/wiki/Filename#Reserved_characters_and_words
-    if sys.platform.startswith("win"):
-        bad_chars = '\\/:*?"<>|'
-    elif sys.platform.startswith("darwin"):
-        # Colons can be confusing in finder https://superuser.com/a/326627
-        bad_chars = '/:'
-    else:
-        bad_chars = '/'
-
-    for bad_char in bad_chars:
-        name = name.replace(bad_char, "_")
-
-    # Truncate the filename if it's too long.
-    # Most filesystems have a maximum filename length of 255 bytes:
-    # https://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits
-    max_bytes = 255
-    root, ext = os.path.splitext(name)
-    root = root[:max_bytes - len(ext)]
-    excess = len(os.fsencode(root + ext)) - max_bytes
-
-    while excess > 0 and root:
-        # Max 4 bytes per character is assumed.
-        # Integer division floors to -∞, not to 0.
-        root = root[:(-excess // 4)]
-        excess = len(os.fsencode(root + ext)) - max_bytes
-
-    if not root:
-        # Trimming the root is not enough. We must trim the extension.
-        # We leave one character in the root, so that the filename
-        # doesn't start with a dot, which makes the file hidden.
-        root = name[0]
-        excess = len(os.fsencode(root + ext)) - max_bytes
-        while excess > 0 and ext:
-            ext = ext[:(-excess // 4)]
-            excess = len(os.fsencode(root + ext)) - max_bytes
-        assert ext, name
-
-    return root + ext
-
-
-def write_attachments(m: dict) -> Tuple[str, List[str]]:
-    """Write attachments out into temp directory and open with `settings.file_browser_command`
-
-    Currently, this exports a new copy of the attachments every time it is called. Maybe it should
-    do something smarter?
-
-    :param m: message JSON
-    :returns: Return a tuple consisting of the temp dir and a list of files. If no attachments,
-              returns an empty string and empty list.
-    """
-
-    if not m: return ('', [])
-    temp_dir = tempfile.mkdtemp(prefix='lazarus-')
-    file_paths = []
-
-    for part in message_parts(m):
-        if is_attachment(part):
-            proc = subprocess.run(
-                ["notmuch", "show", "--part", str(part["id"]), "--decrypt=true", "--", "id:" + m["id"]],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
-            filename = part["filename"]
-            if not proc.stdout:
-                print(f"Ignoring attachment {filename}: Got empty contents from notmuch")
-                continue
-
-            p = os.path.join(temp_dir, sanitize_filename(filename))
-            with open(p, 'wb') as att:
-                att.write(proc.stdout)
-            file_paths.append(p)
-
-    if len(file_paths) == 0:
-        os.rmdir(temp_dir)
-        return ('', [])
-    else:
-        return (temp_dir, file_paths)
 
 def strip_email_address(e: str) -> str:
     """Strip the display name, leaving just the email address
@@ -354,6 +61,7 @@ def strip_email_address(e: str) -> str:
     E.g. "First Last <me@domain.com>" -> "me@domain.com"
     """
     return email.utils.parseaddr(e)[1]
+
 
 def email_is_me(e: str) -> bool:
     """Check whether the provided email is me
@@ -370,9 +78,8 @@ def email_is_me(e: str) -> bool:
     else:
         addresses = [email.utils.parseaddr(settings.email_address)[1]]
 
-    # nb: strip_email_address(e) is unnecessary with how this is used in compose.py,
-    # but doing it avoids a future footgun, and it is idempotent.
     return strip_email_address(e).casefold() in [a.casefold() for a in addresses]
+
 
 def email_smtp_account_index(e: str) -> Optional[int]:
     """Index in settings.smtp_accounts of account having the provided email address
@@ -388,6 +95,16 @@ def email_smtp_account_index(e: str) -> Optional[int]:
              strip_email_address(settings.email_address[acc]).casefold()
              ), None)
 
+
+def chop_s(s: str) -> str:
+    if len(s) > 20:
+        return s[0:20] + '...'
+    else:
+        return s
+
+
+# -- header / wrapping / css helpers (owned here) --------------------------
+
 def separate_headers(s: str) -> Tuple[str, str]:
     """Split a message into its header part and body part"""
 
@@ -402,6 +119,7 @@ def separate_headers(s: str) -> Tuple[str, str]:
         else:
             b += line + '\n'
     return (h, b)
+
 
 def wrap_message(s: str) -> str:
     """Hard wrap message body using :func:`~lazarus.settings.wrap_column`
@@ -420,12 +138,14 @@ def wrap_message(s: str) -> str:
 
     return headers + '\n' + body_wrap
 
+
 def add_header_line(s: str, h: str) -> str:
     """Add the given string to the headers, i.e. before the first
     blank line, in the provided string."""
 
     (headers, body) = separate_headers(s)
     return headers + h + '\n\n' + body
+
 
 def replace_header(s: str, h: str, new_value: str) -> str:
     """Replace a single header without doing full message parsing
@@ -448,162 +168,29 @@ def make_message_css() -> str:
     d["message_font_size"] = str(settings.message_font_size)
     return settings.message_css.format(**d)
 
-basic_keytab: Dict[int, str] = {
-  Qt.Key.Key_0: '0',
-  Qt.Key.Key_1: '1',
-  Qt.Key.Key_2: '2',
-  Qt.Key.Key_3: '3',
-  Qt.Key.Key_4: '4',
-  Qt.Key.Key_5: '5',
-  Qt.Key.Key_6: '6',
-  Qt.Key.Key_7: '7',
-  Qt.Key.Key_8: '8',
-  Qt.Key.Key_9: '9',
-  Qt.Key.Key_Ampersand: '&',
-  Qt.Key.Key_Apostrophe: '\'',
-  Qt.Key.Key_Asterisk: '*',
-  Qt.Key.Key_At: '@',
-  Qt.Key.Key_Backslash: '\\',
-  Qt.Key.Key_Bar: '|',
-  Qt.Key.Key_BraceLeft: '{',
-  Qt.Key.Key_BraceRight: '}',
-  Qt.Key.Key_BracketLeft: '[',
-  Qt.Key.Key_BracketRight: ']',
-  Qt.Key.Key_Colon: ':',
-  Qt.Key.Key_Comma: ',',
-  Qt.Key.Key_Dollar: '$',
-  Qt.Key.Key_Equal: '=',
-  Qt.Key.Key_Exclam: '!',
-  Qt.Key.Key_Greater: '>',
-  Qt.Key.Key_Less: '<',
-  Qt.Key.Key_Minus: '-',
-  Qt.Key.Key_NumberSign: '#',
-  Qt.Key.Key_ParenLeft: '(',
-  Qt.Key.Key_ParenRight: ')',
-  Qt.Key.Key_Percent: '%',
-  Qt.Key.Key_Period: '.',
-  Qt.Key.Key_Plus: '+',
-  Qt.Key.Key_Question: '?',
-  Qt.Key.Key_QuoteDbl: '"',
-  Qt.Key.Key_QuoteLeft: '`',
-  Qt.Key.Key_Semicolon: ';',
-  Qt.Key.Key_Slash: '/',
-  Qt.Key.Key_A: 'a',
-  Qt.Key.Key_B: 'b',
-  Qt.Key.Key_C: 'c',
-  Qt.Key.Key_D: 'd',
-  Qt.Key.Key_E: 'e',
-  Qt.Key.Key_F: 'f',
-  Qt.Key.Key_G: 'g',
-  Qt.Key.Key_H: 'h',
-  Qt.Key.Key_I: 'i',
-  Qt.Key.Key_J: 'j',
-  Qt.Key.Key_K: 'k',
-  Qt.Key.Key_L: 'l',
-  Qt.Key.Key_M: 'm',
-  Qt.Key.Key_N: 'n',
-  Qt.Key.Key_O: 'o',
-  Qt.Key.Key_P: 'p',
-  Qt.Key.Key_Q: 'q',
-  Qt.Key.Key_R: 'r',
-  Qt.Key.Key_S: 's',
-  Qt.Key.Key_T: 't',
-  Qt.Key.Key_U: 'u',
-  Qt.Key.Key_V: 'v',
-  Qt.Key.Key_W: 'w',
-  Qt.Key.Key_X: 'x',
-  Qt.Key.Key_Y: 'y',
-  Qt.Key.Key_Z: 'z',
-}
 
-keytab: Dict[int, str] = {
-  Qt.Key.Key_Escape: 'escape',
-  Qt.Key.Key_Tab: 'tab',
-  Qt.Key.Key_Backtab: 'tab',
-  Qt.Key.Key_Backspace: 'backspace',
-  Qt.Key.Key_Return: 'enter',
-  Qt.Key.Key_Enter: 'enter',
-  Qt.Key.Key_Insert: 'insert',
-  Qt.Key.Key_Delete: 'delete',
-  Qt.Key.Key_Pause: 'pause',
-  Qt.Key.Key_Print: 'print',
-  Qt.Key.Key_Clear: 'clear',
-  Qt.Key.Key_Home: 'home',
-  Qt.Key.Key_End: 'end',
-  Qt.Key.Key_Left: 'left',
-  Qt.Key.Key_Up: 'up',
-  Qt.Key.Key_Right: 'right',
-  Qt.Key.Key_Down: 'down',
-  Qt.Key.Key_PageUp: 'pageup',
-  Qt.Key.Key_PageDown: 'pagedown',
-  Qt.Key.Key_CapsLock: 'capslock',
-  Qt.Key.Key_NumLock: 'numlock',
-  Qt.Key.Key_ScrollLock: 'scrolllock',
-  Qt.Key.Key_F1: 'f1',
-  Qt.Key.Key_F2: 'f2',
-  Qt.Key.Key_F3: 'f3',
-  Qt.Key.Key_F4: 'f4',
-  Qt.Key.Key_F5: 'f5',
-  Qt.Key.Key_F6: 'f6',
-  Qt.Key.Key_F7: 'f7',
-  Qt.Key.Key_F8: 'f8',
-  Qt.Key.Key_F9: 'f9',
-  Qt.Key.Key_F10: 'f10',
-  Qt.Key.Key_F11: 'f11',
-  Qt.Key.Key_F12: 'f12',
-  Qt.Key.Key_F13: 'f13',
-  Qt.Key.Key_F14: 'f14',
-  Qt.Key.Key_F15: 'f15',
-  Qt.Key.Key_F16: 'f16',
-  Qt.Key.Key_F17: 'f17',
-  Qt.Key.Key_F18: 'f18',
-  Qt.Key.Key_F19: 'f19',
-  Qt.Key.Key_F20: 'f20',
-  Qt.Key.Key_F21: 'f21',
-  Qt.Key.Key_F22: 'f22',
-  Qt.Key.Key_F23: 'f23',
-  Qt.Key.Key_F24: 'f24',
-  Qt.Key.Key_F25: 'f25',
-  Qt.Key.Key_F26: 'f26',
-  Qt.Key.Key_F27: 'f27',
-  Qt.Key.Key_F28: 'f28',
-  Qt.Key.Key_F29: 'f29',
-  Qt.Key.Key_F30: 'f30',
-  Qt.Key.Key_F31: 'f31',
-  Qt.Key.Key_F32: 'f32',
-  Qt.Key.Key_F33: 'f33',
-  Qt.Key.Key_F34: 'f34',
-  Qt.Key.Key_F35: 'f35',
-  Qt.Key.Key_Menu: 'menu',
-  Qt.Key.Key_Help: 'help',
-  Qt.Key.Key_Space: 'space',
-}
+# -- re-exports from split modules (backward compat) ----------------------
+# Prefer importing from the owning module directly in new code; these
+# stay here so ``from lazarus.util import X`` keeps working.
 
-def key_string(e: QKeyEvent) -> str:
-    """Convert a Qt keycode plus modifiers into a human readable/writable string
-
-    :param e: a QKeyEvent
-    :returns: a string representing e.key() and its modifiers
-    """
-
-    global basic_keytab, keytab
-    if e.key() in basic_keytab:
-        cmd = basic_keytab[e.key()]
-        shift_modifier = False
-        if e.modifiers() & Qt.KeyboardModifier.ShiftModifier == Qt.KeyboardModifier.ShiftModifier:
-            cmd = cmd.upper()
-    elif e.key() in keytab:
-        shift_modifier = True
-        cmd = '<' + keytab[e.key()] + '>'
-    else:
-        return ''
-
-    if shift_modifier and (e.modifiers() & Qt.KeyboardModifier.ShiftModifier == Qt.KeyboardModifier.ShiftModifier):
-        cmd = 'S-' + cmd
-    if e.modifiers() & Qt.KeyboardModifier.AltModifier == Qt.KeyboardModifier.AltModifier:
-        cmd = 'M-' + cmd
-    if e.modifiers() & Qt.KeyboardModifier.ControlModifier == Qt.KeyboardModifier.ControlModifier:
-        cmd = 'C-' + cmd
-
-    # print(cmd)
-    return cmd
+from .keys import key_string, basic_keytab, keytab  # noqa: E402,I001
+from .html_utils import (  # noqa: E402
+    clean_html2html,
+    w3m_html2text,
+    linkify,
+    html2html,
+    html2text,
+    simple_escape,
+    decode_header,
+    colorize_text,
+)
+from .mail_utils import (  # noqa: E402
+    message_parts,
+    is_attachment,
+    find_content,
+    body_text,
+    body_html,
+    quote_body_text,
+    sanitize_filename,
+    write_attachments,
+)

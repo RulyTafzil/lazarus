@@ -76,12 +76,8 @@ def count_batch(queries: list[str], output: str = 'threads') -> list[int]:
     if not queries:
         return []
     data = '\n'.join(queries) + '\n'
-    r = run('count', f'--output={output}', '--batch')
-    # --batch reads from stdin; run() captures stdout as text but
-    # doesn't feed stdin — use a direct subprocess call here.
-    import subprocess as _sp
-    proc = _sp.run(['notmuch', 'count', f'--output={output}', '--batch'],
-                   input=data, capture_output=True, text=True)
+    proc = subprocess.run(['notmuch', 'count', f'--output={output}', '--batch'],
+                          input=data, capture_output=True, text=True)
     if proc.returncode != 0:
         return [0] * len(queries)
     lines = proc.stdout.strip().splitlines()
