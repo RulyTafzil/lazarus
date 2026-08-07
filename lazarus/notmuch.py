@@ -66,6 +66,33 @@ def count(query: str, output: str = 'threads') -> int:
         return 0
 
 
+def count_batch(queries: list[str], output: str = 'threads') -> list[int]:
+    """Count many queries in a single notmuch invocation via --batch.
+
+    Uses ``notmuch count --batch`` (one query per line on stdin) so a
+    caller like TagModel avoids N subprocesses.  Returns a list of ints
+    parallel to *queries*; 0 for any query that fails or is unparsable.
+    """
+    if not queries:
+        return []
+    data = '\n'.join(queries) + '\n'
+    proc = subprocess.run(['notmuch', 'count', f'--output={output}', '--batch'],
+                          input=data, capture_output=True, text=True)
+    if proc.returncode != 0:
+        return [0] * len(queries)
+    lines = proc.stdout.strip().splitlines()
+    out: list[int] = []
+    for line in lines:
+        try:
+            out.append(int(line.strip() or '0'))
+        except ValueError:
+            out.append(0)
+    # Pad if notmuch returned fewer lines than queries (should not happen).
+    while len(out) < len(queries):
+        out.append(0)
+    return out[:len(queries)]
+
+
 def tags() -> List[str]:
     """Return every tag known to notmuch (``notmuch search --output=tags *``)."""
     r = run('search', '--output=tags', '*')

@@ -248,6 +248,10 @@ class ThreadPanel(panel.Panel):
             self.model.refresh()
         except EmptyThreadError:
             self.app.close_panel(self)
+            return
+        if self.model.error_msg:
+            self.app.status_message(self.model.error_msg, 'error',
+                                    duration=6000)
 
     def refresh_info(self) -> None:
         """Refresh the header/metadata area without re-fetching content."""
@@ -479,5 +483,7 @@ class ThreadPanel(panel.Panel):
         temp_dir, _ = util.write_attachments(m)
         if temp_dir:
             self.temp_dirs.append(temp_dir)
+            # file_browser_command is a shell command by contract
+            # ("nautilus '{dir}'" style placeholder).
             cmd = settings.file_browser_command.format(dir=temp_dir)
             subprocess.Popen(cmd, shell=True)
