@@ -263,12 +263,7 @@ class Dodo(QApplication):
         self.command_bar = self.main_window.command_bar
         self.lastWindowClosed.connect(self.quit)
 
-        # Controller owns panel registry + commands; Dodo keeps shims
-        # so keymap (which is typed against Dodo) keeps working.
-        from .controller import AppController
-        self.controller = AppController(self, self.main_window)
-
-        # set timer to sync email periodically
+        # set timer to sync email periodically (must exist before controller)
         self.sync_thread: SyncMailThread | None = None
         self.sync_timer: QTimer | None = None
         if settings.sync_mail_interval != -1:
@@ -276,6 +271,11 @@ class Dodo(QApplication):
             self.sync_timer = QTimer(self)
             self.sync_timer.timeout.connect(self.sync_mail)
             self.sync_timer.start(settings.sync_mail_interval * 1000)
+
+        # Controller owns panel registry + commands; Dodo keeps shims
+        # so keymap (which is typed against Dodo) keeps working.
+        from .controller import AppController
+        self.controller = AppController(self, self.main_window)
 
         self.aboutToQuit.connect(self._cleanup_sync)
 

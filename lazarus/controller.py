@@ -76,11 +76,13 @@ class AppController(QObject):
         self.tabs = main_window.tabs
         self.command_bar = main_window.command_bar
 
-        # Mirrors Dodo fields so delegation shims can move gradually.
-        self.panel_history: list["Panel"] = app.panel_history
+        # Dodo owns these for now; controller proxies via app.  Use
+        # getattr so construction order does not matter if controller
+        # is created before sync fields exist.
+        self.panel_history: list["Panel"] = getattr(app, "panel_history", [])  # type: ignore[assignment]
 
-        self.sync_thread: "SyncMailThread | None" = app.sync_thread  # type: ignore[assignment]
-        self.sync_timer: QTimer | None = app.sync_timer
+        self.sync_thread: "SyncMailThread | None" = getattr(app, "sync_thread", None)  # type: ignore[assignment]
+        self.sync_timer: QTimer | None = getattr(app, "sync_timer", None)
 
         self._wire_sync_timer()
 
