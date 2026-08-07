@@ -479,5 +479,7 @@ class ThreadPanel(panel.Panel):
         temp_dir, _ = util.write_attachments(m)
         if temp_dir:
             self.temp_dirs.append(temp_dir)
+            # file_browser_command is a shell command by contract
+            # ("nautilus '{dir}'" style placeholder).
             cmd = settings.file_browser_command.format(dir=temp_dir)
             subprocess.Popen(cmd, shell=True)

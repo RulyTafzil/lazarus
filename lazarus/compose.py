@@ -386,6 +386,8 @@ class ComposePanel(panel.Panel):
         else:
             fd, file = tempfile.mkstemp()
             cmd = settings.file_picker_command.format(tempfile=file)
+            # file_picker_command is a shell command by contract
+            # (documented as "{tempfile}" placeholder style).
             subprocess.run(cmd, shell=True)
             with open(file, 'r') as f1:
                 file_list = f1.read().split('\n')

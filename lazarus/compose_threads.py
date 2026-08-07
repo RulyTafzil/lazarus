@@ -28,6 +28,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import QThread
 import mailbox
 import email.parser
+import shlex
 import tempfile
 import os
 import subprocess
@@ -63,6 +64,8 @@ class EditorThread(QThread):
             f.write(self.raw_message_string)
 
         cmd = settings.editor_command.format(file=file)
+        # editor_command is intentionally a shell command (documented as
+        # "xterm -e vim '{file}'" style); run as shell for compatibility.
         subprocess.run(cmd, shell=True)
 
         with open(file, 'r') as f1:
@@ -119,8 +122,12 @@ class SendmailThread(QThread):
                 cmd = settings.send_mail_command[account]
             else:
                 cmd = settings.send_mail_command
+            # Substitute {account} before splitting — account names are
+            # controlled via settings.smtp_accounts, but avoid shell
+            # injection by using shlex.split + shell=False.
             cmd = cmd.replace('{account}', account)
-            sendmail = Popen(cmd, stdin=PIPE, encoding='utf8', shell=True)
+            argv = shlex.split(cmd)
+            sendmail = Popen(argv, stdin=PIPE, encoding='utf8', shell=False)
             if sendmail.stdin:
                 sendmail.stdin.write(eml.as_string())
                 sendmail.stdin.close()
