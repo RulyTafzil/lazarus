@@ -31,6 +31,10 @@ import typing
 import os
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import panel
 from . import keymap
 from . import settings
@@ -58,7 +62,7 @@ class ComposePanel(panel.Panel):
                 this cannot be None.
     """
 
-    def __init__(self, a: app.Dodo, mode: str='', msg: Optional[dict]=None,
+    def __init__(self, a: "Dodo | AppController", mode: str='', msg: Optional[dict]=None,
                  parent: Optional[QWidget]=None):
         super().__init__(a, keep_open=False, parent=parent)
         self.set_keymap(keymap.compose_keymap)

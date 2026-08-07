@@ -24,10 +24,14 @@ from PyQt6.QtWidgets import *
 import shutil
 import logging
 
-from . import app
 from . import keymap
 from . import util
 from . import settings
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +51,7 @@ class Panel(QWidget):
 
     has_refreshed = pyqtSignal()
 
-    def __init__(self, a: app.Dodo, keep_open: bool=False, parent: Optional[QWidget]=None):
+    def __init__(self, a: "Dodo | AppController", keep_open: bool=False, parent: Optional[QWidget]=None):
         """Initialise a panel"""
 
         super().__init__(parent)

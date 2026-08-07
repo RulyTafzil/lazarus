@@ -30,6 +30,10 @@ import logging
 import email.utils
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import settings
 from . import util
 from . import keymap
@@ -61,7 +65,7 @@ class ThreadPanel(panel.Panel):
     :param thread_id: the unique ID notmuch uses to identify this thread
     """
 
-    def __init__(self, a: app.Dodo, thread_id: str, search_query: str,
+    def __init__(self, a: "Dodo | AppController", thread_id: str, search_query: str,
                  parent: Optional[QWidget] = None):
         super().__init__(a, parent=parent)
         self.set_keymap(keymap.thread_keymap)

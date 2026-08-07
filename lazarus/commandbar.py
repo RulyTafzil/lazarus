@@ -23,6 +23,10 @@ from PyQt6.QtGui import QKeyEvent
 from PyQt6 import QtCore
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import util
 from . import keymap
 from . import search
@@ -33,7 +37,7 @@ class CommandBar(QLineEdit):
     """A command bar that appears on the bottom of the screen when searching
     or tagging."""
 
-    def __init__(self, a: app.Dodo, label: QLabel, parent: QWidget):
+    def __init__(self, a: "Dodo | AppController", label: QLabel, parent: QWidget):
         super().__init__(parent)
         self.app = a
         self.label = label

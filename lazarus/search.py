@@ -27,6 +27,10 @@ import json
 import logging
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import settings
 from . import notmuch
 from . import keymap
@@ -241,7 +245,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
 
     This is used as the main entry point for the GUI, i.e. a search for "tag:inbox"."""
 
-    def __init__(self, a: app.Dodo, q: str, keep_open: bool=False, parent: Optional[QWidget]=None):
+    def __init__(self, a: "Dodo | AppController", q: str, keep_open: bool=False, parent: Optional[QWidget]=None):
         self._dirty_content = False
         self._dirty_title = False
         super().__init__(a, keep_open, parent)

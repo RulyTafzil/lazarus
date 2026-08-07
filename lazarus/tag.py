@@ -25,6 +25,10 @@ from PyQt6.QtGui import QFont, QColor
 import json
 
 from . import app
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .controller import AppController
+    from .app import Dodo
 from . import settings
 from . import keymap
 from . import panel
@@ -137,7 +141,7 @@ class TagModel(QAbstractItemModel):
 class TagPanel(panel.Panel):
     """A panel showing all tags"""
 
-    def __init__(self, a: app.Dodo, keep_open: bool=False, parent: Optional[QWidget]=None):
+    def __init__(self, a: "Dodo | AppController", keep_open: bool=False, parent: Optional[QWidget]=None):
         super().__init__(a, keep_open, parent)
         self.set_keymap(keymap.tag_keymap)
         self.tree = QTreeView()
