@@ -48,7 +48,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 ~/Projects/lazarus/
 ├── .agent                 # this file — project roadmap
 ├── .git/                   # remotes: origin (forgejo), upstream (dodo)
-├── lazarus/                # Python package (8344 LOC total)
+├── lazarus/                # Python package (8592 LOC total)
 │   ├── __init__.py         # re-exports app/themes/settings/keymap/util
 │   ├── __main__.py         # app.main() entry
 │   ├── app.py              # Dodo(QApplication) bootstrap — ~390L shims delegating to controller; show_help, signals, main()
@@ -119,7 +119,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 ```
 QApplication
  └── Dodo (app.py) — bootstrap (~390L): config+logging, signals, HelpWindow, delegation shims
-      └── controller.AppController (QObject) — panel registry + SyncMailThread/engine; Panels receive `AppController` at runtime. Cycle broken at runtime: app.py imports search/thread only under TYPE_CHECKING, so search→app is one-way.
+      └── controller.AppController (QObject) — panel registry + SyncMailThread/engine; Panels receive `AppController` at runtime. Cycle broken at runtime: app.py imports search/thread only under TYPE_CHECKING; BulkMoveWorker has shutdown sentinel wired to aboutToQuit.
 
 QMainWindow
  └── MainWindow (mainwindow.py)
@@ -170,12 +170,12 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `app.py` | 392 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, delegation shims to `AppController`; `SyncMailThread` re-exported from controller; `main()`/`install_desktop()` |
-| `compose.py` | 751 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, PGP toggles, `EditorThread`/`SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
-| `actions.py` | 617 | `MarkableActionsMixin` (tag/archive/delete/restore hooks), `_BulkMoveWorker(QThread)` serial file-move queue, `_resolve_stale_path`/`collect_files`/`move_to_trash`/`move_to_archive`/`move_files`/`move_specific_files`/`expunge_trash`/`restore_from_trash`, `_run_notmuch_new` |
+| `app.py` | 393 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, delegation shims to `AppController`; `SyncMailThread` re-exported; `main()`/`install_desktop()` |
+| `compose.py` | 690 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, PGP toggles, `EditorThread`/`SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
+| `actions.py` | 635 | `MarkableActionsMixin` (tag/archive/delete/restore hooks), `_BulkMoveWorker(QThread)` serial file-move queue, `_resolve_stale_path`/`collect_files`/`move_to_trash`/`move_to_archive`/`move_files`/`move_specific_files`/`expunge_trash`/`restore_from_trash`, `_run_notmuch_new` |
 | `util.py` | 609 | HTML/text (body_text/body_html, w3m, linkify, colorize_text, simple_escape), email parse/match, `key_string(QKeyEvent)`, message CSS |
 | `settings.py` | 494 | All defaults with docstrings — mail paths, commands, fonts, themes, filters, logging, security; exec'd `config.py` overrides |
-| `thread.py` | 483 | `ThreadPanel` — double-buffered `QWebEngineView`, message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `reply`/`forward`/`open_attachments`, `scroll_message` |
+| `thread.py` | 548 | `ThreadPanel` — double-buffered `QWebEngineView`, message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `reply`/`forward`/`open_attachments`, `scroll_message` |
 | `search.py` | 433 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `columns` |
 | `thread_model.py` | 398 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree, message access, tagging, conversation/thread modes |
 | `themes.py` | 337 | Palettes (`nord_p`, `solarized_p`, `cat_macchiato_p`, `gruvbox_p`, `catppuccin_macchiato`, `solarized_dark/light`, `nord`, `gruvbox_light/dark` variants) + `apply_theme()` |
@@ -189,13 +189,14 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `commandbar.py` | 193 | `CommandBar(QLineEdit)` — tag autocomplete, history, search vs tag modes |
 | `keymap.py` | 184 | Consolidated `global_keymap` + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`, `navigation_keymap`; numeric `1-9` tag hotkeys |
 | `pgp_util.py` | 162 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
+| `compose_model.py` | 225 | `ComposeModel` — `ComposeSeed` + `build_reply/forward/mailto` + account helpers (Qt-free, testable) |
 | `compose_threads.py` | 156 | `EditorThread` (temp `.eml` + `editor_command {file}`) + `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
 | `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, enqueues moves to `_BulkMoveWorker`, warns on 0-file matches |
 | `notmuch.py` | 154 | Wrapper — `run()`, `count()`, `count_batch(--batch)`, `tags()`, `search_files()`, `search_json()`, `tag()`, `new()` |
 | `helpwindow.py` | 99 | `HelpWindow(QWidget)` — three-column keybinding HTML (`_render_keymap`/`_split_dict`) |
 | `signature.py` | 92 | `config_dir(account)` + per-account `signature`/`signature.html` loader (via `QStandardPaths`, `util.html2text` fallback) |
 | `__init__.py` | 23 | Re-exports `app`, `themes`, `settings`, `keymap`, `util` |
-| `controller.py` | 568 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `sync_mail` + `SyncMailThread` (parallel mbsync); owns `actions.batch_done` wiring |
+| `controller.py` | 574 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `sync_mail` + `SyncMailThread` (parallel mbsync); owns `actions.batch_done` wiring |
 | `config.py` | 182 | `ConfigError` + `load_config()` — exec config.py with file:lineno + validation (required fields, smtp_accounts, `~Mail` typo) |
 | `keys.py` | ~90 | `key_string` + `basic_keytab`/`keytab` (split from util) |
 | `html_utils.py` | ~107 | Rendering helpers — `linkify`, `colorize_text`, `w3m_html2text`, `html2html` |
