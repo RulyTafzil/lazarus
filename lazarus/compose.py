@@ -44,6 +44,7 @@ from . import signature
 from . import editor as editor_mod
 from . import address_completer
 from . import mime_builder
+from . import compose_model
 from . import compose_threads
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
@@ -73,22 +74,8 @@ class ComposePanel(panel.Panel):
         # ── Structured compose data ──────────────────────────────────
         self._data = mime_builder.ComposeData()
 
-        # Determine initial account
-        if msg:
-            senders = util.get_header_addresses(msg['headers'], ['From', 'Reply-To'])
-            recipients = util.get_header_addresses(msg['headers'], ['To', 'Cc'])
-            if isinstance(settings.email_address, dict):
-                self.current_account = next(
-                        (
-                         util.email_smtp_account_index(m) for _, m in
-                         recipients + senders if
-                         util.email_smtp_account_index(m) is not None
-                         ), 0)
-            else:
-                self.current_account = 0
-        else:
-            self.current_account = 0
-
+        # Determine initial account via model helper
+        self.current_account = compose_model.account_for_message(msg) if msg else 0
         self.pgp_sign = self.gnupg_keyid() is not None
         self.pgp_encrypt = False
 
@@ -102,72 +89,32 @@ class ComposePanel(panel.Panel):
         # ── Build the layout ─────────────────────────────────────────
         self._build_ui()
 
-        # ── Populate fields from mode ────────────────────────────────
+        # ── Populate fields from mode (via compose_model seeds) ───────
         self._data.from_addr = self.email_address()
-
+        seed = None
         if msg and mode == 'mailto':
-            if 'To' in msg['headers']:
-                self.to_field.setText(msg['headers']['To'])
-            if 'Subject' in msg['headers']:
-                self.subject_field.setText(msg['headers']['Subject'])
+            seed = compose_model.build_mailto_seed(msg, self.signature_text)
+            self.to_field.setText(seed.to_text)
+            self.subject_field.setText(seed.subject)
+            # keep _insert_signature behavior for mailto
             self._insert_signature()
-
         elif msg and (mode == 'reply' or mode == 'replyall'):
-            send_to = [(name, e) for name, e in senders + recipients
-                       if not util.email_is_me(e)]
-            if send_to:
-                self.to_field.setText(email.utils.formataddr(send_to.pop(0)))
-                if mode == 'replyall' and send_to:
-                    cc_values = [email.utils.formataddr(pair) for pair in send_to]
-                    self.cc_field.setText(', '.join(cc_values))
-
-            if 'Subject' in msg['headers']:
-                subject = msg['headers']['Subject']
-                if subject[:3].upper() != 'RE:':
-                    subject = 'RE: ' + subject
-                self.subject_field.setText(subject)
-
-            quoted = util.quote_body_text(msg)
-            # Build body: [signature with its own leading blank line]
-            #            [blank line]
-            #            [quoted text]
-            # When there is no signature, the body starts with a leading
-            # newline so the cursor has room before the quoted text.
-            sig_block = self._sig_block_text()
-            body = sig_block if sig_block else '\n'
-            if quoted:
-                body += '\n' + quoted
-            body = body.rstrip('\n') + '\n'
-            self.editor.setPlainText(body)
-            self._sig_block = sig_block
-
+            seed = compose_model.build_reply_seed(
+                msg, self.signature_text, to_all=(mode == 'replyall'))
+            self.to_field.setText(seed.to_text)
+            self.cc_field.setText(seed.cc_text)
+            self.subject_field.setText(seed.subject)
+            self.editor.setPlainText(seed.body)
+            self._sig_block = seed.sig_block
         elif msg and mode == 'forward':
-            if 'Subject' in msg['headers']:
-                subject = msg['headers']['Subject']
-                if subject[:3].upper() != 'FW:':
-                    subject = 'FW: ' + subject
-                self.subject_field.setText(subject)
-
-            # If the message has attachments, dump to temp dir
-            temp_dir, att = util.write_attachments(msg)
-            if temp_dir:
-                self.temp_dirs.append(temp_dir)
-            for fi in att:
+            seed = compose_model.build_forward_seed(msg, self.signature_text)
+            self.subject_field.setText(seed.subject)
+            for d in seed.temp_dirs:
+                self.temp_dirs.append(d)
+            for fi in seed.attachments:
                 self._add_attachment_file(fi)
-
-            # Build body (same layout as reply).
-            sig_block = self._sig_block_text()
-            fwd_text = '---------- Forwarded message ---------\n'
-            for h in ['From', 'Date', 'Subject', 'To']:
-                if h in msg['headers']:
-                    fwd_text += f'{h}: {msg["headers"][h]}\n'
-            fwd_text += '\n' + util.body_text(msg) + '\n'
-            body = sig_block if sig_block else '\n'
-            body += '\n' + fwd_text
-            body = body.rstrip('\n') + '\n'
-            self.editor.setPlainText(body)
-            self._sig_block = sig_block
-
+            self.editor.setPlainText(seed.body)
+            self._sig_block = seed.sig_block
         else:
             self.to_field.setFocus()
             self._insert_signature()
@@ -405,14 +352,8 @@ class ComposePanel(panel.Panel):
     # ── Signatures ───────────────────────────────────────────────────
 
     def _sig_block_text(self) -> str:
-        """Return the current account's signature block.
-
-        Includes a leading newline so a blank line always separates the
-        user's text from the signature, in every context.
-        """
-        if not self.signature_text:
-            return ''
-        return '\n-- \n' + self.signature_text.rstrip('\n') + '\n'
+        """Signature block with leading newline, or ''."""
+        return compose_model.sig_block_text(self.signature_text)
 
     def _insert_signature(self) -> None:
         """Insert the current account's plaintext signature.
@@ -489,23 +430,15 @@ class ComposePanel(panel.Panel):
 
     def account_name(self) -> str:
         """Return the name of the current SMTP account."""
-        if not settings.smtp_accounts:
-            return 'default'
-        return settings.smtp_accounts[self.current_account]
+        return compose_model.account_name(self.current_account)
 
     def email_address(self) -> str:
         """Return the email address for the current account."""
-        if isinstance(settings.email_address, dict):
-            return settings.email_address[self.account_name()]
-        else:
-            return settings.email_address
+        return compose_model.email_for_account(self.current_account)
 
     def gnupg_keyid(self) -> str | None:
         """Get the GPG key id for the current SMTP account."""
-        if isinstance(settings.gnupg_keyid, dict):
-            return settings.gnupg_keyid.get(self.account_name())
-        else:
-            return settings.gnupg_keyid
+        return compose_model.gnupg_keyid_for_account(self.current_account)
 
     def next_account(self) -> None:
         """Cycle to the next SMTP account."""
