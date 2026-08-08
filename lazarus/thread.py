@@ -25,8 +25,10 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineCore import *
 from PyQt6.QtWebEngineWidgets import *
 
-import subprocess
 import logging
+import shlex
+import shutil
+import subprocess
 import email.utils
 
 from . import app
@@ -485,9 +487,32 @@ class ThreadPanel(panel.Panel):
         """Write attachments to a temp dir and open with the file browser."""
         m = self.current_message
         temp_dir, _ = util.write_attachments(m)
-        if temp_dir:
-            self.temp_dirs.append(temp_dir)
-            # file_browser_command is a shell command by contract
-            # ("nautilus '{dir}'" style placeholder).
-            cmd = settings.file_browser_command.format(dir=temp_dir)
+        if not temp_dir:
+            self.app.status_message('No attachments', 'info')
+            return
+        self.temp_dirs.append(temp_dir)
+        # file_browser_command is a shell template ("nautilus '{dir}'");
+        # fall back gracefully when the configured binary isn't installed
+        # (e.g. fman on this host — previously failed silently via /bin/sh).
+        template = settings.file_browser_command
+        cmd = template.format(dir=temp_dir)
+        exe = shlex.split(template)[0] if template.strip() else ''
+        if exe and shutil.which(exe) is None:
+            # Try sensible desktop fallbacks before giving up
+            for fb in ('nautilus', 'dolphin', 'thunar'):
+                if shutil.which(fb):
+                    cmd = f"{fb} '{temp_dir}'"
+                    break
+            else:
+                # Last resort: xdg-open should exist even on minimal DE
+                if shutil.which('xdg-open'):
+                    cmd = f"xdg-open '{temp_dir}'"
+                else:
+                    self.app.status_message(
+                        f"Attachments saved to {temp_dir} — install a file manager or fix file_browser_command (tried '{exe}')",
+                        'warning', duration=8000)
+                    return
+        try:
             subprocess.Popen(cmd, shell=True)
+        except OSError as e:
+            self.app.status_message(f"Failed to open file browser: {e}", 'error')
