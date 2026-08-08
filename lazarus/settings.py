@@ -70,11 +70,27 @@ which is passed the name of a temp file being edited while composing an email.
 """
 
 file_browser_command = "nautilus '{dir}'"
-"""Command used to launch external file browser
+"""Command used to launch external file browser (reveal-after-save).
 
-This is a shell command, which additionally takes the `{dir}` placeholder. This
-command is used when viewing attachments, which first dumps the attachments to a
-temp directory given by `{dir}`, then opens that directory in a file browser.
+Shell command with ``{dir}`` placeholder. Run after attachments are saved
+to *reveal* the destination folder. Set to ``""`` to skip the reveal and
+just show a status message. Used by ``O`` in the thread view when
+:data:`attachment_reveal` is ``'file_browser'``.
+"""
+
+attachment_save_dir = '~/Downloads'
+"""Default directory for the ``O`` (save attachments) picker.
+
+Single directory string. Expanded with ``~``. The picker opens here by
+default; the user then chooses the sibling that will receive *all*
+attachments from the current message.
+"""
+
+attachment_reveal: Literal['file_browser', 'none'] = 'file_browser'
+"""What to do after attachments are saved with ``O``.
+
+``'file_browser'`` — run :data:`file_browser_command` on the destination.
+``'none'`` — show a status message only.
 """
 
 file_picker_command = None
