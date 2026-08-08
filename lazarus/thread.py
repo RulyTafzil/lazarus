@@ -26,6 +26,7 @@ from PyQt6.QtWebEngineCore import *
 from PyQt6.QtWebEngineWidgets import *
 
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -484,33 +485,62 @@ class ThreadPanel(panel.Panel):
         self.app.open_compose(mode='forward', msg=self.current_message)
 
     def open_attachments(self) -> None:
-        """Write attachments to a temp dir and open with the file browser."""
+        """Save all attachments — pick a directory, write there, then reveal."""
         m = self.current_message
-        temp_dir, _ = util.write_attachments(m)
-        if not temp_dir:
+        if not any(util.is_attachment(p) for p in util.message_parts(m)):
             self.app.status_message('No attachments', 'info')
             return
-        self.temp_dirs.append(temp_dir)
-        # file_browser_command is a shell template ("nautilus '{dir}'");
-        # fall back gracefully when the configured binary isn't installed
-        # (e.g. fman on this host — previously failed silently via /bin/sh).
+        default = os.path.expanduser(getattr(settings, 'attachment_save_dir', '~/Downloads') or '~/Downloads')
+        dest = QFileDialog.getExistingDirectory(
+            self, 'Save attachments to', default)
+        if not dest:
+            return  # user cancelled
+        # Decode + write each attachment directly to the chosen dir (no temp dir).
+        saved = 0
+        for part in util.message_parts(m):
+            if not util.is_attachment(part):
+                continue
+            try:
+                proc = subprocess.run(
+                    ['notmuch', 'show', '--part', str(part['id']), '--decrypt=true', '--', f"id:{m['id']}"],
+                    stdout=subprocess.PIPE, check=True)
+            except subprocess.CalledProcessError:
+                continue
+            if not proc.stdout:
+                continue
+            filename = util.sanitize_filename(part.get('filename', 'attachment'))
+            out = os.path.join(dest, filename)
+            # Never clobber — same idea as ~/Mail dedupe: suffix .1, .2, ...
+            base, ext = os.path.splitext(out)
+            n = 1
+            while os.path.exists(out):
+                out = f'{base}.{n}{ext}'
+                n += 1
+            try:
+                with open(out, 'wb') as f:
+                    f.write(proc.stdout)
+                saved += 1
+            except OSError:
+                pass
+        if saved == 0:
+            self.app.status_message('No attachments could be saved', 'warning')
+            return
+        self.app.status_message(f'Saved {saved} attachment{"s" if saved != 1 else ""} to {dest}', 'info', duration=5000)
+        reveal = getattr(settings, 'attachment_reveal', 'file_browser')
+        if reveal == 'none' or not settings.file_browser_command or not settings.file_browser_command.strip():
+            return
         template = settings.file_browser_command
-        cmd = template.format(dir=temp_dir)
+        cmd = template.format(dir=dest)
         exe = shlex.split(template)[0] if template.strip() else ''
         if exe and shutil.which(exe) is None:
-            # Try sensible desktop fallbacks before giving up
             for fb in ('nautilus', 'dolphin', 'thunar'):
                 if shutil.which(fb):
-                    cmd = f"{fb} '{temp_dir}'"
+                    cmd = f"{fb} '{dest}'"
                     break
             else:
-                # Last resort: xdg-open should exist even on minimal DE
                 if shutil.which('xdg-open'):
-                    cmd = f"xdg-open '{temp_dir}'"
+                    cmd = f"xdg-open '{dest}'"
                 else:
-                    self.app.status_message(
-                        f"Attachments saved to {temp_dir} — install a file manager or fix file_browser_command (tried '{exe}')",
-                        'warning', duration=8000)
                     return
         try:
             subprocess.Popen(cmd, shell=True)
