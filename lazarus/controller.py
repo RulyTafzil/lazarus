@@ -545,6 +545,12 @@ class AppController(QObject):
             self.sync_thread.stop()
         elif self.app.sync_thread is not None and self.app.sync_thread.isRunning():  # type: ignore[attr-defined]
             self.app.sync_thread.stop()  # type: ignore[attr-defined]
+        # Join bulk-move worker so Quit never races a pending batch_done emit.
+        try:
+            from . import actions as actions_mod
+            actions_mod.shutdown_worker()
+        except Exception:
+            pass
 
     def prompt_quit(self) -> None:
         self._save_open_searches()

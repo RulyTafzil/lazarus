@@ -47,42 +47,44 @@ logger = logging.getLogger(__name__)
 # Background worker for file moves
 # ---------------------------------------------------------------------------
 
-class _BulkMoveWorker(QThread):
-    """Serialises file moves and runs ``notmuch new`` after each batch.
+_SHUTDOWN = object()
 
-    The worker lives for the lifetime of the process — it blocks on
-    ``queue.get()`` when idle instead of exiting after a timeout.  This
-    avoids the previous race where ``_batches_pending`` was mutated from
-    both the UI thread (enqueue) and the worker thread (run) without
-    synchronisation, causing ``notmuch new`` to fire before a second
-    batch landed on disk.
-    """
+class _BulkMoveWorker(QThread):
+    """Serialises file moves and runs ``notmuch new`` after each batch."""
 
     batch_done = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
-        self.queue: queue.Queue[Tuple[str, str] | None] = queue.Queue()
+        self.queue: queue.Queue[Tuple[str, str] | object | None] = queue.Queue()
         self._lock = threading.Lock()
         self._batches_pending = 0
+        self._shutting_down = False
 
     def enqueue(self, moves: List[Tuple[str, str]]) -> None:
         """Push a batch of (src, dst) moves, followed by a sentinel."""
+        if self._shutting_down:
+            return
         with self._lock:
             self._batches_pending += 1
         for src, dst in moves:
             self.queue.put((src, dst))
-        self.queue.put(None)  # sentinel marking end of batch
+        self.queue.put(None)
+
+    def shutdown(self, timeout_ms: int = 5000) -> None:
+        """Request exit — enqueues the shutdown sentinel, wakes the thread."""
+        self._shutting_down = True
+        self.queue.put(_SHUTDOWN)
+        self.wait(timeout_ms)
 
     def run(self) -> None:
         while True:
-            item = self.queue.get()  # block forever — worker is long-lived
+            item = self.queue.get()
+            if item is _SHUTDOWN:
+                return
             if item is None:
-                # Sentinel: a batch of enqueued moves is done.
                 with self._lock:
                     self._batches_pending -= 1
-                # Always emit — the caller (notmuch new + UI refresh)
-                # must run after *every* batch, not just the last one.
                 self.batch_done.emit()
                 continue
             src, dst = item
@@ -118,6 +120,16 @@ def _get_worker() -> _BulkMoveWorker:
         _worker.batch_done.connect(_run_notmuch_new)
         _worker.start()
     return _worker
+
+
+def shutdown_worker() -> None:
+    """Call from aboutToQuit — joins the worker if alive."""
+    global _worker
+    if _worker is not None and _worker.isRunning():
+        try:
+            _worker.shutdown()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

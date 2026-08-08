@@ -29,11 +29,12 @@ import subprocess
 from typing import Optional, Literal
 import logging
 
-from . import search
-from . import thread
-from . import compose
-from . import tag
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from . import search
+    from . import thread
+    from . import compose
+    from . import tag
 from . import settings
 from . import themes
 from . import util

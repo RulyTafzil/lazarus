@@ -118,8 +118,8 @@ per-account signatures, parallel mbsync, hicolor icons.
 ### Class Hierarchy
 ```
 QApplication
- └── Dodo (app.py) — bootstrap (390L): config+logging, signals, HelpWindow; all panel/sync methods shim to controller
-      └── controller.AppController (QObject)  ← SyncMailThread + panel registry + orchestration
+ └── Dodo (app.py) — bootstrap (~390L): config+logging, signals, HelpWindow, delegation shims
+      └── controller.AppController (QObject) — panel registry + SyncMailThread/engine; Panels receive `AppController` at runtime. Cycle broken at runtime: app.py imports search/thread only under TYPE_CHECKING, so search→app is one-way.
 
 QMainWindow
  └── MainWindow (mainwindow.py)
