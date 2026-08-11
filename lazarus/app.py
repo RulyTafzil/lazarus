@@ -140,6 +140,13 @@ class Dodo(QApplication):
         # is ready by the time the user opens the compose panel.
         address_completer.preload_addresses()
 
+        # Warm the Chromium renderer process so the first email open
+        # doesn't trigger a visible "restart" (GPU/renderer process
+        # spawn, window flicker, or compositor surface recreation).
+        # A minimal hidden QWebEngineView is created, loaded with a
+        # tiny page, and destroyed once Chromium signals it's ready.
+        self._warm_webengine()
+
         # Handle Ctrl-C: use a pipe + QSocketNotifier so the Qt event loop
         # wakes up immediately when a Unix signal arrives.
         self._signal_read_fd, self._signal_write_fd = os.pipe()
@@ -313,6 +320,40 @@ class Dodo(QApplication):
 
     def prompt_quit(self) -> None:
         return self.controller.prompt_quit()
+
+    @staticmethod
+    def _warm_webengine() -> None:
+        """Pre-initialise the Chromium renderer process.
+
+        The first ``QWebEngineView`` instantiation in a Qt application
+        lazily spawns the Chromium GPU + renderer subprocesses.  On some
+        systems this can manifest as a visible "restart" — the window
+        flickers, loses focus, or the compositor treats the new GPU
+        surface as a window recreation.
+
+        This method creates a single hidden view, loads a minimal page,
+        waits for ``loadFinished``, and then destroys it.  By the time
+        the user opens their first email the renderer process is already
+        warm and the double-buffered ``ThreadPanel`` swaps are instant.
+        """
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+        from PyQt6.QtCore import QEventLoop, QTimer
+
+        view = QWebEngineView()
+        view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        view.hide()
+
+        loop = QEventLoop()
+        view.loadFinished.connect(lambda ok: loop.quit())
+        # Safety timeout: if Chromium never fires loadFinished (e.g.
+        # --no-sandbox issues), don't block startup forever.
+        QTimer.singleShot(5000, loop.quit)
+
+        view.setHtml('<html><body></body></html>')
+        loop.exec()
+
+        view.loadFinished.disconnect()
+        view.deleteLater()
 
 
     def _save_open_searches(self) -> None:
