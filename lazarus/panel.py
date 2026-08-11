@@ -102,20 +102,10 @@ class Panel(QWidget):
         Only opens if the thread preview is visible — when the user
         has closed it with ``C-<enter>``, ``j``/``k`` navigation stays
         list-only.
-
-        Skips re-opening when the selected thread is already displayed
-        in the preview pane, which can happen when a
-        ``refresh_thread`` call inside ``update_thread`` triggers a
-        ``currentChanged`` signal on the tree view selection model.
         """
         if not self.app.main_window.has_thread_preview():
             return
         if hasattr(self, 'open_current_thread'):
-            tp = self.app.main_window.active_thread()
-            if tp is not None and hasattr(tp, 'thread_id'):
-                thread_id = self.model.thread_id(self.tree.currentIndex())
-                if thread_id and tp.thread_id == thread_id:  # type: ignore[attr-defined]
-                    return
             self.open_current_thread()
 
     def focusInEvent(self, event: QFocusEvent):

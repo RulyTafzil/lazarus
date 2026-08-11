@@ -337,6 +337,14 @@ class AppController(QObject):
 
     def open_thread(self, thread_id: str, query: str) -> None:
         from . import thread as thread_mod
+        active = self.main_window.active_thread()
+        if isinstance(active, thread_mod.ThreadPanel) and active.thread_id == thread_id:  # type: ignore[attr-defined]
+            # Already showing this thread — don't tear it down and
+            # rebuild it, which would discard the reader's current
+            # position.  Just refocus.
+            self.main_window.thread_container.setCurrentWidget(active)
+            active.setFocus()
+            return
         p = thread_mod.ThreadPanel(self, thread_id, query)  # type: ignore[arg-type]
         self.main_window.show_thread(p)
 
