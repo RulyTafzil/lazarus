@@ -534,7 +534,13 @@ class AppController(QObject):
         tp = self.main_window.active_thread()
         if tp is not None and isinstance(tp, thread_mod.ThreadPanel) and tp.thread_id == thread_id:  # type: ignore[attr-defined]
             tp.update_thread(thread_id, msg_id=msg_id)  # type: ignore[attr-defined]
-            tp.refresh()
+            # Only force a full refresh when msg_id is None (bulk/external
+            # tag changes from the search panel).  When msg_id is provided
+            # it means a single-message tag change that tp.update_thread
+            # already refreshed via refresh_message; a full refresh here
+            # would reset the model and jump the view.
+            if msg_id is None:
+                tp.refresh()
 
     def _cleanup_sync(self) -> None:
         if self.sync_timer is not None and self.sync_timer.isActive():
