@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         self.thread_container = QStackedWidget()
         self.thread_container.setAutoFillBackground(True)
         pal_tc = self.thread_container.palette()
-        pal_tc.setColor(QPalette.Window, QColor(settings.theme['bg']))
+        pal_tc.setColor(QPalette.ColorRole.Window, QColor(settings.theme['bg']))
         self.thread_container.setPalette(pal_tc)
         self.thread_container.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._thread_placeholder = QLabel(
