@@ -142,7 +142,15 @@ class SearchModel(QAbstractItemModel):
         self.num_threads = len(self.d)
         self.endResetModel()
 
-    def refresh_thread(self, thread: QModelIndex|str):
+    def refresh_thread(self, thread: QModelIndex | str) -> None:
+        """Refresh one thread's data in place when possible.
+
+        Re-runs the search for just this thread and, if it still matches,
+        replaces the row and emits ``dataChanged`` — no full model reset,
+        so the tree keeps its selection, scroll position, and expanded
+        state. Falls back to a full reset when the thread no longer
+        matches the query (row removed) or notmuch errors.
+        """
         if isinstance(thread, str):
             thread_id = thread
             row = self.threads[thread]
@@ -152,18 +160,32 @@ class SearchModel(QAbstractItemModel):
             assert thread_id is not None
 
         logger.info("Search '%s': refreshing thread %s", self.q, thread_id)
-        self.beginResetModel()
         try:
             contents = json.loads(
                 notmuch.search_json(f'{self.q} AND thread:{thread_id}'))
-
-            self.d[row:row+1] = contents
-            self.threads = {thread['thread']: i for i,thread in enumerate(self.d)}
-            self.num_threads = len(self.d)
         except subprocess.CalledProcessError as e:
             self.error_msg = f"notmuch: {e.stderr}"
-        self.endResetModel()
-        logger.info("Model refreshed for '%s'", self.q)
+            return
+
+        if len(contents) == 1 and row < len(self.d):
+            if contents[0] == self.d[row]:
+                return  # nothing changed
+            self.d[row] = contents[0]
+            self.threads = {t['thread']: i for i, t in enumerate(self.d)}
+            self.num_threads = len(self.d)
+            first = self.index(row, 0)
+            last = self.index(row, len(columns) - 1)
+            self.dataChanged.emit(first, last, [])
+            logger.info("Thread %s refreshed in place", thread_id)
+        else:
+            # Thread dropped out of the query (or the search changed) —
+            # full reset so the row removal is signalled correctly.
+            logger.info("Thread %s left the query; full reset", thread_id)
+            self.beginResetModel()
+            self.d[row:row+1] = contents
+            self.threads = {t['thread']: i for i, t in enumerate(self.d)}
+            self.num_threads = len(self.d)
+            self.endResetModel()
 
     def refresh_num_threads(self):
         """Only refresh the number of threads in the search, not the underlying data"""
