@@ -108,6 +108,15 @@ class MainWindow(QMainWindow):
             settings.thread_pane_position)
         self.main_splitter = QSplitter(orientation)
         self.main_splitter.setChildrenCollapsible(False)
+        if _want:
+            # Main splitter (between tabs and thread preview) sits in the
+            # translucent central widget — its handle would show desktop.
+            # Keep the handle's "...." indicator (Fusion CE_Splitter) and
+            # ensure the splitter itself paints bg so the handle strip is opaque.
+            self.main_splitter.setAutoFillBackground(True)
+            pal_sp = self.main_splitter.palette()
+            pal_sp.setColor(QPalette.ColorRole.Window, QColor(settings.theme['bg']))
+            self.main_splitter.setPalette(pal_sp)
         w.layout().addWidget(self.main_splitter, stretch=1)
 
         # List side: tabs (searches, compose, tags)
@@ -120,6 +129,18 @@ class MainWindow(QMainWindow):
             self.tabs.setAutoFillBackground(False)
             self.tabs.tabBar().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.tabs.tabBar().setAutoFillBackground(False)
+            # QTabWidget's internal QStackedWidget is autoFill False by default —
+            # with a translucent ancestor that leaks desktop through compose inter-
+            # field gaps (Panel spacing) and the empty tab-bar strip. Keep the
+            # bar transparent but force the stack/pane opaque via palette so panels
+            # (which are autoFill) paint over a solid bg. Thread preview's preview
+            # container already paints bg; this covers the list side.
+            stack = self.tabs.findChild(QStackedWidget)
+            if stack is not None:
+                stack.setAutoFillBackground(True)
+                pal_st = stack.palette()
+                pal_st.setColor(QPalette.ColorRole.Window, QColor(settings.theme['bg']))
+                stack.setPalette(pal_st)
 
         # Thread preview + compose rely on opaque panel backgrounds when the
         # surrounding QTabWidget is translucent (A). Also ensure the
