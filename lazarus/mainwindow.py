@@ -19,7 +19,7 @@
 from __future__ import annotations
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIcon, QCloseEvent
+from PyQt6.QtGui import QColor, QIcon, QCloseEvent, QPalette
 import logging
 import os
 from typing import Optional
@@ -121,8 +121,14 @@ class MainWindow(QMainWindow):
             self.tabs.tabBar().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             self.tabs.tabBar().setAutoFillBackground(False)
 
-        # Thread preview side
+        # Thread preview + compose rely on opaque panel backgrounds when the
+        # surrounding QTabWidget is translucent (A). Also ensure the
+        # immediate pane stack paints bg so its empty area isn't transparent.
         self.thread_container = QStackedWidget()
+        self.thread_container.setAutoFillBackground(True)
+        pal_tc = self.thread_container.palette()
+        pal_tc.setColor(QPalette.Window, QColor(settings.theme['bg']))
+        self.thread_container.setPalette(pal_tc)
         self.thread_container.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._thread_placeholder = QLabel(
             "Select a thread to view  ·  ? for help")

@@ -128,23 +128,27 @@ QTreeView::branch {{
     border: none;
     background: {bg};
 }}
-/* Prototype A: only gaps need opaque fill; do NOT re-paint the
-   tab-bar strip. Keep QSplitter handle and compose inter-field gaps
-   opaque without covering the empty area right-of-tabs (which is
-   QTabBar). WA_Translucent on QTabBar/QTabWidget is set in mainwindow. */
-QSplitter::handle {{
-    background: {bg};
-}}
+/* Prototype A: keep content opaque. MainWindow/QTabBar are WA_Translucent
+   so the empty strip right-of-tabs shows desktop, but panels must hide
+   desktop elsewhere.
+   - QSplitter handle: keep Fusion's "...." indicator; only ensure width/height
+     and that it isn't transparent. Don't override background or the dots vanish.
+   - Inter-field gaps in Compose (To/Cc/Subject spacing) live in Panel's
+     QVBoxLayout gaps. Panel autoFillBackground already paints {bg} via palette;
+     this selector is kept narrow — top-level QWidget/Panels only, not QTabWidget.
+   - Other lists (QTreeView/QWebEngine) already paint bg via view/palette. */
 QSplitter::handle:horizontal {{
     width: 6px;
 }}
 QSplitter::handle:vertical {{
     height: 6px;
 }}
-/* Compose/search panels have plain QWidget gaps between fields —
-   make Panels paint bg so desktop doesn't leak there. Search/Thread
-   lists already paint via QTreeView/QWebEngine; this just covers the
-   QWidget chrome around them. */
+/* Gaps between compose fields / around panels — scope to actual content
+   panels so the QTabBar strip stays transparent to desktop.
+   Thread preview's QStackedWidget empty area also needs bg, but
+   QTabWidget's internal stack must stay transparent (desktop gap).
+   That's handled via mainwindow.py palette for thread_container; keep
+   QSS narrow to Panels here. */
 Panel, SearchPanel, TagPanel, ComposePanel, ThreadPanel {{
     background: {bg};
 }}
@@ -165,7 +169,8 @@ QTabBar {{
 QTabBar::tab {{
     background: {bg_alt};
     color: {fg_dim};
-    border: none;
+    border: 1px solid { _border_color(theme) };
+    border-bottom: none;
     padding: 4px 12px;
     margin-right: 2px;
     border-top-left-radius: 4px;
