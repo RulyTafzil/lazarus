@@ -61,6 +61,11 @@ class HeaderInsetTreeView(QTreeView):
         self.setIndentation(0)
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
+        # Option 2: remove the 1px StyledPanel frame so the selected tab
+        # sits flush on the header/content without a double-border line.
+        # Lower panes keep their own frame/border if desired; this is just
+        # the search/tag lists that sit directly under the tab bar.
+        self.setFrameShape(QFrame.Shape.NoFrame)
 
     def _corner_color(self) -> str:
         # Header sections are styled via QSS as bg_alt; the corner fill
