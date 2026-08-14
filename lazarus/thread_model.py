@@ -385,7 +385,9 @@ class ThreadModel(QAbstractItemModel):
             return QModelIndex()
         return self.createIndex(row, column, children[row])
 
-    def parent(self, child: QModelIndex = QModelIndex()) -> QModelIndex:
+    def parent(self, child: QModelIndex = QModelIndex()) -> QModelIndex:  # type: ignore[override]
+        # QObject.parent() (no args) isn't meaningful for a model; Qt only
+        # calls parent(index) on the tree, so we don't implement it.
         data = child.internalPointer()
         if data is None or data.parent is None:
             return QModelIndex()
