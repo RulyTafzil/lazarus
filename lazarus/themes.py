@@ -128,9 +128,36 @@ QTreeView::branch {{
     border: none;
     background: {bg};
 }}
-/* ── Tab bar: keep Fusion defaults (tabs manage their own bg via
-   palette). No QSS override here — previous transparent/tab-accent
-   experiments are reverted. */
+/* ── Tab bar: tabs keep accent bg, bar/pane background transparent
+   so desktop shows through. QTabWidget/QTabBar are WA_Translucent on
+   the prototype branch (see mainwindow.py). Lists/preview stay opaque
+   via QTreeView / QStackedWidget styling above and palette. */
+QTabWidget {{
+    background: transparent;
+}}
+QTabWidget::pane {{
+    background: transparent;
+    border: none;
+}}
+QTabBar {{
+    background: transparent;
+}}
+QTabBar::tab {{
+    background: {bg_alt};
+    color: {fg_dim};
+    border: none;
+    padding: 4px 12px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}}
+QTabBar::tab:selected {{
+    background: {bg_alt};
+    color: {fg};
+}}
+QTabBar::tab:!selected {{
+    background: {bg};
+}}
 /* ── Thin modern scrollbars — pill handle, bg track so pill floats ── */
 QScrollBar:vertical {{
     background: {bg};

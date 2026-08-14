@@ -53,7 +53,25 @@ def _position_to_orientation(
 
 class MainWindow(QMainWindow):
     def __init__(self, a: "Dodo | AppController"):
+        # Prototype A: single translucent window — QMainWindow itself
+        # becomes compositor-transparent so the empty strip right-of-tabs
+        # shows desktop wallpaper. Tabs stay opaque (bg_alt via palette),
+        # everything else (lists, preview, editor) stays opaque (bg).
+        # On Wayland this requires the attribute before show(); on X11 it
+        # enables true ARGB visuals. Safe to set unconditionally for the
+        # prototype branch — master leaves it off.
         super().__init__()
+        # Gate on env/flag so we can test without rebuilding master.
+        import os as _os, sys as _sys
+        _want = '--translucent-tabs' in _sys.argv or _os.environ.get('LAZARUS_TRANSLUCENT_TABS') == '1'
+        # For the prototype we always enable — you asked for it on this branch.
+        _want = True
+        if _want:
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            # Keep window decorations (you hide them via WM already);
+            # FramelessWindowHint would also hide them but we don't need
+            # it — translucency works with normal decorations on Wayland.
+            self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         conf = QSettings('lazarus', 'lazarus')
         self.app = a
 
@@ -75,6 +93,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(w)
         w.layout().setContentsMargins(0, 0, 0, 0)
         w.layout().setSpacing(0)
+        # Prototype: central widget transparent so empty tab-bar area shows desktop
+        if _want:
+            w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            w.setAutoFillBackground(False)
         self.resize(1600, 800)
 
         geom = conf.value("main_window_geometry")
@@ -91,6 +113,13 @@ class MainWindow(QMainWindow):
         # List side: tabs (searches, compose, tags)
         self.tabs = QTabWidget()
         self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        if _want:
+            # Tabs opaque, tab-bar/pane transparent to desktop
+            # QTabWidget itself transparent — its children (lists) stay opaque via palette
+            self.tabs.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.tabs.setAutoFillBackground(False)
+            self.tabs.tabBar().setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.tabs.tabBar().setAutoFillBackground(False)
 
         # Thread preview side
         self.thread_container = QStackedWidget()
