@@ -149,18 +149,17 @@ class ComposePanel(panel.Panel):
             return
         lay.setSpacing(4)
 
-        # --- Account bar ---
+        # --- Account + From header row (header visual: bg_alt, inset 4px left) ---
         self.account_label = QLabel()
         self.account_label.setStyleSheet(
             f'color: {settings.theme["fg_good"]}; font-weight: bold;')
         self.status_label = QLabel()
-        lay.addWidget(self._make_header_bar())
-
-        # --- From field (readonly) ---
         self.from_label = QLabel()
+        # From reads like header text — fg_dim on header bg, same padding as QHeaderView::section
         self.from_label.setStyleSheet(
             f'color: {settings.theme["fg_dim"]}; padding: 2px 4px;')
-        lay.addWidget(self.from_label)
+        # Single row: account | From | status, with left inset matching QTreeView::item (4px)
+        lay.addWidget(self._make_header_bar())
 
         # --- To field ---
         self.to_field = QLineEdit()
@@ -212,12 +211,25 @@ class ComposePanel(panel.Panel):
         self.editor.installEventFilter(self)
 
     def _make_header_bar(self) -> QWidget:
-        """Build the top bar showing account selector + PGP status."""
+        """Build the top header row: Account | From | PGP status.
+
+        Visual: header_bg (bg_alt) with 4px left inset to align with
+        QTreeView items / QHeaderView sections. Account on the left,
+        From grows, status on the right. ComposePanel itself already
+        paints header_bg (see themes.py).
+        """
         bar = QWidget()
+        bar.setStyleSheet(f'background: {settings.theme.get("bg_alt", settings.theme["bg"])};')
         hlay = QHBoxLayout()
-        hlay.setContentsMargins(0, 0, 0, 0)
+        # 4px left to match QTreeView::item / QHeaderView::section left pad
+        hlay.setContentsMargins(4, 2, 4, 2)
         bar.setLayout(hlay)
         hlay.addWidget(self.account_label)
+        # Separator dot between account and From when both present
+        self._from_sep = QLabel(' · ')
+        self._from_sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
+        hlay.addWidget(self._from_sep)
+        hlay.addWidget(self.from_label)
         hlay.addStretch()
         hlay.addWidget(self.status_label)
         return bar
