@@ -55,27 +55,35 @@ def _split_dict(d: dict) -> tuple[dict, dict]:
     return dict(items[:mid]), dict(items[mid:])
 
 
-# The help window's "Navigation" section: a curated, grouped view of
-# global_keymap entries, so the descriptions stay in one place (keymap.py).
-_NAVIGATION_GROUPS: list[tuple[str, tuple[str, ...]]] = [
-    ('j / k', ('j', 'k')),
-    ('J / K', ('J', 'K')),
-    ('<enter>', ('<enter>',)),
-    ('<escape>', ('<escape>',)),
-    ('<space> / -', ('<space>', '-')),
-    ('s', ('s',)),
-    ('t m', ('t m',)),
+# Display-only grouping for the Global columns: (keys to merge, row label).
+# Dispatch keeps the individual keys in keymap.py — these rows exist purely
+# so the help shows 'j / <up>' instead of two near-identical lines. The
+# merged keys must share a description (the first key's is used).
+_GLOBAL_GROUPS: list[tuple[tuple[str, ...], str]] = [
+    (('j', '<up>'), 'j / <up>'),
+    (('k', '<down>'), 'k / <down>'),
 ]
 
 
-def _navigation_keymap() -> dict:
-    """Derive the Navigation help group from the global keymap."""
+def _apply_groups(mp: dict) -> dict:
+    """Merge grouped keys of *mp* into single display rows.
+
+    A merged row appears at the position of the group's first key; the
+    other members are dropped. Groups whose members are missing (e.g.
+    unbound in config.py) are skipped and the keys render individually.
+    """
     out: dict = {}
-    for display, keys in _NAVIGATION_GROUPS:
-        descs = [keymap.global_keymap[k][0]
-                 for k in keys if k in keymap.global_keymap]
-        if descs:
-            out[display] = (' / '.join(descs), lambda a: None)
+    used: set = set()
+    for key, val in mp.items():
+        if key in used:
+            continue
+        for keys, label in _GLOBAL_GROUPS:
+            if key == keys[0] and all(k in mp for k in keys):
+                out[label] = (mp[keys[0]][0], lambda a: None)
+                used.update(keys)
+                break
+        else:
+            out[key] = val
     return out
 
 
@@ -91,11 +99,11 @@ class HelpWindow(QWidget):
         layout.setSpacing(12)
         self.setLayout(layout)
 
-        global_a, global_b = _split_dict(keymap.global_keymap)
+        grouped = _apply_groups(keymap.global_keymap)
+        global_a, global_b = _split_dict(grouped)
 
         columns = [
-            [("Navigation", _navigation_keymap()),
-             ("Compose view", keymap.compose_keymap),
+            [("Compose view", keymap.compose_keymap),
              ("Command bar", keymap.command_bar_keymap)],
             [("Global", global_a)],
             [("Global", global_b)],
