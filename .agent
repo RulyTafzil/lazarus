@@ -65,7 +65,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 │   ├── actions.py          # MarkableActionsMixin + _BulkMoveWorker + move/expunge helpers
 │   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
 │   ├── tag.py              # TagPanel + TagModel
-│   ├── commandbar.py       # CommandBar(QLineEdit) — tag completion, history, search/tag modes
+│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, tag completion, history, search/tag modes
 │   ├── keymap.py           # global_keymap (consolidated) + tag/compose/command_bar maps
 │   ├── address_completer.py# AddressCompleter + _AddressLoader (notmuch address bg thread)
 │   ├── webengine.py        # MessagePage/Handler, EmbeddedImageHandler, RemoteBlocker
@@ -105,7 +105,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 │ │  ├─ ComposePanel     │ │  └─ QLabel placeholder      │ │
 │ │  └─ TagPanel         │ │     "Select a thread…"      │ │
 │ └──────────────────────┘ └─────────────────────────────┘ │
-│ CommandBar (hidden, overlay) / StatusBar (auto-hide QLabel) │
+│ CommandBar (centered modal overlay, grow-to-content) / StatusBar │
 └──────────────────────────────────────────────────────────┘
 ```
 - Preview always visible; `thread_pane_position` = `right`/`left`/`below`/`above` controls `QSplitter` orientation + widget order (`_position_to_orientation`).
@@ -125,7 +125,7 @@ QMainWindow
  └── MainWindow (mainwindow.py)
       ├── QSplitter ──┬── QTabWidget (list tabs: SearchPanel/ComposePanel/TagPanel)
       │               └── QStackedWidget (thread preview + placeholder QLabel)
-      ├── CommandBar (commandbar.py — QLineEdit)
+      ├── CommandBar (commandbar.py — QPlainTextEdit, modal overlay)
       ├── StatusBar (QLabel, auto-hide timer, kind info/error)
       └── Window icon (QIcon.fromTheme('lazarus') → bundled 1024 PNG fallback)
 
@@ -186,7 +186,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `webengine.py` | 228 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor`, `LOCAL_PROTOCOLS=[cid,message]` |
 | `tag.py` | 208 | `TagPanel` + `TagModel` — tag browser with unread/total counts |
 | `mime_builder.py` | 207 | `ComposeData` dataclass + `build_message()` — plain/HTML/multipart/related, attachments, inline images, `Date` header |
-| `commandbar.py` | 193 | `CommandBar(QLineEdit)` — tag autocomplete, history, search vs tag modes |
+| `commandbar.py` | 236 | `CommandBar(QPlainTextEdit)` — centered modal overlay (dim + click-away), grow-to-content width/wrap, tag autocomplete, per-mode history |
 | `keymap.py` | 184 | Consolidated `global_keymap` + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`, `navigation_keymap`; numeric `1-9` tag hotkeys |
 | `pgp_util.py` | 162 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
 | `compose_model.py` | 225 | `ComposeModel` — `ComposeSeed` + `build_reply/forward/mailto` + account helpers (Qt-free, testable) |
@@ -358,7 +358,9 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 ## Development
 
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
-- **Type check**: `mypy lazarus` (untyped defs disallowed)
+- **Type check**: `mypy lazarus` — **clean (0 errors)** as of Aug 2026; `disallow_untyped_defs = True`; keep it green
+- **Tests**: no committed suite yet — offscreen Qt harness (QT_QPA_PLATFORM=offscreen + AA_ShareOpenGLContexts before QApplication) used for ad-hoc verification; pure-logic tests are the natural next step
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep original `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry Ruly header. Keep `key_string` / `message_css` / `LOCAL_PROTOCOLS` stable — they are part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
+- **PR workflow (Aug 2026)**: feature branches `pr/<slug>` → Forgejo API PRs (see forgejo-git skill) → merge+prune in order, rebasing downstream branches as they go. 8-PR series (mypy 182→0, protocols, perf, latent bugs) merged Aug 14 2026.
