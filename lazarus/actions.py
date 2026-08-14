@@ -40,6 +40,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from . import settings
 from . import notmuch
+from .protocols import PanelApp
 
 logger = logging.getLogger(__name__)
 
@@ -315,7 +316,7 @@ class MarkableActionsMixin:
     cursor before a destructive action (delete/archive).
     """
 
-    app: object  # provided by the concrete panel (lazarus.app.Dodo)
+    app: PanelApp  # provided by the concrete panel (SearchPanel)
 
     def _marked_query(self) -> str:
         """Notmuch query matching "marked" threads in this panel's scope."""

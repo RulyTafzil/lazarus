@@ -40,11 +40,13 @@ import traceback
 
 from . import settings
 from . import util
+from .protocols import PanelApp
 
 LOCAL_PROTOCOLS = ['cid', 'message']
 
 if TYPE_CHECKING:
     from .app import Dodo
+    from .controller import AppController
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +175,7 @@ class MessagePage(QWebEnginePage):
     opened in the system browser (with an optional confirmation).
     """
 
-    def __init__(self, a: Dodo, profile: QWebEngineProfile,
+    def __init__(self, a: PanelApp, profile: QWebEngineProfile,
                  parent: Optional[QObject] = None):
         super().__init__(profile, parent)
         self._app = a

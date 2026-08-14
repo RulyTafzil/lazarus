@@ -32,6 +32,7 @@ from . import keymap
 from . import search
 from . import thread
 from . import notmuch
+from .protocols import PanelApp
 
 class CommandBar(QPlainTextEdit):
     """A command bar that opens as a centered modal overlay when searching
@@ -42,7 +43,7 @@ class CommandBar(QPlainTextEdit):
     the window width, then wraps to additional lines.
     """
 
-    def __init__(self, a: "Dodo | AppController", label: QLabel, parent: QWidget,
+    def __init__(self, a: PanelApp, label: QLabel, parent: QWidget,
                  overlay: Optional[QWidget] = None):
         super().__init__(parent)
         self.app = a

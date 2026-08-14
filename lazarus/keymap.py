@@ -16,6 +16,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
+from typing import Any, Callable, Dict, Tuple
+
+from .protocols import PanelApp
+
+KeyBinding = Tuple[str, Callable[..., Any]]
+Keymap = Dict[str, KeyBinding]
+
 # ── Consolidated global keymap ────────────────────────────────────────
 #
 # In the split-pane layout the search list and the thread
@@ -28,7 +35,7 @@
 # Thread keys     → Dodo.delegate_to_thread()
 # Global keys     → Dodo methods (open_search, sync_mail, …)
 
-global_keymap = {
+global_keymap: Keymap = {
   # ── Thread list ──────────────────────────────────────────────────
   'j':           ('next thread', lambda a: a.navigate_list('next')),
   'k':           ('previous thread', lambda a: a.navigate_list('previous')),
@@ -102,7 +109,7 @@ for _k in '123456789':
 
 # ── Navigation help (display-only) ───────────────────────────────────
 
-navigation_keymap = {
+navigation_keymap: Keymap = {
   'j / k':       ('next / previous thread', lambda a: None),
   'J / K':       ('next / previous message', lambda a: None),
   '<enter>':     ('open thread', lambda a: None),
@@ -117,7 +124,7 @@ navigation_keymap = {
 # search_keymap and thread_keymap are empty — all their keys now live
 # in global_keymap.
 
-search_keymap: dict = {}
+search_keymap: Keymap = {}
 """The local keymap for search panels
 
 All search keys have been consolidated into :data:`global_keymap`.
@@ -125,7 +132,7 @@ This dictionary exists so that ``config.py`` can still add
 search-specific overrides.
 """
 
-thread_keymap: dict = {}
+thread_keymap: Keymap = {}
 """The local keymap for thread panels
 
 All thread keys have been consolidated into :data:`global_keymap`.
@@ -133,7 +140,7 @@ This dictionary exists so that ``config.py`` can still add
 thread-specific overrides.
 """
 
-tag_keymap = {
+tag_keymap: Keymap = {
   'j':       ('next tag', lambda p: p.next_tag()),
   'k':       ('previous tag', lambda p: p.previous_tag()),
   '<down>':  ('next tag', lambda p: p.next_tag()),
@@ -150,7 +157,7 @@ A dictionary from key strings to pairs consisting of a short docstring and a fun
 taking :class:`~lazarus.search.TagPanel` as input.
 """
 
-compose_keymap = {
+compose_keymap: Keymap = {
   '<escape>':    ('toggle focus', lambda p: p.escape_focus()),
   '<enter>':     ('insert newline', lambda p: p.insert_newline() if hasattr(p, 'insert_newline') else None),
   'E':           ('edit externally', lambda p: p.edit_externally()),
@@ -168,7 +175,7 @@ A dictionary from key strings to pairs consisting of a short docstring and a fun
 taking :class:`~lazarus.compose.ComposePanel` as input.
 """
 
-command_bar_keymap = {
+command_bar_keymap: Keymap = {
   '<enter>':  ('accept', lambda b: b.accept()),
   '<escape>': ('close', lambda b: b.close_bar()),
   '<down>':   ('history next', lambda b: b.history_next()),

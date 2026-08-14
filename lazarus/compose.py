@@ -46,6 +46,7 @@ from . import address_completer
 from . import mime_builder
 from . import compose_model
 from . import compose_threads
+from .protocols import PanelApp
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
@@ -68,7 +69,7 @@ class ComposePanel(panel.Panel):
     # is plain QWidgets so it needs an explicit fill (handled via Panel
     # autoFillBackground + themes QSS).
 
-    def __init__(self, a: "Dodo | AppController", mode: str='', msg: Optional[dict]=None,
+    def __init__(self, a: PanelApp, mode: str='', msg: Optional[dict]=None,
                  parent: Optional[QWidget]=None):
         super().__init__(a, keep_open=False, parent=parent)
         self.set_keymap(keymap.compose_keymap)
