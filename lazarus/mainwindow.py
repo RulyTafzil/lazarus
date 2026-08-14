@@ -121,10 +121,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Lazarus")
 
         w = QWidget(self)
-        w.setLayout(QVBoxLayout())
+        w_layout = QVBoxLayout(w)
+        w_layout.setContentsMargins(0, 0, 0, 0)
+        w_layout.setSpacing(0)
         self.setCentralWidget(w)
-        w.layout().setContentsMargins(0, 0, 0, 0)
-        w.layout().setSpacing(0)
         self.resize(1600, 800)
 
         geom = conf.value("main_window_geometry")
@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
             settings.thread_pane_position)
         self.main_splitter = QSplitter(orientation)
         self.main_splitter.setChildrenCollapsible(False)
-        w.layout().addWidget(self.main_splitter, stretch=1)
+        w_layout.addWidget(self.main_splitter, stretch=1)
 
         # List side: tabs (searches, compose, tags)
         self.tabs = QTabWidget()
@@ -297,7 +297,7 @@ class MainWindow(QMainWindow):
         self.status_label.setFixedHeight(24)
         self.status_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        w.layout().addWidget(self.status_label)
+        w_layout.addWidget(self.status_label)
 
         self.status_timer = QTimer()
         self.status_timer.setSingleShot(True)
@@ -322,7 +322,10 @@ class MainWindow(QMainWindow):
         fm = bar.fontMetrics()
         margins = bar.viewportMargins()
         lm, tm, rm, bm = margins.left(), margins.top(), margins.right(), margins.bottom()
-        doc_m = bar.document().documentMargin()
+        doc = bar.document()
+        if doc is None:
+            return
+        doc_m = doc.documentMargin()
         text = bar.toPlainText()
         lines = text.split('\n')
 

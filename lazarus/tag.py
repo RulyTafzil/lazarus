@@ -151,13 +151,15 @@ class TagPanel(panel.Panel):
         # self.setStyleSheet(f'QTreeView::item {{ padding: {settings.search_view_padding}px }}')
         self.model = TagModel()
         self.tree.setModel(self.model)
-        self.layout().addWidget(self.tree)
+        lay = self.layout()
+        if lay is not None:
+            lay.addWidget(self.tree)
 
         self.tree.resizeColumnToContents(0)
 
         self.tree.doubleClicked.connect(self.search_current_tag)
-        if self.tree.model().rowCount() > 0:
-            self.tree.setCurrentIndex(self.tree.model().index(0,0))
+        if self.model.rowCount() > 0:
+            self.tree.setCurrentIndex(self.model.index(0, 0))
 
     def refresh(self) -> None:
         """Refresh the search listing and restore the selection, if possible."""
@@ -183,7 +185,7 @@ class TagPanel(panel.Panel):
 
         row = self.tree.currentIndex().row() + 1
         if row >= self.model.num_tags(): return
-        ix = self.tree.model().index(row, 0)
+        ix = self.model.index(row, 0)
         self.tree.setCurrentIndex(ix)
 
     def previous_tag(self, unread: bool=False) -> None:
@@ -192,7 +194,7 @@ class TagPanel(panel.Panel):
 
         row = self.tree.currentIndex().row() - 1
         if row < 0: return
-        ix = self.tree.model().index(row, 0)
+        ix = self.model.index(row, 0)
         self.tree.setCurrentIndex(ix)
 
     def first_tag(self) -> None:
@@ -205,7 +207,7 @@ class TagPanel(panel.Panel):
     def last_tag(self) -> None:
         """Select the last tag"""
 
-        ix = self.model.index(self.tree.model().rowCount()-1, 0)
+        ix = self.model.index(self.model.rowCount()-1, 0)
         if self.model.checkIndex(ix):
             self.tree.setCurrentIndex(ix)
 

@@ -121,6 +121,7 @@ class SyncMailThread(QThread):
                                  stderr=subprocess.PIPE,
                                  start_new_session=True,
                                  universal_newlines=True)
+            assert p.stdout is not None
             procs[p.stdout.fileno()] = (p, acct)
             self._procs.append(p)
 
@@ -138,6 +139,7 @@ class SyncMailThread(QThread):
 
             for fd in readable:
                 proc, acct = procs[fd]
+                assert proc.stdout is not None
                 line = proc.stdout.readline()
                 if not line:
                     # Process finished

@@ -282,12 +282,14 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         self.model = SearchModel(q)
         self.tree.setModel(self.model)
         self.model.modelReset.connect(self.on_data_refresh)
-        self.layout().addWidget(self.error_view)
-        self.layout().addWidget(self.tree)
+        lay = self.layout()
+        if lay is not None:
+            lay.addWidget(self.error_view)
+            lay.addWidget(self.tree)
         self.tree.doubleClicked.connect(self.open_current_thread)
         self._setup_auto_open(self.tree)
-        if self.tree.model().rowCount() > 0:
-            self.tree.setCurrentIndex(self.tree.model().index(0,0))
+        if self.model.rowCount() > 0:
+            self.tree.setCurrentIndex(self.model.index(0, 0))
         self.on_data_refresh()
         self.restore_tree_geometry()
 
@@ -387,7 +389,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         row = self.tree.currentIndex().row()
         while True:
             row += 1
-            i = self.tree.model().index(row, 0)
+            i = self.model.index(row, 0)
             thread = self.model.thread_json(i)
             if not thread:
                 break
@@ -404,7 +406,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         row = self.tree.currentIndex().row()
         while True:
             row -= 1
-            i = self.tree.model().index(row, 0)
+            i = self.model.index(row, 0)
             thread = self.model.thread_json(i)
             if not thread:
                 break
@@ -422,7 +424,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
     def last_thread(self) -> None:
         """Select the last thread in the search"""
 
-        ix = self.model.index(self.tree.model().rowCount()-1, 0)
+        ix = self.model.index(self.model.rowCount()-1, 0)
         if self.model.checkIndex(ix):
             self.tree.setCurrentIndex(ix)
 
