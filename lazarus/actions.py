@@ -205,26 +205,35 @@ def _unique_dest(path: str) -> str:
 
 
 def _resolve_stale_path(f: str) -> Optional[str]:
-    """If *f* doesn't exist on disk, search its parent directory for a
-    file with the same basename stem (mbsync may have renamed it, e.g.
-    ``:2,`` → ``:2,S`` on flag sync).
+    """If *f* doesn't exist on disk, look for a file with the same
+    basename stem in this Maildir's 'cur' and 'new' subdirectories.
 
-    Returns the resolved path, or None if no match is found.
+    Handles both mbsync flag-suffix renames (':2,' -> ':2,S') and
+    notmuch's synchronize_flags moving a message out of 'new/' into
+    'cur/' the first time any flag (e.g. Seen/unread) is written.
     """
     if os.path.exists(f):
         return f
     parent = os.path.dirname(f)
     stem = os.path.basename(f)
-    # Strip the :2,... info suffix to get the stable basename
     stem_base = stem.rsplit(':2,', 1)[0] if ':2,' in stem else stem
-    try:
-        for entry in os.listdir(parent):
-            if entry.startswith(stem_base):
-                return os.path.join(parent, entry)
-    except OSError:
-        pass
-    return None
 
+    candidates = [parent]
+    if os.path.basename(parent) in ('new', 'cur'):
+        maildir_base = os.path.dirname(parent)
+        for sub in ('cur', 'new'):
+            sibling = os.path.join(maildir_base, sub)
+            if sibling not in candidates:
+                candidates.append(sibling)
+
+    for directory in candidates:
+        try:
+            for entry in os.listdir(directory):
+                if entry.startswith(stem_base):
+                    return os.path.join(directory, entry)
+        except OSError:
+            pass
+    return None
 
 # ---------------------------------------------------------------------------
 # Public API
