@@ -62,6 +62,11 @@ class ComposePanel(panel.Panel):
     :param msg: A JSON message referenced in a reply or forward. If mode != '',
                 this cannot be None.
     """
+    # In the translucent-tab-bar prototype the panel itself must paint bg
+    # so Compose's inter-field gaps (QVBoxLayout spacing with margins 0)
+    # don't show desktop. Search/Thread use QTreeView/QWebEngine; Compose
+    # is plain QWidgets so it needs an explicit fill (handled via Panel
+    # autoFillBackground + themes QSS).
 
     def __init__(self, a: "Dodo | AppController", mode: str='', msg: Optional[dict]=None,
                  parent: Optional[QWidget]=None):

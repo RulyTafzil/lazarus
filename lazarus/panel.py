@@ -156,6 +156,10 @@ class Panel(QWidget):
         self.app = a
         self.keep_open = keep_open
         self.is_open = True
+        # Prototype A: panels must be opaque so inter-widget gaps (layout
+        # spacing/margins, splitter handle, compose field gaps) don't leak
+        # desktop. QTreeView/QWebEngine paint their own bg; plain Panels need it.
+        self.setAutoFillBackground(True)
 
         self.keymap: Optional[dict] = None
         self.setLayout(QVBoxLayout())

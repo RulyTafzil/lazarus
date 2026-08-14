@@ -128,6 +128,26 @@ QTreeView::branch {{
     border: none;
     background: {bg};
 }}
+/* Prototype A: only gaps need opaque fill; do NOT re-paint the
+   tab-bar strip. Keep QSplitter handle and compose inter-field gaps
+   opaque without covering the empty area right-of-tabs (which is
+   QTabBar). WA_Translucent on QTabBar/QTabWidget is set in mainwindow. */
+QSplitter::handle {{
+    background: {bg};
+}}
+QSplitter::handle:horizontal {{
+    width: 6px;
+}}
+QSplitter::handle:vertical {{
+    height: 6px;
+}}
+/* Compose/search panels have plain QWidget gaps between fields —
+   make Panels paint bg so desktop doesn't leak there. Search/Thread
+   lists already paint via QTreeView/QWebEngine; this just covers the
+   QWidget chrome around them. */
+Panel, SearchPanel, TagPanel, ComposePanel, ThreadPanel {{
+    background: {bg};
+}}
 /* ── Tab bar: tabs keep accent bg, bar/pane background transparent
    so desktop shows through. QTabWidget/QTabBar are WA_Translucent on
    the prototype branch (see mainwindow.py). Lists/preview stay opaque
