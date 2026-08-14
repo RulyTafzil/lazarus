@@ -144,7 +144,7 @@ class TagPanel(panel.Panel):
     def __init__(self, a: "Dodo | AppController", keep_open: bool=False, parent: Optional[QWidget]=None):
         super().__init__(a, keep_open, parent)
         self.set_keymap(keymap.tag_keymap)
-        self.tree = QTreeView()
+        self.tree = panel.HeaderInsetTreeView()
         self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setStyleSheet(f'QTreeView::item {{ padding: {settings.search_view_padding}px }}')
         self.model = TagModel()

@@ -21,6 +21,120 @@ from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
 
+# ---------------------------------------------------------------------------
+# Global stylesheet helpers — thin modern scrollbars + rounded Fusion widgets
+# ---------------------------------------------------------------------------
+
+def _is_dark(theme: dict) -> bool:
+    return QColor(theme['bg']).lightness() < 128
+
+
+def _border_color(theme: dict) -> str:
+    """Border color: bg_alt if distinct from bg, else a subtle step."""
+    bg = theme['bg']
+    bg_alt = theme.get('bg_alt', bg)
+    if QColor(bg_alt).name().lower() != QColor(bg).name().lower():
+        return bg_alt
+    c = QColor(bg)
+    return c.lighter(125).name() if _is_dark(theme) else c.darker(110).name()
+
+
+def _thumb_color(theme: dict) -> str:
+    """Scrollbar thumb: theme-derived, high enough contrast to see.
+
+    Dark themes: bg_button is usually the right muted tone.
+    Light themes: bg_button is often nearly identical to bg (e.g.
+    solarized_light), so fg_dim is far more visible.
+    """
+    bg = theme['bg']
+    is_dark = _is_dark(theme)
+    if is_dark:
+        bg_button = theme.get('bg_button', theme.get('bg_alt', bg))
+        if QColor(bg_button).name().lower() != QColor(bg).name().lower():
+            if abs(QColor(bg_button).lightness() - QColor(bg).lightness()) > 10:
+                return bg_button
+        return theme.get('fg_dim', theme['fg'])
+    else:
+        # light background — fg_dim (a muted dark) is reliably visible
+        return theme.get('fg_dim', theme.get('bg_button', theme['fg']))
+
+
+def _thumb_hover_color(base_hex: str, is_dark: bool) -> str:
+    c = QColor(base_hex)
+    if not c.isValid():
+        return base_hex
+    return c.lighter(125).name() if is_dark else c.darker(112).name()
+
+
+def build_global_stylesheet(theme: dict) -> str:
+    """Return application-wide QSS for Fusion: thin scrollbars + rounded panels.
+
+    All colors are derived from *theme* so every existing palette (Nord,
+    Solarized, Gruvbox, Catppuccin) adapts without per-theme tuning.
+    Called from :func:`apply_theme`.
+    """
+    is_dark = _is_dark(theme)
+    bg = theme['bg']
+    fg = theme['fg']
+    bg_alt = theme.get('bg_alt', bg)
+    bg_button = theme.get('bg_button', bg_alt)
+    fg_dim = theme.get('fg_dim', fg)
+    bg_highlight = theme.get('bg_highlight', theme.get('fg_link', fg))
+    fg_highlight = theme.get('fg_highlight', bg)
+    fg_link = theme.get('fg_link', fg)
+
+    thumb = _thumb_color(theme)
+    thumb_hover = _thumb_hover_color(thumb, is_dark)
+
+    return f"""
+/* ── Thin modern scrollbars — pill handle, no arrows, transparent track ── */
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 0px;
+    border: none;
+}}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0px;
+    border: none;
+}}
+QScrollBar::handle:vertical {{
+    background: {thumb};
+    min-height: 28px;
+    border-radius: 4px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {thumb};
+    min-width: 28px;
+    border-radius: 4px;
+}}
+QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+    background: {thumb_hover};
+}}
+QScrollBar::handle:vertical:pressed, QScrollBar::handle:horizontal:pressed {{
+    background: {thumb_hover};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    height: 0px;
+    width: 0px;
+    border: none;
+    background: none;
+}}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: none;
+}}
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {{
+    border: none;
+    background: none;
+}}
+"""
+
+
 # palettes used in theme definitions
 nord_p = {
   'polar0':  '#2e3440',
@@ -335,3 +449,10 @@ def apply_theme(theme: dict) -> None:
     palette.setColor(QPalette.ColorRole.Highlight, QColor(theme['bg_highlight']))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(theme['fg_highlight']))
     QApplication.setPalette(palette)
+    # Application-wide stylesheet: thin scrollbar + rounded Fusion containers.
+    # Derived from the same theme dict so every palette adapts automatically.
+    # setStyleSheet is an *instance* method (unlike setStyle/setPalette which
+    # are static), so call it on the live QApplication.
+    inst = QApplication.instance()
+    if inst is not None:
+        inst.setStyleSheet(build_global_stylesheet(theme))

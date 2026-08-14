@@ -18,7 +18,7 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 from typing import Optional, List, Set
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QRect
 from PyQt6.QtGui import QFocusEvent, QFont, QKeyEvent
 from PyQt6.QtWidgets import *
 import shutil
@@ -34,6 +34,45 @@ if TYPE_CHECKING:
     from .app import Dodo
 
 logger = logging.getLogger(__name__)
+
+
+class HeaderInsetTreeView(QTreeView):
+    """QTreeView where the header spans the full width and the
+    vertical scrollbar starts *below* the header row.
+
+    Default Qt lays the vertical scrollbar over the full height,
+    so the header is inset by the scrollbar width.  This override
+    keeps the header full-width and insets the bar instead — the
+    header row spans the entire horizontal space, list + scrollbar
+    live strictly below it.
+    """
+
+    _in_update = False
+
+    def updateGeometries(self) -> None:  # type: ignore[override]
+        super().updateGeometries()
+        if self._in_update or self.isHeaderHidden():
+            return
+        self._in_update = True
+        try:
+            header = self.header()
+            vbar = self.verticalScrollBar()
+            hg = header.geometry()
+            vg = vbar.geometry()
+            header_bottom = hg.y() + hg.height()
+            # Inset vertical scrollbar below header
+            if vg.top() < header_bottom:
+                delta = header_bottom - vg.top()
+                vbar.setGeometry(QRect(vg.x(), header_bottom, vg.width(), max(0, vg.height() - delta)))
+                vg = vbar.geometry()
+            # Expand header to full width (header normally inset by scrollbar width)
+            fw = self.frameWidth()
+            full_w = self.rect().width() - 2 * fw
+            if full_w > 0 and hg.width() != full_w:
+                header.setGeometry(QRect(hg.x(), hg.y(), full_w, hg.height()))
+        finally:
+            self._in_update = False
+
 
 class Panel(QWidget):
     """A container widget that can handle key events and be shown on a tab

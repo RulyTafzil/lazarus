@@ -252,7 +252,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         self.set_keymap(keymap.search_keymap)
         self.q = q
         self._geometry_key = 'search_tree_geometry'
-        self.tree = QTreeView()
+        self.tree = panel.HeaderInsetTreeView()
         self.error_view = QLabel()
         self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setStyleSheet(f'QTreeView::item {{ padding: {settings.search_view_padding}px }}')
