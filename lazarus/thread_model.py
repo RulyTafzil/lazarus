@@ -82,7 +82,7 @@ def short_string(m: dict) -> str:
 class ThreadItem:
     """A single message together with its reply-children."""
 
-    def __init__(self, raw_data, parent: ThreadItem | None):
+    def __init__(self, raw_data: list, parent: ThreadItem | None):
         self.msg = raw_data[0]
         self.parent = parent
         self.children = [ThreadItem(elt, self) for elt in raw_data[1]]

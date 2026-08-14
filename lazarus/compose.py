@@ -50,7 +50,7 @@ from .protocols import PanelApp
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
-    import gnupg
+    import gnupg  # type: ignore[import-not-found]
 except ImportError as ex:
     pass
 
@@ -148,7 +148,7 @@ class ComposePanel(panel.Panel):
     def _build_ui(self) -> None:
         """Construct the compose panel UI."""
         lay = self.layout()
-        if lay is None:
+        if not isinstance(lay, QVBoxLayout):
             return
         lay.setSpacing(4)
 

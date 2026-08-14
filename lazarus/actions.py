@@ -88,6 +88,8 @@ class _BulkMoveWorker(QThread):
                     self._batches_pending -= 1
                 self.batch_done.emit()
                 continue
+            if not isinstance(item, tuple):
+                continue
             src, dst = item
             if not os.path.exists(src):
                 logger.debug('skip (already moved): %s', src)

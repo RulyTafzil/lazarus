@@ -82,7 +82,7 @@ class CommandBar(QPlainTextEdit):
         c.movePosition(QTextCursor.MoveOperation.End)
         self.setTextCursor(c)
 
-    def _get_completer(self):
+    def _get_completer(self) -> QCompleter:
         """Prepare the completer for tags."""
         completer = QCompleter(notmuch.tags(), self)
         completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
@@ -97,7 +97,7 @@ class CommandBar(QPlainTextEdit):
             lambda: self.handleTextChanged(self.toPlainText()))
         return completer
 
-    def handleTextChanged(self, text: str):
+    def handleTextChanged(self, text: str) -> None:
         """Open suggestion dialog if a matching tag is present."""
         prefix = text.rsplit(sep=" ", maxsplit=1)[-1]
         if len(prefix) == 0:
@@ -112,10 +112,12 @@ class CommandBar(QPlainTextEdit):
             self.completer.setCompletionPrefix(prefix)
 
             popup = self.completer.popup()
-            popup.setCurrentIndex(self.completer.completionModel().index(0, 0))
+            model = self.completer.completionModel()
+            if popup is not None and model is not None:
+                popup.setCurrentIndex(model.index(0, 0))
             self.completer.complete()
 
-    def handleCompletion(self, text):
+    def handleCompletion(self, text: str) -> None:
         """Use the choosen tag."""
         prefix = self.completer.completionPrefix()
         self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
@@ -166,7 +168,8 @@ class CommandBar(QPlainTextEdit):
         history associated with the current mode, then calls :func:`close_bar` to clear
         the command and close the command bar."""
 
-        if self.completer.popup().isVisible():
+        popup = self.completer.popup()
+        if popup is not None and popup.isVisible():
             return
 
         if self.callback:
@@ -219,7 +222,8 @@ class CommandBar(QPlainTextEdit):
         """
         if e is None:
             return
-        if self.completer.popup().isVisible() and e.key() in [
+        popup = self.completer.popup()
+        if popup is not None and popup.isVisible() and e.key() in [
             QtCore.Qt.Key.Key_Enter,
             QtCore.Qt.Key.Key_Return,
             QtCore.Qt.Key.Key_Up,

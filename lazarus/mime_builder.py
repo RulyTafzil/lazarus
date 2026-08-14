@@ -35,10 +35,13 @@ from typing import Dict, List, Optional, Union
 import email.message
 import email.utils
 import email.policy
+import email.mime.base
 import email.mime.multipart
 import email.mime.text
 import email.mime.image
 import email.mime.application
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
 
 
 @dataclass
@@ -74,7 +77,7 @@ def _guess_mime(path: str) -> tuple[str, str]:
 
 def build_message(
     data: ComposeData,
-) -> email.message.MIMEMultipart | email.message.EmailMessage:
+) -> MIMEMultipart | email.message.EmailMessage:
     """Build a MIME message from *data*.
 
     Returns a :class:`~email.message.EmailMessage` for simple messages
@@ -136,7 +139,8 @@ def build_message(
             img_data = f.read()
 
         if maintype == 'image':
-            img_part = email.mime.image.MIMEImage(img_data, _subtype=subtype)
+            img_part: MIMEBase = email.mime.image.MIMEImage(
+                img_data, _subtype=subtype)
         else:
             img_part = email.mime.application.MIMEApplication(
                 img_data, _subtype=subtype)
@@ -155,7 +159,7 @@ def build_message(
 
 
 def _set_headers(
-    msg: email.message.MIMEMultipart | email.message.EmailMessage,
+    msg: MIMEMultipart | email.message.EmailMessage,
     data: ComposeData,
 ) -> None:
     """Set common headers on *msg*."""
@@ -173,7 +177,7 @@ def _set_headers(
 
 
 def _add_attachments(
-    msg: email.message.MIMEMultipart | email.message.EmailMessage,
+    msg: MIMEMultipart | email.message.EmailMessage,
     data: ComposeData,
 ) -> None:
     """Attach files from *data.attachments* to *msg*."""
@@ -194,14 +198,14 @@ def _add_attachments(
         else:
             # MIMEMultipart
             if maintype == 'image':
-                part = email.mime.image.MIMEImage(
+                part: MIMEBase = email.mime.image.MIMEImage(
                     att_data, _subtype=subtype)
             elif maintype == 'application':
                 part = email.mime.application.MIMEApplication(
                     att_data, _subtype=subtype)
             else:
                 part = email.mime.text.MIMEText(
-                    att_data, _subtype=subtype)
+                    att_data.decode('utf-8', errors='replace'), _subtype=subtype)
             part['Content-Disposition'] = (
                 f'attachment; filename="{os.path.basename(att_path)}"')
             msg.attach(part)

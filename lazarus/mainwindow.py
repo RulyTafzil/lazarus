@@ -180,13 +180,16 @@ class MainWindow(QMainWindow):
             saved = conf2.value(f"main_splitter_state_{settings.thread_pane_position}")
             if saved:
                 # QSettings may return QByteArray or bytes depending on Qt ver
-                self._open_splitter_state = bytes(saved) if isinstance(saved, (bytes, bytearray)) else saved
+                if isinstance(saved, QByteArray):
+                    self._open_splitter_state = saved.data()
+                else:
+                    self._open_splitter_state = bytes(saved)
             else:
                 # No saved state yet — use the default 50/50 as open state
-                self._open_splitter_state = bytes(self.main_splitter.saveState())
+                self._open_splitter_state = self.main_splitter.saveState().data()
         except Exception:
             try:
-                self._open_splitter_state = bytes(self.main_splitter.saveState())
+                self._open_splitter_state = self.main_splitter.saveState().data()
             except Exception:
                 self._open_splitter_state = None
         self.thread_container.hide()
@@ -372,7 +375,7 @@ class MainWindow(QMainWindow):
         conf.setValue(key, self.main_splitter.saveState())
         # Keep the in-memory open-state in sync while preview is visible
         try:
-            self._open_splitter_state = bytes(self.main_splitter.saveState())
+            self._open_splitter_state = self.main_splitter.saveState().data()
         except Exception:
             pass
 

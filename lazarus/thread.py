@@ -79,8 +79,8 @@ class ThreadPanel(panel.Panel):
         self.thread_id = thread_id
         self.query = search_query
         self.html_mode = settings.default_to_html
-        self._saved_msg = None
-        self._saved_collapsed = None
+        self._saved_msg: str | None = None
+        self._saved_collapsed: set[str] | None = None
 
         self.subject = '(no subject)'
 
@@ -153,9 +153,9 @@ class ThreadPanel(panel.Panel):
         view.setZoomFactor(1.2)
         view.setStyleSheet(
             f'background-color: {settings.theme["bg"]};')
-        page = view.page()
-        if page is not None:
-            page.setBackgroundColor(QColor(settings.theme['bg']))
+        vp = view.page()
+        if vp is not None:
+            vp.setBackgroundColor(QColor(settings.theme['bg']))
         return view
 
     @property

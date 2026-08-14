@@ -70,9 +70,10 @@ class SyncMailThread(QThread):
 
     progress = pyqtSignal(str)
 
-    def __init__(self, parent: QObject=None) -> None:
+    def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._procs: list[subprocess.Popen] = []
+        self._proc: subprocess.Popen | None = None
         self._stopping = False
         self.sync_stderr: str = ''
         self.sync_rc: int = 0
