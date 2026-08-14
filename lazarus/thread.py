@@ -88,9 +88,12 @@ class ThreadPanel(panel.Panel):
         self.thread_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         header = self.thread_list.header()
         if header is not None:
+            # Content-sized minimum, but stretch to fill the panel width so
+            # short entries don't leave the message column hugging the
+            # longest address.
             header.setSectionResizeMode(
                 QHeaderView.ResizeMode.ResizeToContents)
-            header.setStretchLastSection(False)
+            header.setStretchLastSection(True)
         self.thread_list.setHeaderHidden(True)
         self.thread_list.setRootIsDecorated(False)
         self.thread_list.setModel(self.model)
