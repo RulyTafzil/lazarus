@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         # List side: tabs (searches, compose, tags)
         self.tabs = QTabWidget()
         self.tabs.setMinimumWidth(220)
+        self.tabs.setMinimumHeight(220)
         self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Thread preview side

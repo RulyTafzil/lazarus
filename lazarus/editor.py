@@ -89,7 +89,7 @@ class RichTextEditor(QTextEdit):
         )
         self.setAcceptRichText(True)
         self.setTabChangesFocus(False)
-        self.setMinimumHeight(200)
+        self.setMinimumHeight(220)
         self.setMinimumWidth(220)
 
         # Allow drag-and-drop of images
