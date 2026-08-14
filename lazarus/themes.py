@@ -85,8 +85,16 @@ def build_global_stylesheet(theme: dict) -> str:
 
     thumb = _thumb_color(theme)
     thumb_hover = _thumb_hover_color(thumb, is_dark)
+    header_bg = theme.get('bg_alt', bg)
 
     return f"""
+/* ── Header row spans full width (paired with HeaderInsetTreeView) ── */
+QHeaderView {{
+    background: {header_bg};
+}}
+QHeaderView::section {{
+    background: {header_bg};
+}}
 /* ── Thin modern scrollbars — pill handle, no arrows, transparent track ── */
 QScrollBar:vertical {{
     background: transparent;

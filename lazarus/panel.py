@@ -19,7 +19,7 @@
 from __future__ import annotations
 from typing import Optional, List, Set
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QRect
-from PyQt6.QtGui import QFocusEvent, QFont, QKeyEvent
+from PyQt6.QtGui import QColor, QFocusEvent, QFont, QKeyEvent, QPalette
 from PyQt6.QtWidgets import *
 import shutil
 import logging
@@ -42,16 +42,62 @@ class HeaderInsetTreeView(QTreeView):
 
     Default Qt lays the vertical scrollbar over the full height,
     so the header is inset by the scrollbar width.  This override
-    keeps the header full-width and insets the bar instead — the
-    header row spans the entire horizontal space, list + scrollbar
-    live strictly below it.
+    keeps the header's native inset width but paints a corner fill
+    widget above the scrollbar in the header row's background color,
+    and insets the vertical scrollbar to start below the header.
+    Visually the header reads as full-width (header + corner share
+    the same bg), while geometry stays native so stretchLastSection
+    and horizontal scroll remain correct — no phantom 8px hbar.
     """
 
     _in_update = False
 
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._corner = QWidget(self)
+        self._corner.setAutoFillBackground(True)
+        self._corner.hide()
+
+    def _corner_color(self) -> str:
+        # Header sections are styled via QSS as bg_alt; the corner fill
+        # must match. Prefer the header's own palette (which QSS tints to
+        # bg_alt) and fall back to settings.theme.
+        try:
+            c = self.header().palette().color(QPalette.ColorRole.Window)
+            if c.isValid():
+                return c.name()
+        except Exception:
+            pass
+        try:
+            return settings.theme.get('bg_alt', settings.theme['bg'])
+        except Exception:
+            return '#3b4252'
+
+    def _update_corner(self) -> None:
+        if self.isHeaderHidden() or not self.verticalScrollBar().isVisible():
+            self._corner.hide()
+            return
+        header = self.header()
+        hg = header.geometry()
+        r = self.rect()
+        fw = self.frameWidth()
+        corner_x = hg.x() + hg.width()
+        corner_w = (r.width() - fw) - corner_x
+        if corner_w > 0:
+            pal = self._corner.palette()
+            pal.setColor(QPalette.ColorRole.Window, QColor(self._corner_color()))
+            self._corner.setPalette(pal)
+            self._corner.setGeometry(QRect(corner_x, hg.y(), corner_w, hg.height()))
+            self._corner.show()
+            self._corner.raise_()
+        else:
+            self._corner.hide()
+
     def updateGeometries(self) -> None:  # type: ignore[override]
         super().updateGeometries()
         if self._in_update or self.isHeaderHidden():
+            if not self._in_update and self.isHeaderHidden():
+                self._corner.hide()
             return
         self._in_update = True
         try:
@@ -60,18 +106,27 @@ class HeaderInsetTreeView(QTreeView):
             hg = header.geometry()
             vg = vbar.geometry()
             header_bottom = hg.y() + hg.height()
-            # Inset vertical scrollbar below header
             if vg.top() < header_bottom:
                 delta = header_bottom - vg.top()
                 vbar.setGeometry(QRect(vg.x(), header_bottom, vg.width(), max(0, vg.height() - delta)))
-                vg = vbar.geometry()
-            # Expand header to full width (header normally inset by scrollbar width)
-            fw = self.frameWidth()
-            full_w = self.rect().width() - 2 * fw
-            if full_w > 0 and hg.width() != full_w:
-                header.setGeometry(QRect(hg.x(), hg.y(), full_w, hg.height()))
+            self._update_corner()
         finally:
             self._in_update = False
+
+    def resizeEvent(self, e) -> None:  # type: ignore[override]
+        super().resizeEvent(e)
+        if not self._in_update and not self.isHeaderHidden():
+            # Corner position depends on header width; re-evaluate
+            # after QWidget's own resize handling.
+            self._update_corner()
+
+    def showEvent(self, e) -> None:  # type: ignore[override]
+        super().showEvent(e)
+        if not self.isHeaderHidden():
+            pal = self._corner.palette()
+            pal.setColor(QPalette.ColorRole.Window, QColor(self._corner_color()))
+            self._corner.setPalette(pal)
+            self._update_corner()
 
 
 class Panel(QWidget):
