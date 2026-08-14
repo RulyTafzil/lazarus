@@ -528,10 +528,11 @@ class ComposePanel(panel.Panel):
         """Get the GPG key id for the current SMTP account."""
         return compose_model.gnupg_keyid_for_account(self.current_account)
 
-    def next_account(self) -> None:
-        """Cycle to the next SMTP account."""
+    def _cycle_account(self, delta: int) -> None:
+        """Cycle the SMTP account by *delta* (±1) and re-sync the
+        From/PGP/signature state for the new account."""
         old_email = self.email_address()
-        self.current_account = (self.current_account + 1) % len(
+        self.current_account = (self.current_account + delta) % len(
             settings.smtp_accounts)
         if self.email_address() != old_email:
             self._data.from_addr = self.email_address()
@@ -540,17 +541,13 @@ class ComposePanel(panel.Panel):
         self._insert_signature()
         self.refresh()
 
+    def next_account(self) -> None:
+        """Cycle to the next SMTP account."""
+        self._cycle_account(1)
+
     def previous_account(self) -> None:
         """Cycle to the previous SMTP account."""
-        old_email = self.email_address()
-        self.current_account = (self.current_account - 1) % len(
-            settings.smtp_accounts)
-        if self.email_address() != old_email:
-            self._data.from_addr = self.email_address()
-        self.pgp_sign = self.gnupg_keyid() is not None
-        self._reload_signature()
-        self._insert_signature()
-        self.refresh()
+        self._cycle_account(-1)
 
     # ── PGP toggles ──────────────────────────────────────────────────
 

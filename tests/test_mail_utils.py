@@ -84,6 +84,19 @@ def test_separate_headers():
     assert 'body line 1' in b
 
 
+def test_sort_tags_respects_tag_order(monkeypatch):
+    import lazarus.settings as settings
+    monkeypatch.setattr(settings, 'tag_order', ['marked', 'Urgent', 'inbox'])
+    tags = ['unread', 'inbox', 'Urgent', 'zebra', 'marked']
+    assert util.sort_tags(tags) == ['marked', 'Urgent', 'inbox', 'unread', 'zebra']
+
+
+def test_sort_tags_empty(monkeypatch):
+    import lazarus.settings as settings
+    monkeypatch.setattr(settings, 'tag_order', [])
+    assert util.sort_tags(['b', 'a']) == ['a', 'b']
+
+
 def test_wrap_message_keeps_quotes():
     text = 'From: a\n\n' + 'x' * 300
     wrapped = util.wrap_message(text)

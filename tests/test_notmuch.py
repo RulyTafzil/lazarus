@@ -108,6 +108,36 @@ def test_tag_without_exclude_marked(monkeypatch):
     assert captured['args'] == ('tag', '+work', '--', 'thread:abc')
 
 
+def test_show_part_captures_bytes(monkeypatch):
+    """show_part returns raw bytes, not text (attachments are binary)."""
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured['args'] = args
+        captured['kwargs'] = kwargs
+        return subprocess.CompletedProcess(
+            args, 0, stdout=b'\x89PNG\r\n\x1a\n', stderr=b'')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    out = nm.show_part(7, 'msgid123')
+    assert out == b'\x89PNG\r\n\x1a\n'
+    assert captured['args'] == [
+        'show', '--part', '7', '--decrypt=true', '--', 'id:msgid123']
+    assert captured['kwargs'] == {'stdout': subprocess.PIPE, 'check': True}
+
+
+def test_show_part_skips_decrypt_flag_when_disabled(monkeypatch):
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured['args'] = args
+        return subprocess.CompletedProcess(args, 0, stdout=b'data')
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    nm.show_part(3, 'id1', decrypt=False)
+    assert captured['args'] == ['show', '--part', '3', '--', 'id:id1']
+
+
 def test_search_files_passes_exclude_false(monkeypatch):
     captured = {}
 

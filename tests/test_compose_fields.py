@@ -129,3 +129,34 @@ def test_send_bound_only_to_cs(qapp):
     # Ctrl variants stay free for copy/bold in the editor
     assert 'C-c' not in keymap.compose_keymap
     assert 'C-b' not in keymap.compose_keymap
+
+
+def test_account_cycle_wraps_and_updates_from(qapp):
+    """next/previous_account cycle through smtp_accounts with wrap-around
+    and update the From address (exercises _cycle_account)."""
+    settings.smtp_accounts = ['a', 'b', 'c']
+    settings.use_signature = False
+    p = _make_panel(qapp)
+    # _make_panel sets a plain string address; switch to a per-account
+    # dict and re-render the From label before cycling.
+    settings.email_address = {
+        'a': 'A <a@example.com>',
+        'b': 'B <b@example.com>',
+        'c': 'C <c@example.com>',
+    }
+    p.refresh()
+    assert p.current_account == 0
+    assert 'a@example.com' in p.from_label.text()
+
+    p.next_account()
+    assert p.current_account == 1
+    assert 'b@example.com' in p.from_label.text()
+    p.next_account()
+    assert p.current_account == 2
+    assert 'c@example.com' in p.from_label.text()
+    p.next_account()  # wraps to 0
+    assert p.current_account == 0
+    assert 'a@example.com' in p.from_label.text()
+    p.previous_account()  # wraps to 2
+    assert p.current_account == 2
+    assert 'c@example.com' in p.from_label.text()

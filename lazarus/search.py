@@ -31,6 +31,7 @@ from . import notmuch
 from . import keymap
 from . import panel
 from . import actions
+from . import util
 from .protocols import PanelApp
 from .thread_model import latest_message
 
@@ -64,10 +65,7 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
             return thread_d['subject']
         elif col == 'tags':
             tag_icons = []
-            # Sort by settings.tag_order, then alphabetical for the rest
-            priority = {t: i for i, t in enumerate(settings.tag_order)}
-            tags = sorted(thread_d['tags'],
-                          key=lambda t: (priority.get(t, len(settings.tag_order)), t))
+            tags = util.sort_tags(thread_d['tags'])
             for t in tags:
                 if t in hide_tags:
                     continue

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import email.utils
 import textwrap
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Iterable
 
 from . import settings
 
@@ -147,6 +147,14 @@ def make_message_css() -> str:
     d["message_font"] = settings.message_font
     d["message_font_size"] = str(settings.message_font_size)
     return settings.message_css.format(**d)
+
+
+def sort_tags(tags: Iterable[str]) -> list[str]:
+    """Sort *tags* by :data:`~lazarus.settings.tag_order` priority, then
+    alphabetically — the display order used in the search tag column and
+    the thread header info."""
+    priority = {t: i for i, t in enumerate(settings.tag_order)}
+    return sorted(tags, key=lambda t: (priority.get(t, len(settings.tag_order)), t))
 
 
 # -- re-exports from split modules (backward compat) ----------------------

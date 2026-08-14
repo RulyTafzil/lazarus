@@ -38,6 +38,7 @@ from . import util
 from . import keymap
 from . import panel
 from . import actions
+from . import notmuch
 from .protocols import PanelApp
 from .webengine import (
     MessagePage,
@@ -298,10 +299,10 @@ class ThreadPanel(panel.Panel):
                         f'<td>{value}</td>'
                         f'</tr>')
             if 'tags' in m:
-                priority = {t: i for i, t in enumerate(settings.tag_order)}
                 tags = ' '.join(
                     settings.tag_icons[t] if t in settings.tag_icons
-                    else f'[{t}]' for t in sorted(m['tags'], key=lambda t: (priority.get(t, len(settings.tag_order)), t)))
+                    else f'[{t}]'
+                    for t in util.sort_tags(m['tags']))
                 header_html += (
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'
@@ -541,12 +542,10 @@ class ThreadPanel(panel.Panel):
             if not util.is_attachment(part):
                 continue
             try:
-                proc = subprocess.run(
-                    ['notmuch', 'show', '--part', str(part['id']), '--decrypt=true', '--', f"id:{m['id']}"],
-                    stdout=subprocess.PIPE, check=True)
+                content = notmuch.show_part(part['id'], m['id'])
             except subprocess.CalledProcessError:
                 continue
-            if not proc.stdout:
+            if not content:
                 continue
             filename = util.sanitize_filename(part.get('filename', 'attachment'))
             out = os.path.join(dest, filename)
@@ -558,7 +557,7 @@ class ThreadPanel(panel.Panel):
                 n += 1
             try:
                 with open(out, 'wb') as f:
-                    f.write(proc.stdout)
+                    f.write(content)
                 saved += 1
             except OSError:
                 pass

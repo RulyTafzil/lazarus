@@ -33,6 +33,7 @@ import tempfile
 from typing import Iterator, List, Tuple
 
 from .html_utils import html2text
+from . import notmuch
 
 
 def message_parts(m: dict) -> Iterator[dict]:
@@ -146,19 +147,18 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
 
     for part in message_parts(m):
         if is_attachment(part):
-            proc = subprocess.run(
-                ["notmuch", "show", "--part", str(part["id"]), "--decrypt=true", "--", "id:" + m["id"]],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
+            try:
+                content = notmuch.show_part(part["id"], m["id"])
+            except subprocess.CalledProcessError:
+                continue
             filename = part["filename"]
-            if not proc.stdout:
+            if not content:
                 print(f"Ignoring attachment {filename}: Got empty contents from notmuch")
                 continue
 
             p = os.path.join(temp_dir, sanitize_filename(filename))
             with open(p, 'wb') as att:
-                att.write(proc.stdout)
+                att.write(content)
             file_paths.append(p)
 
     if len(file_paths) == 0:
