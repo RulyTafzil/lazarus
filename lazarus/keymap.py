@@ -31,9 +31,12 @@ Keymap = Dict[str, KeyBinding]
 # changes behaviour depending on focus, and no <escape> preamble is
 # needed.
 #
-# List keys       → Dodo.delegate_to_list()
-# Thread keys     → Dodo.delegate_to_thread()
-# Global keys     → Dodo methods (open_search, sync_mail, …)
+# List keys       → app.delegate_to_list()
+# Thread keys     → app.delegate_to_thread()
+# Global keys     → app methods (open_search, sync_mail, …)
+#
+# The receiver is always the ``PanelApp`` the panel was built with — in
+# practice the ``AppController`` (see :mod:`lazarus.protocols`).
 
 global_keymap: Keymap = {
   # ── Thread list ──────────────────────────────────────────────────
@@ -105,8 +108,8 @@ global_keymap: Keymap = {
 """The global keymap
 
 Every key delegates either to the thread list or the thread preview
-pane directly (via :func:`~lazarus.app.Dodo.delegate_to_list` or
-:func:`~lazarus.app.Dodo.delegate_to_thread`), so all bindings work
+pane directly (via :func:`~lazarus.controller.AppController.delegate_to_list` or
+:func:`~lazarus.controller.AppController.delegate_to_thread`), so all bindings work
 regardless of which pane has keyboard focus.
 """
 

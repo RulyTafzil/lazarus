@@ -23,11 +23,12 @@ from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResi
 import logging
 import math
 import os
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 from . import commandbar
 from . import panel
 from . import settings
+from .protocols import PanelApp
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .controller import AppController
@@ -103,7 +104,11 @@ class MainWindow(QMainWindow):
     def __init__(self, a: "Dodo | AppController"):
         super().__init__()
         conf = QSettings('lazarus', 'lazarus')
-        self.app = a
+        # MainWindow only touches the PanelApp surface (panel_history,
+        # tabs) plus what it passes on to the CommandBar; Dodo keeps the
+        # panel_history/tabs attributes even though it no longer
+        # implements the full protocol (panels get the controller).
+        self.app = cast(PanelApp, a)
 
         # Try XDG theme first (picks up ~/.local/share/icons if installed),
         # fall back to the bundled 1024px PNG shipped in the package.
