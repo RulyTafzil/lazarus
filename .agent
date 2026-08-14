@@ -253,7 +253,7 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 |-----|--------|
 | `?` | Help (`HelpWindow`, three-column HTML) |
 | `c` | Compose (`open_compose`) |
-| `I` / `D` | Show inbox (`tag:inbox`) |
+| `I` | Show inbox (`tag:inbox`) |
 | `U` | Show unread (`tag:inbox and tag:unread`) |
 | `F` | Show flagged (`tag:flagged`) |
 | `T` | Tag browser (`open_tags`) |

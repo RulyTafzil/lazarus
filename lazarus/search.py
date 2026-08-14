@@ -208,7 +208,7 @@ class SearchModel(QAbstractItemModel):
         """Overrides `QAbstractItemModel.headerData` to populate a view with column names"""
 
         global columns
-        if role == Qt.ItemDataRole.DisplayRole and section <= len(columns):
+        if role == Qt.ItemDataRole.DisplayRole and section < len(columns):
             return columns[section]
         else:
             return None
