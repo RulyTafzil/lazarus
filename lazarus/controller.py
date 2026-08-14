@@ -242,6 +242,14 @@ class AppController(QObject):
         self.tabs.setCurrentWidget(p)
         self.main_window.activateWindow()
 
+    def show_help(self) -> None:
+        """Show help window — lives on Dodo (AppController is plain QObject)."""
+        # AppController doesn't own the HelpWindow; delegate to the app.
+        try:
+            self.app.show_help()  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
     def message(self, title: str, body: str) -> None:
         QMessageBox.warning(self.main_window, title, body)
 
