@@ -133,7 +133,7 @@ class TagModel(QAbstractItemModel):
         if not index or not index.isValid(): return self.num_tags()
         else: return 0
 
-    def parent(self, child: QModelIndex=None) -> Any:
+    def parent(self, child: QModelIndex = QModelIndex()) -> Any:
         """Always return an invalid index, since there are no nested indices"""
 
         if not child: return super().parent()

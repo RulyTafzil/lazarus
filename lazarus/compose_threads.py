@@ -25,7 +25,7 @@
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QObject, QThread
 import mailbox
 import email.parser
 import shlex
@@ -51,7 +51,7 @@ class EditorThread(QThread):
     """A QThread used for editing mail with the external editor."""
 
     def __init__(self, raw_message: str, panel: ComposePanel,
-                 parent: Optional[QThread] = None):
+                 parent: Optional[QObject] = None):
         super().__init__(parent)
         self.panel = panel
         self.raw_message_string = raw_message
@@ -79,7 +79,7 @@ class SendmailThread(QThread):
     """A QThread used for sending mail."""
 
     def __init__(self, panel: ComposePanel,
-                 parent: Optional[QThread] = None):
+                 parent: Optional[QObject] = None):
         super().__init__(parent)
         self.panel = panel
         self.send_success = False
@@ -113,7 +113,9 @@ class SendmailThread(QThread):
 
             # PGP
             if self.panel.pgp_sign:
-                eml = pgp_util.sign(eml, self.panel.gnupg_keyid())
+                keyid = self.panel.gnupg_keyid()
+                if keyid:
+                    eml = pgp_util.sign(eml, keyid)
             if self.panel.pgp_encrypt:
                 eml = pgp_util.encrypt(eml)
 

@@ -118,7 +118,7 @@ class Dodo(QApplication):
             QWebEngineUrlScheme.registerScheme(scheme)
 
         # set up GUI
-        self.panel_history = []
+        self.panel_history: list = []
         self.main_window = mainwindow.MainWindow(self)
         self.tabs = self.main_window.tabs
         self.command_bar = self.main_window.command_bar
@@ -166,7 +166,8 @@ class Dodo(QApplication):
         signal.set_wakeup_fd(self._signal_write_fd)
 
         self._signal_notifier = QSocketNotifier(
-            self._signal_read_fd, QSocketNotifier.Type.Read, self)
+            self._signal_read_fd, QSocketNotifier.Type.Read, self)  # type: ignore[call-overload]
+        # The stub declares the socket as voidptr; an int fd works at runtime.
         self._signal_notifier.activated.connect(self._handle_signal_wakeup)
 
         signal.signal(signal.SIGINT, lambda *_: None)
@@ -227,7 +228,7 @@ class Dodo(QApplication):
         return self.controller.raise_panel(p)  # type: ignore[attr-defined]
 
 
-    def message(self, title, body) -> None:
+    def message(self, title: str, body: str) -> None:
         return self.controller.message(title, body)
 
 
@@ -322,7 +323,7 @@ class Dodo(QApplication):
         return self.controller.refresh_panels()
 
 
-    def update_single_thread(self, thread_id: str, msg_id: str|None=None):
+    def update_single_thread(self, thread_id: str, msg_id: str|None=None) -> None:
         return self.controller.update_single_thread(thread_id, msg_id=msg_id)
 
 
@@ -452,8 +453,8 @@ def install_desktop() -> None:
     # -- desktop entry (embedded) ---------------------------------------
     os.makedirs(apps_dst, exist_ok=True)
     desktop_path = os.path.join(apps_dst, 'lazarus.desktop')
-    with open(desktop_path, 'w') as f:
-        f.write(_DESKTOP_ENTRY)
+    with open(desktop_path, 'w') as df:
+        df.write(_DESKTOP_ENTRY)
     print('Desktop entry installed to', desktop_path)
 
     # Update the icon cache so Qt/GNOME/KDE pick up the new icons

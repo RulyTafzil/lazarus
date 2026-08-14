@@ -36,7 +36,7 @@ defaults, as detailed below.
 from __future__ import annotations
 from . import themes
 from . import rules
-from typing import Literal, Dict, List, Union
+from typing import Literal, Dict, List, Union, Any
 
 # functional
 email_address: Union[str, Dict[str, str]] = ''
@@ -307,7 +307,7 @@ the web browser will request before opening. This is an extra measure against ph
 or emails opening your web browser without your permission.
 """
 
-html_confirm_open_links_trusted_hosts = []
+html_confirm_open_links_trusted_hosts: List[str] = []
 """A list of trusted hosts for HTML links.
 
 If a link is to a host in this list, it will be opened without confirmation, even if
@@ -438,7 +438,7 @@ well as {message_font} and {message_font_size}. Literal curly braces should be d
 '{' should be '{{' and '}' should be '}}'.
 """
 
-message2html_filters = []
+message2html_filters: List[Any] = []
 """A list of functions to extract text from a mail message JSON.
 
 Every item in this list should be a function, which either returns a HTML string
@@ -486,7 +486,7 @@ Example configuration using this feature to highlight markdown syntax:
   lazarus.settings.message_css += pygments_css.replace("{", "{{").replace("}", "}}")
 """
 
-search_color_overrides = {}
+search_color_overrides: Dict[str, Dict[str, str]] = {}
 """A dictionary mapping tags to color dictionaries.
 
 The color dictionaries map columns to override colors.

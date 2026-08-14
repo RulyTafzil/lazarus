@@ -19,7 +19,7 @@
 from __future__ import annotations
 from typing import Optional, List, Set
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QRect
-from PyQt6.QtGui import QColor, QFocusEvent, QFont, QKeyEvent, QPalette
+from PyQt6.QtGui import QColor, QFocusEvent, QFont, QKeyEvent, QPalette, QResizeEvent, QShowEvent
 from PyQt6.QtWidgets import *
 import shutil
 import logging
@@ -124,14 +124,14 @@ class HeaderInsetTreeView(QTreeView):
         finally:
             self._in_update = False
 
-    def resizeEvent(self, e) -> None:  # type: ignore[override]
+    def resizeEvent(self, e: QResizeEvent | None) -> None:  # type: ignore[override]
         super().resizeEvent(e)
         if not self._in_update and not self.isHeaderHidden():
             # Corner position depends on header width; re-evaluate
             # after QWidget's own resize handling.
             self._update_corner()
 
-    def showEvent(self, e) -> None:  # type: ignore[override]
+    def showEvent(self, e: QShowEvent | None) -> None:  # type: ignore[override]
         super().showEvent(e)
         if not self.isHeaderHidden():
             pal = self._corner.palette()
@@ -217,7 +217,7 @@ class Panel(QWidget):
         if hasattr(self, 'open_current_thread'):
             self.open_current_thread()
 
-    def focusInEvent(self, event: QFocusEvent | None):
+    def focusInEvent(self, event: QFocusEvent | None) -> None:
         if event is None:
             return
         super().focusInEvent(event)

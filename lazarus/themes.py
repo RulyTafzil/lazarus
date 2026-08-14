@@ -497,5 +497,5 @@ def apply_theme(theme: dict) -> None:
     # setStyleSheet is an *instance* method (unlike setStyle/setPalette which
     # are static), so call it on the live QApplication.
     inst = QApplication.instance()
-    if inst is not None:
+    if isinstance(inst, QApplication):
         inst.setStyleSheet(build_global_stylesheet(theme))

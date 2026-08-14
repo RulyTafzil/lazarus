@@ -57,7 +57,7 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
                        should be hidden (used by search panels)
     """
     if hide_tags is None:
-        hide_tags = settings.hide_tags
+        hide_tags = set(settings.hide_tags)
 
     if role == Qt.ItemDataRole.DisplayRole:
         if col == 'date':
@@ -122,10 +122,11 @@ class SearchModel(QAbstractItemModel):
     def __init__(self, q: str) -> None:
         super().__init__()
         self.q = q
-        self.d = []
+        self.d: list = []
+        self.threads: dict = {}
         self.json_str = ""
         self.num_threads = 0
-        self.error_msg = None
+        self.error_msg: str | None = None
         self.refresh()
 
     def refresh(self) -> None:
@@ -139,7 +140,7 @@ class SearchModel(QAbstractItemModel):
         except subprocess.CalledProcessError as e:
             # We keep the previous data, just add an error message on top.
             self.error_msg = f"notmuch: {e.stderr}"
-        self.threads = {thread['thread']: i for i,thread in enumerate(self.d)}
+        self.threads = {thread['thread']: i for i, thread in enumerate(self.d)}
         self.num_threads = len(self.d)
         self.endResetModel()
 
@@ -156,9 +157,10 @@ class SearchModel(QAbstractItemModel):
             thread_id = thread
             row = self.threads[thread]
         else:
-            thread_id = self.thread_id(thread)
+            tid = self.thread_id(thread)
+            assert tid is not None
+            thread_id = tid
             row = thread.row()
-            assert thread_id is not None
 
         logger.info("Search '%s': refreshing thread %s", self.q, thread_id)
         try:
@@ -188,7 +190,7 @@ class SearchModel(QAbstractItemModel):
             self.num_threads = len(self.d)
             self.endResetModel()
 
-    def refresh_num_threads(self):
+    def refresh_num_threads(self) -> None:
         """Only refresh the number of threads in the search, not the underlying data"""
         logger.info("Search '%s': Refreshing cached thread count", self.q)
         try:
@@ -254,7 +256,7 @@ class SearchModel(QAbstractItemModel):
         if not index or not index.isValid(): return self.num_threads
         else: return 0
 
-    def parent(self, child: QModelIndex=None) -> Any:
+    def parent(self, child: QModelIndex = QModelIndex()) -> Any:
         """Always return an invalid index, since there are no nested indices"""
 
         if not child: return super().parent()
@@ -304,7 +306,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         self._dirty_content = value
         self._dirty_title = value
 
-    def on_data_refresh(self):
+    def on_data_refresh(self) -> None:
         if self.model.error_msg is None:
             self.error_view.hide()
         else:

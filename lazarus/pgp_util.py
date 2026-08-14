@@ -16,25 +16,31 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
+from __future__ import annotations
+
 import email
 import email.utils
 import email.message
+import email.policy
+import logging
+import os
 import re
 import sys
-from typing import Protocol
+from typing import Any, Optional, Protocol
+
 from . import settings
 from . import util
 
 # gnupg is only needed for pgp/mime support, do not throw when not present
 try:
-    import gnupg
+    import gnupg  # type: ignore[import-not-found]
 except (ImportError, NameError):
     gnupg = None  # type: ignore
 
-_gpg_instance = None
+_gpg_instance: Optional[Any] = None
 
 
-def _get_gpg():
+def _get_gpg() -> Optional[Any]:
     """Lazily initialise the GPG instance so settings.gnupg_home can be
     configured via config.py before the first GPG operation."""
     global _gpg_instance
@@ -47,7 +53,7 @@ class GpgError(Exception):
     pass
 
 
-def ensure_gpg():
+def ensure_gpg() -> None:
     if _get_gpg() is None:
         raise GpgError("python-gnupg is needed to sign/encrypt")
 
@@ -71,7 +77,7 @@ def raise_for_status(result: GpgResult) -> None:
     raise GpgError(message)
 
 
-def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMessage:
+def sign(msg: email.message.Message, keyid: str) -> email.message.EmailMessage:
     ensure_gpg()
     gpg = _get_gpg()
     assert gpg is not None  # for mypy
@@ -84,7 +90,7 @@ def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMess
     # required per rfc-3156
     # Moreover, by working on the copy we leave the original message
     # (msg) unaltered.
-    gpg_policy = msg.policy.clone(linesep='\r\n', utf8=False)
+    gpg_policy = msg.policy.clone(linesep='\r\n')
     msg_to_sign = email.message_from_string(msg.as_string(), policy=gpg_policy)
     # Create a new mail that will contain the original message and its signature
     signed_mail = email.message.EmailMessage(policy=msg.policy.clone(linesep='\r\n'))
@@ -112,7 +118,7 @@ def sign(msg: email.message.EmailMessage, keyid: str) -> email.message.EmailMess
     return signed_mail
 
 
-def encrypt(msg: email.message.EmailMessage) -> email.message.EmailMessage:
+def encrypt(msg: email.message.Message) -> email.message.EmailMessage:
     ensure_gpg()
     gpg = _get_gpg()
     assert gpg is not None  # for mypy

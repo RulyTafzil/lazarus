@@ -28,8 +28,8 @@ import re
 import subprocess
 import email.header
 
-from bleach.sanitizer import Cleaner
-from bleach.linkifier import Linker
+from bleach.sanitizer import Cleaner  # type: ignore[import-untyped]
+from bleach.linkifier import Linker  # type: ignore[import-untyped]
 
 
 def clean_html2html(s: str) -> str:

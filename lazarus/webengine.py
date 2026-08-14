@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineUrlSchemeHandler, QWebEngineUrlRequestJob,
     QWebEngineUrlRequestInterceptor, QWebEngineNewWindowRequest,
-    QWebEngineProfile,
+    QWebEngineUrlRequestInfo, QWebEngineProfile,
 )
 from PyQt6.QtGui import QDesktopServices
 import email.parser
@@ -141,7 +141,9 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
                     content_type = part.get_content_type()
                     buf = QBuffer(parent=self)
                     buf.open(QIODevice.OpenModeFlag.WriteOnly)
-                    buf.write(part.get_payload(decode=True))
+                    payload = part.get_payload(decode=True)
+                    if isinstance(payload, (bytes, bytearray, memoryview)):
+                        buf.write(payload)
                     buf.close()
                     request.reply(content_type.encode('latin1'), buf)
                     break
@@ -162,7 +164,7 @@ class RemoteBlockingUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):
         super().__init__()
         self.allow_remote = False
 
-    def interceptRequest(self, info):
+    def interceptRequest(self, info: QWebEngineUrlRequestInfo) -> None:
         if info.requestUrl().scheme() not in LOCAL_PROTOCOLS:
             blocked = settings.html_block_remote_requests and not self.allow_remote
             info.block(blocked)
