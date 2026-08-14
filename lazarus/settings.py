@@ -62,13 +62,6 @@ indicate the email should be discarded. This can be useful if the sendmail
 command already has a mechanism for that feature.
 """
 
-editor_command = "xterm -e vim '{file}'"
-"""Command used to launch external text editor
-
-This is a shell command, which additionally takes the `{file}` placeholder,
-which is passed the name of a temp file being edited while composing an email.
-"""
-
 file_browser_command = "nautilus '{dir}'"
 """Command used to launch external file browser (reveal-after-save).
 

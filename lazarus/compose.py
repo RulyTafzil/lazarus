@@ -25,9 +25,6 @@ from PyQt6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
     QVBoxLayout, QWidget,
 )
-import email.utils
-import email.policy
-import email.message
 import subprocess
 import tempfile
 import typing
@@ -137,7 +134,6 @@ class ComposePanel(panel.Panel):
         QTimer.singleShot(0, _reset_cursor_to_top)
 
         self._sync_data_from_fields()
-        self.editor_thread: Optional[compose_threads.EditorThread] = None
         self.sendmail_thread: Optional[compose_threads.SendmailThread] = None
 
         self.refresh()
@@ -563,82 +559,6 @@ class ComposePanel(panel.Panel):
     def toggle_pgp_encrypt(self) -> None:
         self.pgp_encrypt = not self.pgp_encrypt
         self.refresh()
-
-    # ── External editor (escape hatch) ───────────────────────────────
-
-    def edit_externally(self) -> None:
-        """Open the current message in the external editor.
-
-        Bound to the ``E`` key.  Dumps the editor content to a temp file,
-        opens it in the configured editor, and reads the result back."""
-        if self.editor_thread is not None:
-            return
-
-        self._sync_data_from_fields()
-        # Build a raw message string for the external editor
-        raw = self._build_raw_message_string()
-        self.editor_thread = compose_threads.EditorThread(raw, self, parent=self)
-
-        def done() -> None:
-            if self.editor_thread:
-                if not self.is_open:
-                    self.app.message(
-                        'Compose panel closed',
-                        'Compose panel closed while editing, '
-                        'email text saved in:\n    - {}'.format(
-                            self.editor_thread.file))
-                else:
-                    # Parse the result back into the editor
-                    self._load_from_raw_message(
-                        self.editor_thread.raw_message_string)
-                self.editor_thread.deleteLater()
-                self.editor_thread = None
-            self.refresh()
-            self.app.raise_panel(self)
-
-        self.editor_thread.finished.connect(done)
-        self.editor_thread.start()
-
-    def _build_raw_message_string(self) -> str:
-        """Build a flat text representation for the external editor."""
-        lines = []
-        lines.append(f'From: {self._data.from_addr}')
-        if self._data.to:
-            lines.append(f'To: {", ".join(self._data.to)}')
-        if self._data.cc:
-            lines.append(f'Cc: {", ".join(self._data.cc)}')
-        lines.append(f'Subject: {self._data.subject}')
-        for p in self._data.attachments:
-            lines.append(f'A: {p}')
-        lines.append('')
-        lines.append(self._data.body_text)
-        return '\n'.join(lines)
-
-    def _load_from_raw_message(self, raw: str) -> None:
-        """Parse a flat text message back into the editor fields."""
-        headers, body = util.separate_headers(raw)
-        msg = email.message_from_string(raw, policy=email.policy.compat32)
-
-        # Extract headers
-        self.to_field.setText(msg.get('To', ''))
-        self.cc_field.setText(msg.get('Cc', ''))
-        self.subject_field.setText(msg.get('Subject', ''))
-
-        # Extract attachments (A: pseudo-header)
-        att_paths: list[str] = []
-        for line in headers.splitlines():
-            if line.startswith('A:'):
-                att_paths.append(line[2:].strip())
-
-        # Clear and rebuild attachments
-        self._data.attachments.clear()
-        _clear_layout(self.attachment_layout)
-        for p in att_paths:
-            self._add_attachment_file(p)
-
-        # Set body into editor
-        self.editor.clear()
-        self.editor.insertPlainText(body)
 
     # ── Send ─────────────────────────────────────────────────────────
 
