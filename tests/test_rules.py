@@ -72,8 +72,8 @@ def test_rule_move_with_no_files_warns(stub, caplog):
 def test_rule_scope_scoping(stub):
     """scope_query limits which mail a rule can touch."""
     stub.threads[1]['tags'] = ['unread']  # drop 'inbox' -> out of scope
-    n = apply_rules([Rule(query='tag:inbox', tag_add=['x'])],
-                    'tag:inbox and tag:unread')
+    apply_rules([Rule(query='tag:inbox', tag_add=['x'])],
+                'tag:inbox and tag:unread')
     # the github thread (tag:inbox but not in scope? it IS inbox+unread)...
     # thread t2 still matches scope; verify the combined query is built.
     assert stub.count_calls

@@ -151,7 +151,6 @@ def test_worker_runs_notmuch_new_after_batch(notmuch_stub, maildir, inbox_file, 
     baseline = notmuch_stub.new_calls
     notmuch_stub.files = [inbox_file]
     actions.move_to_trash('tag:inbox')
-    trash = os.path.join(maildir, 'default', 'Trash', 'cur')
     deadline = time.time() + 5
     while time.time() < deadline and notmuch_stub.new_calls <= baseline:
         qapp.processEvents()
