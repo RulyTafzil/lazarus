@@ -128,9 +128,10 @@ QTreeView::branch {{
     border: none;
     background: {bg};
 }}
-/* ── Tab bar: keep Fusion defaults (tabs manage their own bg via
-   palette). No QSS override here — previous transparent/tab-accent
-   experiments are reverted. */
+/* ── Compose: header row + gaps use header_bg (bg_alt) ── */
+ComposePanel {
+    background: {header_bg};
+}
 /* ── Thin modern scrollbars — pill handle, bg track so pill floats ── */
 QScrollBar:vertical {{
     background: {bg};
