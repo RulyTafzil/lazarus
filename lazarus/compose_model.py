@@ -48,11 +48,6 @@ from . import util
 # Account helpers (moved from panel, now reusable)
 # ---------------------------------------------------------------------------
 
-def current_account_index() -> int:
-    """Best-effort default account index from settings."""
-    return 0
-
-
 def account_for_message(msg: dict) -> int:
     """Pick an account for a reply/forward based on msg headers.
 
@@ -128,12 +123,6 @@ def subject_with_prefix(subject: str, prefix: str) -> str:
     if subject[:len(p) + 1].upper() != p + ':':
         return f'{prefix}: ' + subject
     return subject
-
-
-def _parse_address_list(text: str) -> list[str]:
-    if not text.strip():
-        return []
-    return [a.strip() for a in text.split(',') if a.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -212,14 +201,3 @@ def build_blank_seed(_sig_text: Optional[str]) -> ComposeSeed:
     return ComposeSeed()
 
 
-# ---------------------------------------------------------------------------
-# Runtime binding helpers
-# ---------------------------------------------------------------------------
-
-def to_field_to_data(to_text: str, cc_text: str, bcc_text: str, subject: str) -> tuple[list[str], list[str], list[str], str]:
-    return (
-        _parse_address_list(to_text),
-        _parse_address_list(cc_text),
-        _parse_address_list(bcc_text),
-        subject,
-    )

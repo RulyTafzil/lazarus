@@ -17,13 +17,15 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 """Structural protocols used across panels and the controller.
 
-``PanelApp`` is the interface panels rely on — satisfied by both
-``Dodo`` (QApplication bootstrap) and ``AppController`` (which the
-panels actually receive at runtime).  ``ThreadList`` and ``ThreadView``
-narrow the current tab / preview pane to the method sets the global
-keymap dispatches to, so controller dispatch is type-checked and
-``isinstance`` narrowing is structural (``runtime_checkable``) instead
-of the old ``hasattr`` chains that failed silently on typos.
+``PanelApp`` is the interface panels rely on — satisfied by
+``AppController``, which is what every panel receives at runtime
+(``Dodo`` constructs the controller and hands it to ``MainWindow``;
+panels are built by the controller itself).  ``ThreadList`` and
+``ThreadView`` narrow the current tab / preview pane to the method
+sets the global keymap dispatches to, so controller dispatch is
+type-checked and ``isinstance`` narrowing is structural
+(``runtime_checkable``) instead of the old ``hasattr`` chains that
+failed silently on typos.
 """
 
 from __future__ import annotations

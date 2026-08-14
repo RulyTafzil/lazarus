@@ -17,23 +17,26 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from PyQt6.QtCore import *
-from PyQt6.QtWidgets import *
+from PyQt6.QtCore import QByteArray, QSettings, QTimer, Qt
+from PyQt6.QtWidgets import (
+    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
+    QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout,
+    QWidget,
+)
 from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent
 import logging
 import math
 import os
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
-from . import app
+from . import commandbar
+from . import panel
+from . import settings
+from .protocols import PanelApp
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .controller import AppController
     from .app import Dodo
-from . import commandbar
-from . import panel
-from . import settings
-from . import themes
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +108,11 @@ class MainWindow(QMainWindow):
     def __init__(self, a: "Dodo | AppController"):
         super().__init__()
         conf = QSettings('lazarus', 'lazarus')
-        self.app = a
+        # MainWindow only touches the PanelApp surface (panel_history,
+        # tabs) plus what it passes on to the CommandBar; Dodo keeps the
+        # panel_history/tabs attributes even though it no longer
+        # implements the full protocol (panels get the controller).
+        self.app = cast(PanelApp, a)
 
         # Try XDG theme first (picks up ~/.local/share/icons if installed),
         # fall back to the bundled 1024px PNG shipped in the package.
@@ -417,13 +424,8 @@ class MainWindow(QMainWindow):
         self._active_thread = thread_panel
         self.thread_container.addWidget(thread_panel)
         self.thread_container.setCurrentWidget(thread_panel)
-        thread_panel.has_refreshed.connect(self._on_thread_refreshed)
         thread_panel.setFocus()
         self._save_preview_state(hidden=False)
-
-    def _on_thread_refreshed(self) -> None:
-        """Update window title when the active thread refreshes."""
-        pass  # title updates handled by refresh_tab_titles / panel itself
 
     def focus_list(self) -> None:
         """Move keyboard focus back to the current list tab."""

@@ -29,14 +29,14 @@ import uuid
 import tempfile
 import re
 import logging
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict
 
-from PyQt6.QtCore import Qt, QMimeData, QUrl, QTimer
+from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import (
-    QTextCursor, QTextImageFormat, QTextDocument, QImage,
-    QKeyEvent, QPixmap, QDragEnterEvent, QDropEvent,
+    QTextImageFormat, QImage, QKeyEvent,
+    QDragEnterEvent, QDropEvent,
 )
-from PyQt6.QtWidgets import QTextEdit, QWidget, QApplication
+from PyQt6.QtWidgets import QTextEdit, QWidget
 
 from . import settings
 

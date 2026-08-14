@@ -89,15 +89,7 @@ def build_global_stylesheet(theme: dict) -> str:
     Solarized, Gruvbox, Catppuccin) adapts without per-theme tuning.
     Called from :func:`apply_theme`.
     """
-    is_dark = _is_dark(theme)
     bg = theme['bg']
-    fg = theme['fg']
-    bg_alt = theme.get('bg_alt', bg)
-    bg_button = theme.get('bg_button', bg_alt)
-    fg_dim = theme.get('fg_dim', fg)
-    bg_highlight = theme.get('bg_highlight', theme.get('fg_link', fg))
-    fg_highlight = theme.get('fg_highlight', bg)
-    fg_link = theme.get('fg_link', fg)
 
     thumb = _thumb_color(theme)
     thumb_hover = _thumb_hover_color(thumb, theme)

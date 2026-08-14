@@ -166,7 +166,6 @@ def key_string(e: QKeyEvent) -> str:
     :returns: a string representing e.key() and its modifiers
     """
 
-    global basic_keytab, keytab
     if e.key() in basic_keytab:
         cmd = basic_keytab[e.key()]
         shift_modifier = False

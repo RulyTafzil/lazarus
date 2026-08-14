@@ -30,7 +30,6 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QFont, QColor
 import email.utils
-import itertools
 import json
 import logging
 import re
@@ -248,14 +247,6 @@ class ThreadModel(QAbstractItemModel):
         for root in self.roots:
             _prune(root)
         return irrelevant_branches
-
-    def next_unread(self, current: QModelIndex) -> QModelIndex:
-        for idx in itertools.dropwhile(
-                lambda i: i != current, self.iterate_indices()):
-            msg = self.message_at(idx)
-            if msg['id'] in self.matches and 'unread' in msg['tags']:
-                return idx
-        return QModelIndex()
 
     # -- refresh -------------------------------------------------------------
 

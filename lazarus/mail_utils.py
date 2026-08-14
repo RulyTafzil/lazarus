@@ -27,13 +27,13 @@ from __future__ import annotations
 import email.utils
 import os
 import os.path
-import re
 import subprocess
 import sys
 import tempfile
 from typing import Iterator, List, Tuple
 
-from .html_utils import html2text as _html2text, html2html as _html2html
+from .html_utils import html2text
+from . import notmuch
 
 
 def message_parts(m: dict) -> Iterator[dict]:
@@ -75,19 +75,17 @@ def find_content(m: dict, content_type: str) -> List[str]:
 
 def body_text(m: dict) -> str:
     """Get the body text of a message (plain, or HTML→plain fallback)."""
-    import lazarus.html_utils as hu
     tc = find_content(m, 'text/plain')
     if len(tc) != 0:
         return tc[0]
     hc = find_content(m, 'text/html')
     if len(hc) != 0:
-        return hu.html2text(hc[0])
+        return html2text(hc[0])
     return ''
 
 
 def body_html(m: dict) -> str:
     """Get the body HTML of a message."""
-    import lazarus.html_utils as hu
     hc = find_content(m, 'text/html')
     if len(hc) != 0:
         return hc[0]
@@ -149,19 +147,18 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
 
     for part in message_parts(m):
         if is_attachment(part):
-            proc = subprocess.run(
-                ["notmuch", "show", "--part", str(part["id"]), "--decrypt=true", "--", "id:" + m["id"]],
-                stdout=subprocess.PIPE,
-                check=True,
-            )
+            try:
+                content = notmuch.show_part(part["id"], m["id"])
+            except subprocess.CalledProcessError:
+                continue
             filename = part["filename"]
-            if not proc.stdout:
+            if not content:
                 print(f"Ignoring attachment {filename}: Got empty contents from notmuch")
                 continue
 
             p = os.path.join(temp_dir, sanitize_filename(filename))
             with open(p, 'wb') as att:
-                att.write(proc.stdout)
+                att.write(content)
             file_paths.append(p)
 
     if len(file_paths) == 0:

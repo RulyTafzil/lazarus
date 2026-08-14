@@ -19,9 +19,12 @@
 from __future__ import annotations
 from typing import Optional, List
 
-from PyQt6.QtCore import *
+from PyQt6.QtCore import QEvent, QObject, QTimer, Qt
 from PyQt6.QtGui import QKeyEvent, QTextCursor
-from PyQt6.QtWidgets import *
+from PyQt6.QtWidgets import (
+    QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
+    QVBoxLayout, QWidget,
+)
 import email.utils
 import email.policy
 import email.message
@@ -39,7 +42,6 @@ from . import panel
 from . import keymap
 from . import settings
 from . import util
-from . import pgp_util
 from . import signature
 from . import editor as editor_mod
 from . import address_completer
@@ -47,12 +49,6 @@ from . import mime_builder
 from . import compose_model
 from . import compose_threads
 from .protocols import PanelApp
-
-# gnupg is only needed for pgp/mime support, do not throw when not present
-try:
-    import gnupg  # type: ignore[import-not-found]
-except ImportError as ex:
-    pass
 
 
 class ComposePanel(panel.Panel):
@@ -535,10 +531,11 @@ class ComposePanel(panel.Panel):
         """Get the GPG key id for the current SMTP account."""
         return compose_model.gnupg_keyid_for_account(self.current_account)
 
-    def next_account(self) -> None:
-        """Cycle to the next SMTP account."""
+    def _cycle_account(self, delta: int) -> None:
+        """Cycle the SMTP account by *delta* (±1) and re-sync the
+        From/PGP/signature state for the new account."""
         old_email = self.email_address()
-        self.current_account = (self.current_account + 1) % len(
+        self.current_account = (self.current_account + delta) % len(
             settings.smtp_accounts)
         if self.email_address() != old_email:
             self._data.from_addr = self.email_address()
@@ -547,17 +544,13 @@ class ComposePanel(panel.Panel):
         self._insert_signature()
         self.refresh()
 
+    def next_account(self) -> None:
+        """Cycle to the next SMTP account."""
+        self._cycle_account(1)
+
     def previous_account(self) -> None:
         """Cycle to the previous SMTP account."""
-        old_email = self.email_address()
-        self.current_account = (self.current_account - 1) % len(
-            settings.smtp_accounts)
-        if self.email_address() != old_email:
-            self._data.from_addr = self.email_address()
-        self.pgp_sign = self.gnupg_keyid() is not None
-        self._reload_signature()
-        self._insert_signature()
-        self.refresh()
+        self._cycle_account(-1)
 
     # ── PGP toggles ──────────────────────────────────────────────────
 
@@ -762,12 +755,6 @@ class ComposePanel(panel.Panel):
                     panel_mod.Panel.keyPressEvent(self, key_event)
                     return True
         return super().eventFilter(obj, event)
-
-    def set_status(self, status: str, color: str) -> None:
-        """Set the status label text and color."""
-        self.status_label.setText(status)
-        self.status_label.setStyleSheet(
-            f'color: {settings.theme[color]}; font-style: italic;')
 
 
 # -----------------------------------------------------------------------

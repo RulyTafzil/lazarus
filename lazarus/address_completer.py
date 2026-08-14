@@ -214,7 +214,6 @@ class AddressCompleter(QCompleter):
             popup.hide()
             return
 
-        global _shared_addresses
         if not _shared_addresses:
             popup.hide()
             return

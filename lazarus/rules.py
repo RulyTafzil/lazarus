@@ -23,7 +23,7 @@ list of them as :func:`~lazarus.settings.filter_rules` in ``config.py``
 -- see the "Mail filters" section of README.md for a worked example.
 
 Rules are applied automatically after every successful sync (see the
-``done()`` callback in :func:`lazarus.app.Dodo.sync_mail`), scoped by
+``done()`` callback in :func:`lazarus.controller.AppController.sync_mail`), scoped by
 :func:`~lazarus.settings.filter_scope_query` so a full mailbox isn't
 re-tagged on every run. Tag operations are idempotent -- safe to
 re-apply to a message that already has the tags. File moves (for rules
@@ -32,7 +32,7 @@ used by :func:`~lazarus.actions.move_files`, so they're serialised and
 ``notmuch new`` runs after each batch lands on disk.
 
 Re-run the whole rule set by hand with ``C-r``
-(:func:`~lazarus.app.Dodo.apply_filter_rules`) -- useful for testing a
+(:func:`~lazarus.controller.AppController.apply_filter_rules`) -- useful for testing a
 new rule against existing mail without waiting for the next sync.
 """
 

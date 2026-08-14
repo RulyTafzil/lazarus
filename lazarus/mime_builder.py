@@ -30,7 +30,7 @@ from __future__ import annotations
 import os
 import mimetypes
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 
 import email.message
 import email.utils

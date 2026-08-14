@@ -19,34 +19,21 @@
 from __future__ import annotations
 import os
 
-from PyQt6.QtCore import *
-from PyQt6.QtWidgets import *
+from PyQt6.QtCore import QSocketNotifier, QTimer, Qt
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
 import sys
 import signal
 import fcntl
 import subprocess
-from typing import Optional, Literal
 import logging
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from . import search
-    from . import thread
-    from . import compose
-    from . import tag
 from . import settings
 from . import themes
-from . import util
-from . import keymap
-from . import commandbar
 from . import helpwindow
-from . import panel
 from . import mainwindow
-from . import rules
 from . import actions
 from . import address_completer
-from . import notmuch
 from .webengine import LOCAL_PROTOCOLS
 
 logger = logging.getLogger(__name__)
@@ -124,8 +111,8 @@ class Dodo(QApplication):
         self.command_bar = self.main_window.command_bar
         self.lastWindowClosed.connect(self.quit)
 
-        # Controller owns panel registry + commands; Dodo keeps shims
-        # so keymap (which is typed against Dodo) keeps working.
+        # Controller owns panel registry + commands; Dodo keeps only the
+        # app-lifecycle methods below (see the shim note near show_help).
         from .controller import AppController
         self.controller = AppController(self, self.main_window)
 
@@ -174,7 +161,7 @@ class Dodo(QApplication):
 
         # open init_queries and make un-closeable
         for query in settings.init_queries:
-            self.open_search(query, keep_open=True)
+            self.controller.open_search(query, keep_open=True)
 
         # Restore search panels from previous session
         self._restore_open_searches()
@@ -224,123 +211,21 @@ class Dodo(QApplication):
 
         self.help_window.show()
 
-    def raise_panel(self, p: panel.Panel) -> None:
-        return self.controller.raise_panel(p)  # type: ignore[attr-defined]
-
-
-    def message(self, title: str, body: str) -> None:
-        return self.controller.message(title, body)
-
-
-    def status_message(self, message: str, kind: str = 'info', duration: int = 3000) -> None:
-        return self.controller.status_message(message, kind, duration)
-
-
-    def navigate_list(self, direction: str) -> None:
-        return self.controller.navigate_list(direction)
-
-
-    def mark_and_advance(self) -> None:
-        return self.controller.mark_and_advance()
-
-
-    def delegate_to_list(self, method: str, **kwargs: object) -> None:
-        return self.controller.delegate_to_list(method, **kwargs)
-
-
-    def delegate_to_thread(self, method: str, **kwargs: object) -> None:
-        return self.controller.delegate_to_thread(method, **kwargs)
-
-
-    def toggle_tag_hotkey(self, key: str) -> None:
-        return self.controller.toggle_tag_hotkey(key)
-
-
-    def add_panel(self, p: panel.Panel, focus: bool=True) -> None:
-        return self.controller.add_panel(p, focus=focus)  # type: ignore[arg-type]
-
-
-    def next_panel(self) -> None:
-        return self.controller.next_panel()
-
-
-    def previous_panel(self) -> None:
-        return self.controller.previous_panel()
-
-
-    def close_panel(self, to_close: int|panel.Panel|None=None) -> None:
-        return self.controller.close_panel(to_close)  # type: ignore[arg-type]
-
-
-    def open_search(self, query: str, keep_open: bool=False) -> None:
-        return self.controller.open_search(query, keep_open=keep_open)
-
-
-    def open_thread(self, thread_id: str, query: str) -> None:
-        return self.controller.open_thread(thread_id, query)
-
-
-    def open_compose(self, mode: str='', msg: Optional[dict]=None) -> None:
-        return self.controller.open_compose(mode, msg)
-
-    def reply(self, to_all: bool = True) -> None:
-        return self.controller.reply(to_all)
-
-    def forward(self) -> None:
-        return self.controller.forward()
-
-
-    def open_tags(self, keep_open: bool=False) -> None:
-        return self.controller.open_tags(keep_open=keep_open)
-
-
-    def search_bar(self) -> None:
-        return self.controller.search_bar()
-
-
-    def edit_search_query(self) -> None:
-        return self.controller.edit_search_query()
-
-
-    def tag_bar(self, mode: Literal['tag', 'tag marked']='tag') -> None:
-        return self.controller.tag_bar(mode)  # type: ignore[arg-type]
-
-    def tag_message_bar(self) -> None:
-        return self.controller.tag_message_bar()
-
+    # -- Dodo-owned app surface ---------------------------------------------
+    # Everything the panels and keymap dispatch to lives on
+    # ``AppController`` (see :class:`lazarus.protocols.PanelApp`) — panels
+    # receive the controller at runtime.  Dodo keeps only the four methods
+    # wired to Qt/QApplication lifecycle plumbing below (sync timer,
+    # aboutToQuit, startup restore) plus ``show_help``.
 
     def sync_mail(self, quiet: bool = True) -> None:
-        return self.controller.sync_mail(quiet=quiet)  # type: ignore[attr-defined]
-
-    def apply_filter_rules(self) -> None:
-        return self.controller.apply_filter_rules()
-
-
-    def expunge_trash(self) -> None:
-        return self.controller.expunge_trash()
-
-
-    def num_panels(self) -> int:
-        return self.controller.num_panels()
-
-
-    def refresh_tab_titles(self) -> None:
-        return self.controller.refresh_tab_titles()
-
-
-    def refresh_panels(self) -> None:
-        return self.controller.refresh_panels()
-
-
-    def update_single_thread(self, thread_id: str, msg_id: str|None=None) -> None:
-        return self.controller.update_single_thread(thread_id, msg_id=msg_id)
-
+        return self.controller.sync_mail(quiet=quiet)
 
     def _cleanup_sync(self) -> None:
-        return self.controller._cleanup_sync()  # type: ignore[attr-defined]
+        return self.controller._cleanup_sync()
 
-    def prompt_quit(self) -> None:
-        return self.controller.prompt_quit()
+    def _restore_open_searches(self) -> None:
+        return self.controller._restore_open_searches()
 
     def _warm_webengine(self) -> None:
         """Pre-initialise Chromium and keep it warm.
@@ -353,7 +238,7 @@ class Dodo(QApplication):
         same ``cid``/``message`` scheme handlers as real ThreadPanels.
         """
         from PyQt6.QtWebEngineWidgets import QWebEngineView
-        from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineUrlScheme
+        from PyQt6.QtWebEngineCore import QWebEngineProfile
         from PyQt6.QtCore import QTimer
         from PyQt6.QtGui import QColor
 
@@ -379,7 +264,6 @@ class Dodo(QApplication):
         view.setFixedSize(1, 1)
         view.move(-10, -10)
         if profile is not None:
-            from PyQt6.QtWebEngineWidgets import QWebEngineView as _V
             # Assign the shared profile's page
             from PyQt6.QtWebEngineCore import QWebEnginePage
             page = QWebEnginePage(profile, view)
@@ -402,14 +286,6 @@ class Dodo(QApplication):
         # Ensure the main window is the active, visible surface
         self.main_window.raise_()
         self.main_window.activateWindow()
-
-
-    def _save_open_searches(self) -> None:
-        return self.controller._save_open_searches()
-
-
-    def _restore_open_searches(self) -> None:
-        return self.controller._restore_open_searches()
 
 
 _DESKTOP_ENTRY = """\

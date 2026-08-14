@@ -127,6 +127,20 @@ def search_json(query: str) -> str:
     return r.stdout
 
 
+def show_part(part_id: int, message_id: str, decrypt: bool = True) -> bytes:
+    """Return the raw decoded content of one message part.
+
+    ``notmuch show --part`` writes binary part data (attachments) to
+    stdout, so unlike :func:`run` this captures **bytes**, not text.
+    Raises :class:`subprocess.CalledProcessError` on failure.
+    """
+    args = ['show', '--part', str(part_id)]
+    if decrypt:
+        args.append('--decrypt=true')
+    args += ['--', 'id:' + message_id]
+    return subprocess.run(args, stdout=subprocess.PIPE, check=True).stdout
+
+
 def tag(tag_expr: str, query: str, exclude_marked: bool = False) -> subprocess.CompletedProcess:
     """Apply a tag expression (e.g. ``'+trash -inbox -unread'``) to *query*.
 

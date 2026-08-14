@@ -17,13 +17,18 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import List, Optional, Any, Union
+from typing import Optional, Union
 
-from PyQt6.QtCore import *
-from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtWidgets import *
-from PyQt6.QtWebEngineCore import *
-from PyQt6.QtWebEngineWidgets import *
+from PyQt6.QtCore import QModelIndex, QObject, QSettings, QTimer, QUrl, Qt
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QFileDialog, QHeaderView, QSplitter, QStackedLayout, QTextBrowser,
+    QTreeView, QWidget,
+)
+from PyQt6.QtWebEngineCore import (
+    QWebEngineProfile, QWebEngineScript, QWebEngineSettings,
+)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 import logging
 import os
@@ -33,16 +38,12 @@ import subprocess
 import email.utils
 from typing import cast
 
-from . import app
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import settings
 from . import util
 from . import keymap
 from . import panel
 from . import actions
+from . import notmuch
 from .protocols import PanelApp
 from .webengine import (
     MessagePage,
@@ -50,14 +51,7 @@ from .webengine import (
     EmbeddedImageHandler,
     RemoteBlockingUrlRequestInterceptor,
 )
-from .thread_model import (
-    ThreadModel,
-    ThreadItem,
-    EmptyThreadError,
-    flat_thread,
-    short_string,
-    iter_thread_messages,
-)
+from .thread_model import ThreadModel, EmptyThreadError
 
 logger = logging.getLogger(__name__)
 
@@ -310,10 +304,10 @@ class ThreadPanel(panel.Panel):
                         f'<td>{value}</td>'
                         f'</tr>')
             if 'tags' in m:
-                priority = {t: i for i, t in enumerate(settings.tag_order)}
                 tags = ' '.join(
                     settings.tag_icons[t] if t in settings.tag_icons
-                    else f'[{t}]' for t in sorted(m['tags'], key=lambda t: (priority.get(t, len(settings.tag_order)), t)))
+                    else f'[{t}]'
+                    for t in util.sort_tags(m['tags']))
                 header_html += (
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'
@@ -442,9 +436,6 @@ class ThreadPanel(panel.Panel):
     def previous_message(self) -> None:
         self._select_index(self.thread_list.indexAbove(self.current_index))
 
-    def next_unread(self) -> None:
-        self._select_index(self.model.next_unread(self.current_index))
-
     def scroll_message(
             self,
             lines: Optional[int] = None,
@@ -556,12 +547,10 @@ class ThreadPanel(panel.Panel):
             if not util.is_attachment(part):
                 continue
             try:
-                proc = subprocess.run(
-                    ['notmuch', 'show', '--part', str(part['id']), '--decrypt=true', '--', f"id:{m['id']}"],
-                    stdout=subprocess.PIPE, check=True)
+                content = notmuch.show_part(part['id'], m['id'])
             except subprocess.CalledProcessError:
                 continue
-            if not proc.stdout:
+            if not content:
                 continue
             filename = util.sanitize_filename(part.get('filename', 'attachment'))
             out = os.path.join(dest, filename)
@@ -573,7 +562,7 @@ class ThreadPanel(panel.Panel):
                 n += 1
             try:
                 with open(out, 'wb') as f:
-                    f.write(proc.stdout)
+                    f.write(content)
                 saved += 1
             except OSError:
                 pass
