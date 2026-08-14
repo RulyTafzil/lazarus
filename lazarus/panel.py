@@ -333,7 +333,6 @@ class Panel(QWidget):
         k = util.key_string(e)
         logger.info('keyPressEvent: %s', k)
         if not k: return None
-        # print("key: " + util.key_string(e))
         cmd = self._prefix + " " + k if self._prefix != "" else k
         self._prefix_timer.stop()
 
