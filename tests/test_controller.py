@@ -116,3 +116,88 @@ def test_mark_and_advance(ctl, mw, qapp, notmuch_stub):
     ctl.mark_and_advance()
     assert notmuch_stub.tag_calls[0][0] == '+marked'
     assert mw.tabs.currentWidget().tree.currentIndex().row() == 1
+
+
+# -- tag_message_bar (C-t) -------------------------------------------------
+
+class FakeThreadPanel(Panel):
+    """A real Panel that satisfies the ThreadView protocol structurally,
+    so the controller's isinstance gate passes without QWebEngine."""
+
+    def __init__(self, ctl):
+        super().__init__(ctl)
+        self.tag_calls: list[str] = []
+
+    def tag_message(self, tag_expr: str) -> None:
+        self.tag_calls.append(tag_expr)
+
+    def next_message(self) -> None:
+        pass
+
+    def previous_message(self) -> None:
+        pass
+
+    def scroll_message(self, *a, **k) -> None:
+        pass
+
+    def toggle_html(self) -> None:
+        pass
+
+    def toggle_remote_content(self) -> None:
+        pass
+
+    def toggle_list_mode(self) -> None:
+        pass
+
+    def reply(self, to_all: bool = True) -> None:
+        pass
+
+    def forward(self) -> None:
+        pass
+
+    def open_attachments(self) -> None:
+        pass
+
+    def toggle_message_unread(self) -> None:
+        pass
+
+    def toggle_message_flagged(self) -> None:
+        pass
+
+    def archive_message(self) -> None:
+        pass
+
+    def archive_message_to_local(self) -> None:
+        pass
+
+    def delete_message(self) -> None:
+        pass
+
+    def update_thread(self, thread_id: str, msg_id: str | None = None) -> None:
+        pass
+
+
+def test_tag_message_bar_prefills_and_dispatches(ctl, mw, qapp):
+    fake_thread = FakeThreadPanel(ctl)
+    mw._active_thread = fake_thread
+    ctl.tag_message_bar()
+    assert ctl.command_bar.toPlainText() == '+'
+    assert ctl.command_bar.label.text() == 'tag message'
+    ctl.command_bar.setPlainText('+work')
+    ctl.command_bar.accept()
+    assert fake_thread.tag_calls == ['+work']
+
+
+def test_tag_message_bar_empty_expr_is_noop(ctl, mw, qapp):
+    fake_thread = FakeThreadPanel(ctl)
+    mw._active_thread = fake_thread
+    ctl.tag_message_bar()
+    ctl.command_bar.accept()  # bare '+' only
+    assert fake_thread.tag_calls == []
+
+
+def test_tag_message_bar_without_thread_noop(ctl, mw, qapp):
+    mw._active_thread = None
+    ctl.tag_message_bar()
+    assert not mw.command_area.isVisible()  # bar never opened
+    assert ctl.command_bar.callback is None

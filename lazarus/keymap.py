@@ -45,8 +45,8 @@ global_keymap: Keymap = {
   'S-<tab>':     ('previous unread', lambda a: a.delegate_to_list('previous_thread', unread=True)),
   'g g':         ('first thread', lambda a: a.delegate_to_list('first_thread')),
   'G':           ('last thread', lambda a: a.delegate_to_list('last_thread')),
-  'C-d':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
-  'C-u':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
+  'M-k':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
+  'M-j':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
   '<pageup>':    ('page up (list)', lambda a: a.delegate_to_list('prev_page')),
   '<pagedown>':  ('page down (list)', lambda a: a.delegate_to_list('next_page')),
   '<enter>':     ('open thread', lambda a: a.delegate_to_list('open_current_thread')),
@@ -69,10 +69,19 @@ global_keymap: Keymap = {
   'M':           ('toggle thread list mode', lambda a: a.delegate_to_thread('toggle_list_mode')),
   'r':           ('reply to all', lambda a: a.delegate_to_thread('reply', to_all=True)),
   'R':           ('reply', lambda a: a.delegate_to_thread('reply', to_all=False)),
-  'C-f':         ('forward', lambda a: a.delegate_to_thread('forward')),
+  'C-y':         ('forward', lambda a: a.delegate_to_thread('forward')),
   'O':           ('open attachments', lambda a: a.delegate_to_thread('open_attachments')),
   '<escape>':    ('focus list', lambda a: a.main_window.focus_list()),
   'C-<enter>':   ('close thread preview', lambda a: a.main_window.clear_thread()),
+
+  # ── Message-level actions (Ctrl-variants act on the selected message
+  #    in the thread preview; plain keys act on the whole thread) ──────
+  'C-u':         ('toggle unread (message)', lambda a: a.delegate_to_thread('toggle_message_unread')),
+  'C-f':         ('toggle flagged (message)', lambda a: a.delegate_to_thread('toggle_message_flagged')),
+  'C-a':         ('archive (message)', lambda a: a.delegate_to_thread('archive_message')),
+  'C-A':         ('archive to local (message)', lambda a: a.delegate_to_thread('archive_message_to_local')),
+  'C-d':         ('delete (message)', lambda a: a.delegate_to_thread('delete_message')),
+  'C-t':         ('tag (message)', lambda a: a.tag_message_bar()),
 
   # ── Global ───────────────────────────────────────────────────────
   '?':           ('show help', lambda a: a.show_help()),

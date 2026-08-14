@@ -162,6 +162,38 @@ def test_flat_thread_sorts_by_timestamp(notmuch_stub, qapp, monkeypatch):
     assert [m['id'] for m in flat] == ['m1', 'm2']
 
 
+def test_thread_model_toggle_message_tag(notmuch_stub, qapp, monkeypatch):
+    """Message-level tag toggle targets id:<msgid> (not the whole thread)."""
+    import subprocess
+    import lazarus.notmuch as nm
+    thread = [_message_tree(make_message('m1', 'First', tags=['unread']))]
+
+    def fake_run(*args, **kwargs):
+        if args and args[0] == 'show':
+            out = json.dumps([thread])
+        else:
+            out = json.dumps(['m1'])
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
+
+    monkeypatch.setattr(nm, 'run', fake_run)
+    model = ThreadModel('thread:t1', 'tag:inbox', 'conversation')
+    model.refresh()
+    idx = model.index(0, 0)
+    assert idx.isValid()
+
+    # message is unread -> toggling removes unread from just that message
+    model.toggle_message_tag(idx, 'unread')
+    assert notmuch_stub.tag_calls[-1][0] == '-unread'
+    assert notmuch_stub.tag_calls[-1][1].startswith('id:m1')
+
+    # and it reports the change on the message index
+    changed = {'n': 0}
+    model.messageChanged.connect(lambda _i: changed.__setitem__('n', changed['n'] + 1))
+    model.toggle_message_tag(idx, 'flagged')
+    assert notmuch_stub.tag_calls[-1][0] == '+flagged'
+    assert changed['n'] == 1
+
+
 def test_thread_model_toggle_mode(notmuch_stub, qapp, monkeypatch):
     thread = [_message_tree(
         make_message('m1', 'First'),
