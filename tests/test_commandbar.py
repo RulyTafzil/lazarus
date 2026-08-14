@@ -111,6 +111,44 @@ def test_reflow_caps_at_window_width_and_wraps(mw, bar, qapp):
     assert box.height() > base_h
 
 
+def test_tag_completion_loads_in_background(qapp, fake_app, notmuch_stub):
+    """notmuch.tags() runs on a worker thread; the completer populates
+    asynchronously instead of blocking construction."""
+    import time
+    import lazarus.notmuch as nm
+    from lazarus import mainwindow
+    notmuch_stub.tag_list = ['inbox', 'unread', 'flagged']
+    win = mainwindow.MainWindow(fake_app)  # starts the loader with the stub
+    model = win.command_bar._tag_model
+    assert model.rowCount() == 0  # empty at construction (no blocking)
+    deadline = time.time() + 5
+    while time.time() < deadline and model.rowCount() < 3:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert model.rowCount() == 3
+
+
+def test_tag_completion_survives_notmuch_failure(qapp, fake_app, notmuch_stub,
+                                                 monkeypatch):
+    """A failing tags() fetch must not crash construction — empty list."""
+    import time
+    import lazarus.notmuch as nm
+    from lazarus import mainwindow
+
+    def boom(*a, **k):
+        raise RuntimeError('notmuch missing')
+
+    monkeypatch.setattr(nm, 'tags', boom)
+    win = mainwindow.MainWindow(fake_app)
+    model = win.command_bar._tag_model
+    deadline = time.time() + 5
+    while time.time() < deadline and model.rowCount() != 0:
+        qapp.processEvents()
+        time.sleep(0.01)
+    # no crash, model stays empty
+    assert model.rowCount() == 0
+
+
 def test_reflow_shrinks_back(mw, bar, qapp):
     box = mw._command_box
     bar.open('search', callback=lambda q: None)

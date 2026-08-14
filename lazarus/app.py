@@ -345,7 +345,7 @@ class Dodo(QApplication):
         """
         from PyQt6.QtWebEngineWidgets import QWebEngineView
         from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineUrlScheme
-        from PyQt6.QtCore import QEventLoop, QTimer
+        from PyQt6.QtCore import QTimer
         from PyQt6.QtGui import QColor
 
         # Register custom schemes on this profile too (mirrors ThreadPanel)
@@ -382,18 +382,14 @@ class Dodo(QApplication):
 
         self._warm_view = view  # keep alive
         view.show()
-
-        loop = QEventLoop()
-        view.loadFinished.connect(lambda ok: loop.quit())
-        QTimer.singleShot(5000, loop.quit)
         view.setHtml('<html><body></body></html>')
-        loop.exec()
-        try:
-            view.loadFinished.disconnect()  # type: ignore[attr-defined]
-        except TypeError:
-            pass
-        # Hide again but do NOT delete — renderer stays warm
-        view.hide()
+        # Fire-and-forget: the nested event loop (up to 5 s) used to
+        # block startup until the first load finished. The renderer/GPU
+        # processes spawn in the background and stay resident via this
+        # tiny hidden view, so the first real email open is still warm —
+        # without stalling Dodo.__init__. The hide is deferred so
+        # Chromium has a chance to spawn its processes first.
+        QTimer.singleShot(1000, view.hide)
         # Ensure the main window is the active, visible surface
         self.main_window.raise_()
         self.main_window.activateWindow()
