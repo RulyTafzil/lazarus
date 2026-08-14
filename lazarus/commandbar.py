@@ -150,6 +150,9 @@ class CommandBar(QPlainTextEdit):
         """Use the choosen tag."""
         prefix = self.completer.completionPrefix()
         self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
+        # setPlainText resets the cursor to the start; place it at the end
+        # so the user can keep typing another term (e.g. ' and …').
+        self._cursor_to_end()
 
     def open(self, mode: str, callback: Callable[[str], Any]) -> None:
         """Open the command bar and give it focus
