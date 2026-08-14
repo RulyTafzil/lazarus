@@ -46,6 +46,30 @@ def test_fields_have_left_labels(qapp):
     assert p.subject_field.placeholderText() == ''
 
 
+def test_field_rows_have_right_margin(qapp):
+    """2px breathing room so fields don't touch the panel's right edge."""
+    p = _make_panel(qapp)
+    for field in (p.to_field, p.subject_field, p.cc_field, p.bcc_field):
+        row = field.parentWidget()
+        assert row.layout().contentsMargins().right() == 2
+
+
+def test_field_font_smaller_than_body(qapp):
+    """Labels + field text render one point smaller than the body."""
+    p = _make_panel(qapp)
+    assert p._field_font_size == max(settings.message_font_size - 1, 8)
+
+
+def test_toolbar_compact_and_left_aligned(qapp):
+    """The format strip hugs its content and sits at the left edge."""
+    p = _make_panel(qapp)
+    p.resize(900, 600)
+    p.show()
+    qapp.processEvents()
+    assert p.format_bar.width() < p.width()
+    assert p.format_bar.geometry().left() < 10
+
+
 def test_reveal_cc_shows_and_focuses(qapp):
     p = _make_panel(qapp)
     p.reveal_cc()

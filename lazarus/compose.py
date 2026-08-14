@@ -70,8 +70,11 @@ class ComposePanel(panel.Panel):
         self.msg = msg
         self.temp_dirs: List[str] = []
 
+        # Labels + field text use a slightly smaller size than the body so
+        # the header rows read as chrome, not content.
+        self._field_font_size = max(settings.message_font_size - 1, 8)
         # Widest field label, so every input box shares a left edge.
-        fm = QFontMetrics(QFont(settings.message_font, settings.message_font_size))
+        fm = QFontMetrics(QFont(settings.message_font, self._field_font_size))
         self._label_width = max(
             fm.horizontalAdvance(t)
             for t in ('To:', 'Cc:', 'Bcc:', 'Subject:')) + 8
@@ -175,7 +178,7 @@ class ComposePanel(panel.Panel):
         # --- Cc row (hidden by default; M-c reveals) ---
         self.cc_row = QWidget(self)
         cc_layout = QHBoxLayout(self.cc_row)
-        cc_layout.setContentsMargins(0, 0, 0, 0)
+        cc_layout.setContentsMargins(0, 0, 2, 0)  # match To/Subject rows
         cc_layout.setSpacing(8)
         self.cc_field = QLineEdit()
         self.cc_field.setStyleSheet(self._field_style())
@@ -189,7 +192,7 @@ class ComposePanel(panel.Panel):
         # --- Bcc row (hidden by default; M-b reveals) ---
         self.bcc_row = QWidget(self)
         bcc_layout = QHBoxLayout(self.bcc_row)
-        bcc_layout.setContentsMargins(0, 0, 0, 0)
+        bcc_layout.setContentsMargins(0, 0, 2, 0)  # match To/Subject rows
         bcc_layout.setSpacing(8)
         self.bcc_field = QLineEdit()
         self.bcc_field.setStyleSheet(self._field_style())
@@ -208,7 +211,8 @@ class ComposePanel(panel.Panel):
         # --- Editor toolbar + editor ---
         self.editor = editor_mod.RichTextEditor(self)
         self.format_bar = self.editor.formatting_toolbar()
-        lay.addWidget(self.format_bar)
+        # Toolbar hugs its content, left-aligned — not full width.
+        lay.addWidget(self.format_bar, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addWidget(self.editor, stretch=1)
 
         # --- Attachment bar ---
@@ -253,7 +257,7 @@ class ComposePanel(panel.Panel):
         lbl.setStyleSheet(
             f'color: {settings.theme["fg_dim"]};'
             f'font-family: {settings.message_font};'
-            f'font-size: {settings.message_font_size}pt;'
+            f'font-size: {self._field_font_size}pt;'
         )
         return lbl
 
@@ -261,7 +265,7 @@ class ComposePanel(panel.Panel):
         """A labeled input row: right-aligned label + field."""
         row = QWidget()
         hlay = QHBoxLayout(row)
-        hlay.setContentsMargins(0, 0, 0, 0)
+        hlay.setContentsMargins(0, 0, 2, 0)  # 2px breathing room at the right edge
         hlay.setSpacing(8)
         hlay.addWidget(self._make_label(label))
         hlay.addWidget(field, stretch=1)
@@ -276,7 +280,7 @@ class ComposePanel(panel.Panel):
             f'border-radius: 3px;'
             f'padding: 3px 6px;'
             f'font-family: {settings.message_font};'
-            f'font-size: {settings.message_font_size}pt;'
+            f'font-size: {self._field_font_size}pt;'
         )
 
     def insert_newline(self) -> None:

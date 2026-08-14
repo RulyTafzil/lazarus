@@ -237,7 +237,7 @@ class RichTextEditor(QTextEdit):
         """
         bar = QWidget()
         hlay = QHBoxLayout(bar)
-        hlay.setContentsMargins(8, 4, 8, 4)
+        hlay.setContentsMargins(2, 2, 2, 2)
         hlay.setSpacing(2)
 
         def make(text: str, tip: str, *, checkable: bool = False,
@@ -250,7 +250,7 @@ class RichTextEditor(QTextEdit):
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setStyleSheet(
                 f'QToolButton {{ color: {settings.theme["fg"]};'
-                f' border-radius: 3px; padding: 2px 6px; }}'
+                f' border-radius: 3px; padding: 1px 5px; }}'
                 f'QToolButton:checked {{'
                 f'  background-color: {settings.theme["bg_button"]}; }}'
                 f'QToolButton:hover {{'
@@ -378,7 +378,7 @@ class RichTextEditor(QTextEdit):
 
         self._color_btn.setStyleSheet(
             f'QToolButton {{ color: {fmt.foreground().color().name()};'
-            f' border-radius: 3px; padding: 2px 6px; }}')
+            f' border-radius: 3px; padding: 1px 5px; }}')
 
     # ------------------------------------------------------------------
     # Qt event overrides
