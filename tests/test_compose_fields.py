@@ -27,6 +27,43 @@ def test_reveal_cc_shows_and_focuses(qapp):
     assert p.cc_field.hasFocus()
 
 
+def test_reveal_cc_toggles_hide_and_restores(qapp):
+    p = _make_panel(qapp)
+    p.reveal_cc()
+    p.cc_field.setText('carol@example.com')
+    p.reveal_cc()                      # hide again
+    assert not p.cc_row.isVisible()
+    p.reveal_cc()                      # re-reveal
+    assert p.cc_row.isVisible()
+    assert p.cc_field.text() == 'carol@example.com'  # remembered
+
+
+def test_hidden_cc_is_disregarded_on_send(qapp):
+    p = _make_panel(qapp)
+    p.reveal_cc()
+    p.cc_field.setText('carol@example.com')
+    p.reveal_cc()                      # hide — content must not be sent
+    p._sync_data_from_fields()
+    assert p._data.cc == []
+
+
+def test_visible_cc_is_sent(qapp):
+    p = _make_panel(qapp)
+    p.reveal_cc()
+    p.cc_field.setText('carol@example.com')
+    p._sync_data_from_fields()
+    assert p._data.cc == ['carol@example.com']
+
+
+def test_hidden_bcc_is_disregarded_on_send(qapp):
+    p = _make_panel(qapp)
+    p.reveal_bcc()
+    p.bcc_field.setText('bob@example.com')
+    p.reveal_bcc()
+    p._sync_data_from_fields()
+    assert p._data.bcc == []
+
+
 def test_reveal_bcc_shows_and_focuses(qapp):
     p = _make_panel(qapp)
     p.reveal_bcc()

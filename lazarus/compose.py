@@ -305,23 +305,38 @@ class ComposePanel(panel.Panel):
         """
         self._data.from_addr = self.email_address()
         self._data.to = _parse_address_list(self.to_field.text())
-        self._data.cc = _parse_address_list(self.cc_field.text())
-        self._data.bcc = _parse_address_list(self.bcc_field.text())
+        # Hidden Cc/Bcc rows are disregarded on send, even if they hold
+        # content — the text is remembered and restored on re-reveal.
+        self._data.cc = _parse_address_list(self.cc_field.text()) \
+            if not self.cc_row.isHidden() else []
+        self._data.bcc = _parse_address_list(self.bcc_field.text()) \
+            if not self.bcc_row.isHidden() else []
         self._data.subject = self.subject_field.text()
         self._data.body_html = self.editor.body_html()
         self._data.body_text = self.editor.toPlainText()
 
-    # -- hidden Cc / Bcc fields (C-c / C-b) ------------------------------
+    # -- hidden Cc / Bcc fields (M-c / M-b) ------------------------------
 
     def reveal_cc(self) -> None:
-        """Reveal the hidden Cc row and focus its field."""
-        self.cc_row.show()
-        self.cc_field.setFocus()
+        """Toggle the Cc row: reveal and focus, or hide it again.
+
+        Hidden Cc content is disregarded on send (see
+        :meth:`_sync_data_from_fields`) but remembered — re-revealing
+        restores what was typed.
+        """
+        if self.cc_row.isHidden():
+            self.cc_row.show()
+            self.cc_field.setFocus()
+        else:
+            self.cc_row.hide()
 
     def reveal_bcc(self) -> None:
-        """Reveal the hidden Bcc row and focus its field."""
-        self.bcc_row.show()
-        self.bcc_field.setFocus()
+        """Toggle the Bcc row (same semantics as :meth:`reveal_cc`)."""
+        if self.bcc_row.isHidden():
+            self.bcc_row.show()
+            self.bcc_field.setFocus()
+        else:
+            self.bcc_row.hide()
 
     # ── Attachments ──────────────────────────────────────────────────
 
