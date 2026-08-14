@@ -128,10 +128,8 @@ QTreeView::branch {{
     border: none;
     background: {bg};
 }}
-/* ── Compose: header row + gaps use header_bg (bg_alt) ── */
-ComposePanel {
-    background: {header_bg};
-}
+/* Compose gaps: header row paints header_bg via compose.py bar stylesheet;
+   panel itself stays at palette Window (bg) so no QSS needed here. */
 /* ── Thin modern scrollbars — pill handle, bg track so pill floats ── */
 QScrollBar:vertical {{
     background: {bg};
