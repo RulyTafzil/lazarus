@@ -63,6 +63,15 @@ class Dodo(QApplication):
     """
 
     def __init__(self) -> None:
+        # Must be set before the underlying QGuiApplication is constructed,
+        # otherwise the first QWebEngineView forces a compositor surface
+        # recreation (visible as a window flicker/"restart" on Wayland).
+        # Qt docs: AA_ShareOpenGLContexts must be set before QApplication.
+        try:
+            from PyQt6.QtCore import Qt as _Qt
+            QApplication.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+        except Exception:
+            pass
         super().__init__(sys.argv)
 
         # Minimal stderr logger so early errors are captured.
@@ -143,8 +152,10 @@ class Dodo(QApplication):
         # Warm the Chromium renderer process so the first email open
         # doesn't trigger a visible "restart" (GPU/renderer process
         # spawn, window flicker, or compositor surface recreation).
-        # A minimal hidden QWebEngineView is created, loaded with a
-        # tiny page, and destroyed once Chromium signals it's ready.
+        # Uses a persistent hidden view that shares the app's profile
+        # handlers (cid/message schemes) and stays alive for the app
+        # lifetime — a disposable view goes cold again before first open.
+        self._warm_view: object | None = None
         self._warm_webengine()
 
         # Handle Ctrl-C: use a pipe + QSocketNotifier so the Qt event loop
@@ -321,39 +332,70 @@ class Dodo(QApplication):
     def prompt_quit(self) -> None:
         return self.controller.prompt_quit()
 
-    @staticmethod
-    def _warm_webengine() -> None:
-        """Pre-initialise the Chromium renderer process.
+    def _warm_webengine(self) -> None:
+        """Pre-initialise Chromium and keep it warm.
 
-        The first ``QWebEngineView`` instantiation in a Qt application
-        lazily spawns the Chromium GPU + renderer subprocesses.  On some
-        systems this can manifest as a visible "restart" — the window
-        flickers, loses focus, or the compositor treats the new GPU
-        surface as a window recreation.
-
-        This method creates a single hidden view, loads a minimal page,
-        waits for ``loadFinished``, and then destroys it.  By the time
-        the user opens their first email the renderer process is already
-        warm and the double-buffered ``ThreadPanel`` swaps are instant.
+        The first ``QWebEngineView`` in a Qt app lazily spawns the GPU +
+        renderer subprocesses. On Wayland this can appear as a window
+        flicker or "restart". A disposable view that is deleted after
+        loadFinished goes cold again; instead we keep a hidden view alive
+        as a child of the main window for the app lifetime, sharing the
+        same ``cid``/``message`` scheme handlers as real ThreadPanels.
         """
         from PyQt6.QtWebEngineWidgets import QWebEngineView
+        from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineUrlScheme
         from PyQt6.QtCore import QEventLoop, QTimer
+        from PyQt6.QtGui import QColor
 
-        view = QWebEngineView()
-        view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        # Register custom schemes on this profile too (mirrors ThreadPanel)
+        try:
+            profile = QWebEngineProfile(self)
+            # Reuse the same scheme registration as in Dodo.__init__ —
+            # QWebEngineUrlScheme.registerScheme is idempotent.
+            from .webengine import EmbeddedImageHandler, MessageHandler
+            # Keep handlers alive as attributes so they are not GC'd
+            self._warm_cid_handler = EmbeddedImageHandler(self)  # type: ignore[attr-defined]
+            self._warm_msg_handler = MessageHandler(self)  # type: ignore[attr-defined]
+            profile.installUrlSchemeHandler(b'cid', self._warm_cid_handler)  # type: ignore[attr-defined]
+            profile.installUrlSchemeHandler(b'message', self._warm_msg_handler)  # type: ignore[attr-defined]
+        except Exception:
+            profile = None
+
+        view = QWebEngineView(self.main_window)
+        # Keep it in the widget tree but zero-sized / hidden so the
+        # compositor has a stable surface and the renderer stays resident.
+        view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
         view.hide()
+        view.setFixedSize(1, 1)
+        view.move(-10, -10)
+        if profile is not None:
+            from PyQt6.QtWebEngineWidgets import QWebEngineView as _V
+            # Assign the shared profile's page
+            from PyQt6.QtWebEngineCore import QWebEnginePage
+            page = QWebEnginePage(profile, view)
+            try:
+                page.setBackgroundColor(QColor(settings.theme['bg']))
+            except Exception:
+                pass
+            view.setPage(page)
+
+        self._warm_view = view  # keep alive
+        view.show()
 
         loop = QEventLoop()
         view.loadFinished.connect(lambda ok: loop.quit())
-        # Safety timeout: if Chromium never fires loadFinished (e.g.
-        # --no-sandbox issues), don't block startup forever.
         QTimer.singleShot(5000, loop.quit)
-
         view.setHtml('<html><body></body></html>')
         loop.exec()
-
-        view.loadFinished.disconnect()
-        view.deleteLater()
+        try:
+            view.loadFinished.disconnect()  # type: ignore[attr-defined]
+        except TypeError:
+            pass
+        # Hide again but do NOT delete — renderer stays warm
+        view.hide()
+        # Ensure the main window is the active, visible surface
+        self.main_window.raise_()
+        self.main_window.activateWindow()
 
 
     def _save_open_searches(self) -> None:

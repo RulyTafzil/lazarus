@@ -113,8 +113,39 @@ class MainWindow(QMainWindow):
             self.main_splitter.addWidget(self.thread_container)
             self.main_splitter.addWidget(self.tabs)
 
-        # Restore splitter state
+        # Remember the last "open" splitter position (when preview was
+        # visible) so the next email open restores the user's divider at
+        # ~50/50 or wherever they dragged it — but always *start* with the
+        # preview collapsed so the list gets full width (post-open state
+        # but closed). The warm view stays alive so first open has no
+        # Chromium cold-start flicker.
+        self._open_splitter_state: bytes | None = None
         self._restore_splitter_state()
+        # Save the open-state for later restores (either from QSettings or
+        # the default 50/50). Then force collapsed on startup per pref.
+        try:
+            conf2 = QSettings('lazarus', 'lazarus')
+            saved = conf2.value(f"main_splitter_state_{settings.thread_pane_position}")
+            if saved:
+                # QSettings may return QByteArray or bytes depending on Qt ver
+                self._open_splitter_state = bytes(saved) if isinstance(saved, (bytes, bytearray)) else saved
+            else:
+                # No saved state yet — use the default 50/50 as open state
+                self._open_splitter_state = bytes(self.main_splitter.saveState())
+        except Exception:
+            try:
+                self._open_splitter_state = bytes(self.main_splitter.saveState())
+            except Exception:
+                self._open_splitter_state = None
+        self.thread_container.hide()
+        try:
+            total = self.width() if self.main_splitter.orientation() == Qt.Orientation.Horizontal else self.height()
+            if list_first:
+                self.main_splitter.setSizes([total, 0])
+            else:
+                self.main_splitter.setSizes([0, total])
+        except Exception:
+            pass
         self.main_splitter.splitterMoved.connect(self._save_splitter_state)
 
         # Tab focus tracking
@@ -162,9 +193,18 @@ class MainWindow(QMainWindow):
     # -- splitter persistence -----------------------------------------------
 
     def _save_splitter_state(self) -> None:
+        # When preview is collapsed we don't want to persist [total, 0]
+        # as the "open" position — keep the last open ratio instead.
+        if self._active_thread is None and self.thread_container.isHidden():
+            return
         conf = QSettings('lazarus', 'lazarus')
         key = f"main_splitter_state_{settings.thread_pane_position}"
         conf.setValue(key, self.main_splitter.saveState())
+        # Keep the in-memory open-state in sync while preview is visible
+        try:
+            self._open_splitter_state = bytes(self.main_splitter.saveState())
+        except Exception:
+            pass
 
     def _restore_splitter_state(self) -> None:
         conf = QSettings('lazarus', 'lazarus')
@@ -173,11 +213,11 @@ class MainWindow(QMainWindow):
         if state:
             self.main_splitter.restoreState(state)
         else:
-            # Sensible default: list gets ~55% of available space
+            # Default open ratio: ~50/50 when preview is visible
             total = (self.width() if self.main_splitter.orientation()
                      == Qt.Orientation.Horizontal else self.height())
             self.main_splitter.setSizes(
-                [int(total * 0.55), int(total * 0.45)])
+                [int(total * 0.50), int(total * 0.50)])
 
     # -- thread preview pane ------------------------------------------------
 
@@ -192,7 +232,15 @@ class MainWindow(QMainWindow):
             self._active_thread.deleteLater()
             self._active_thread = None
 
+        # If we started collapsed, restore the last open divider position
+        # (either QSettings or the default 50/50 captured at startup).
+        was_hidden = self.thread_container.isHidden()
         self.thread_container.show()
+        if was_hidden and getattr(self, '_open_splitter_state', None):
+            try:
+                self.main_splitter.restoreState(self._open_splitter_state)  # type: ignore[arg-type]
+            except Exception:
+                pass
         self._active_thread = thread_panel
         self.thread_container.addWidget(thread_panel)
         self.thread_container.setCurrentWidget(thread_panel)
