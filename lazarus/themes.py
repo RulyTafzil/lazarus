@@ -114,6 +114,20 @@ QHeaderView::section {{
     border: none;
     padding: 2px 4px;
 }}
+QTreeView {{
+    show-decoration-selected: 1;
+}}
+QTreeView::item {{
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+}}
+/* Remove default tree indentation so date column aligns with header (~2-4px), not 20px */
+QTreeView::branch {{
+    border: none;
+    background: {bg};
+}}
 /* ── Tab bar: keep Fusion defaults (tabs manage their own bg via
    palette). No QSS override here — previous transparent/tab-accent
    experiments are reverted. */

@@ -255,7 +255,10 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         self.tree = panel.HeaderInsetTreeView()
         self.error_view = QLabel()
         self.tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setStyleSheet(f'QTreeView::item {{ padding: {settings.search_view_padding}px }}')
+        # Per-item padding is now handled globally in themes.py so the date
+        # column aligns with the header (~4px left). The global default of
+        # 1px vertical preserves search_view_padding; override only if needed.
+        # self.setStyleSheet(f'QTreeView::item {{ padding: {settings.search_view_padding}px }}')
         self.model = SearchModel(q)
         self.tree.setModel(self.model)
         self.model.modelReset.connect(self.on_data_refresh)

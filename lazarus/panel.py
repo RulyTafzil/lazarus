@@ -57,6 +57,10 @@ class HeaderInsetTreeView(QTreeView):
         self._corner = QWidget(self)
         self._corner.setAutoFillBackground(True)
         self._corner.hide()
+        # Flat list, not a tree — no branching indent
+        self.setIndentation(0)
+        self.setRootIsDecorated(False)
+        self.setUniformRowHeights(True)
 
     def _corner_color(self) -> str:
         # Header sections are styled via QSS as bg_alt; the corner fill
