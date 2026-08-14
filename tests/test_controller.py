@@ -127,9 +127,16 @@ class FakeThreadPanel(Panel):
     def __init__(self, ctl):
         super().__init__(ctl)
         self.tag_calls: list[str] = []
+        self.reply_calls: list[bool] = []
 
     def tag_message(self, tag_expr: str) -> None:
         self.tag_calls.append(tag_expr)
+
+    def reply(self, to_all: bool = True) -> None:
+        self.reply_calls.append(to_all)
+
+    def forward(self) -> None:
+        self.reply_calls.append(None)
 
     def next_message(self) -> None:
         pass
@@ -147,12 +154,6 @@ class FakeThreadPanel(Panel):
         pass
 
     def toggle_list_mode(self) -> None:
-        pass
-
-    def reply(self, to_all: bool = True) -> None:
-        pass
-
-    def forward(self) -> None:
         pass
 
     def open_attachments(self) -> None:

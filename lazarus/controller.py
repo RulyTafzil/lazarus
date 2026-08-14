@@ -45,7 +45,7 @@ import subprocess
 from typing import TYPE_CHECKING, Optional, Literal
 
 from PyQt6.QtCore import QObject, QSettings, QThread, pyqtSignal
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import settings
 from . import rules
@@ -289,6 +289,37 @@ class AppController(QObject):
             logger.warning('delegate_to_thread: unknown method %r', method)
             return
         getattr(tp, method)(**kwargs)
+
+    def reply(self, to_all: bool = True) -> None:
+        """Reply from the focused context.
+
+        With the thread preview focused, replies to its current message
+        (J/K selection); otherwise replies to the search list's selected
+        thread (its most recent email), without opening it.
+        """
+        tp = self.main_window.active_thread()
+        fw = QApplication.focusWidget()
+        if (tp is not None and isinstance(tp, ThreadView)
+                and fw is not None
+                and (fw is tp or tp.isAncestorOf(fw))):
+            tp.reply(to_all=to_all)
+            return
+        w = self.tabs.currentWidget()
+        if isinstance(w, ThreadList):
+            w.reply(to_all=to_all)
+
+    def forward(self) -> None:
+        """Forward from the focused context (same rule as :meth:`reply`)."""
+        tp = self.main_window.active_thread()
+        fw = QApplication.focusWidget()
+        if (tp is not None and isinstance(tp, ThreadView)
+                and fw is not None
+                and (fw is tp or tp.isAncestorOf(fw))):
+            tp.forward()
+            return
+        w = self.tabs.currentWidget()
+        if isinstance(w, ThreadList):
+            w.forward()
 
     def toggle_tag_hotkey(self, key: str) -> None:
         tag = settings.tag_hotkeys.get(key)
