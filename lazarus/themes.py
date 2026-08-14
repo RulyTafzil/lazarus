@@ -20,6 +20,8 @@ from __future__ import annotations
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
+from . import settings as _settings  # for hover blend toward theme fg
+
 
 # ---------------------------------------------------------------------------
 # Global stylesheet helpers — thin modern scrollbars + rounded Fusion widgets
@@ -59,11 +61,25 @@ def _thumb_color(theme: dict) -> str:
         return theme.get('fg_dim', theme.get('bg_button', theme['fg']))
 
 
-def _thumb_hover_color(base_hex: str, is_dark: bool) -> str:
+def _thumb_hover_color(base_hex: str, theme: dict) -> str:
     c = QColor(base_hex)
     if not c.isValid():
         return base_hex
-    return c.lighter(125).name() if is_dark else c.darker(112).name()
+    # Hover must stay clearly distinguishable from both the transparent track
+    # (viewport bg) and the idle thumb. For light themes blending toward fg
+    # is invisible when thumb == fg_dim — use a darker step instead. For
+    # dark themes, blending toward fg (which is light) gives good contrast.
+    is_dark = _is_dark(theme)
+    if is_dark:
+        fg = theme.get('fg', _settings.theme.get('fg', '#ffffff'))
+        fg_c = QColor(fg)
+        r = int(c.red()   * 0.6 + fg_c.red()   * 0.4)
+        g = int(c.green() * 0.6 + fg_c.green() * 0.4)
+        b = int(c.blue()  * 0.6 + fg_c.blue()  * 0.4)
+        return QColor(r, g, b).name()
+    else:
+        # light bg, dark thumb — darker toward bg_dim-like depth
+        return c.darker(125).name()
 
 
 def build_global_stylesheet(theme: dict) -> str:
@@ -84,26 +100,32 @@ def build_global_stylesheet(theme: dict) -> str:
     fg_link = theme.get('fg_link', fg)
 
     thumb = _thumb_color(theme)
-    thumb_hover = _thumb_hover_color(thumb, is_dark)
+    thumb_hover = _thumb_hover_color(thumb, theme)
     header_bg = theme.get('bg_alt', bg)
 
     return f"""
 /* ── Header row spans full width (paired with HeaderInsetTreeView) ── */
 QHeaderView {{
     background: {header_bg};
+    border: none;
 }}
 QHeaderView::section {{
     background: {header_bg};
+    border: none;
+    padding: 2px 4px;
 }}
-/* ── Thin modern scrollbars — pill handle, no arrows, transparent track ── */
+/* ── Tab bar: keep Fusion defaults (tabs manage their own bg via
+   palette). No QSS override here — previous transparent/tab-accent
+   experiments are reverted. */
+/* ── Thin modern scrollbars — pill handle, bg track so pill floats ── */
 QScrollBar:vertical {{
-    background: transparent;
+    background: {bg};
     width: 8px;
     margin: 0px;
     border: none;
 }}
 QScrollBar:horizontal {{
-    background: transparent;
+    background: {bg};
     height: 8px;
     margin: 0px;
     border: none;
@@ -133,7 +155,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
 }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-    background: none;
+    background: {bg};
 }}
 QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
 QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {{
