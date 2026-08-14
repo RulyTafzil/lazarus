@@ -34,6 +34,24 @@ from . import thread
 from . import notmuch
 from .protocols import PanelApp
 
+class _TagLoader(QtCore.QThread):
+    """Load the notmuch tag list in the background.
+
+    ``notmuch.tags()`` spawns a subprocess (~150ms) and the command bar
+    is constructed at startup, so the list is fetched off the UI thread
+    (mirrors ``_AddressLoader`` for the address book).
+    """
+
+    loaded = QtCore.pyqtSignal(list)
+
+    def run(self) -> None:
+        try:
+            tags = notmuch.tags()
+        except Exception:
+            tags = []
+        self.loaded.emit(tags)
+
+
 class CommandBar(QPlainTextEdit):
     """A command bar that opens as a centered modal overlay when searching
     or tagging.
@@ -83,8 +101,10 @@ class CommandBar(QPlainTextEdit):
         self.setTextCursor(c)
 
     def _get_completer(self) -> QCompleter:
-        """Prepare the completer for tags."""
-        completer = QCompleter(notmuch.tags(), self)
+        """Prepare the completer for tags (loaded in the background)."""
+        completer = QCompleter(self)
+        self._tag_model = QtCore.QStringListModel(completer)
+        completer.setModel(self._tag_model)
         completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         completer.setFilterMode(QtCore.Qt.MatchFlag.MatchContains)
@@ -95,7 +115,16 @@ class CommandBar(QPlainTextEdit):
         # QPlainTextEdit.textChanged carries no payload (unlike QLineEdit).
         self.textChanged.connect(
             lambda: self.handleTextChanged(self.toPlainText()))
+
+        loader = _TagLoader(self)
+        loader.loaded.connect(self._on_tags_loaded)
+        self._tag_loader = loader
+        loader.start()
         return completer
+
+    def _on_tags_loaded(self, tags: list) -> None:
+        """Populate the completer once the background tag fetch lands."""
+        self._tag_model.setStringList(tags)
 
     def handleTextChanged(self, text: str) -> None:
         """Open suggestion dialog if a matching tag is present."""
