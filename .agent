@@ -65,7 +65,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 │   ├── actions.py          # MarkableActionsMixin + _BulkMoveWorker + move/expunge helpers
 │   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
 │   ├── tag.py              # TagPanel + TagModel
-│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, tag completion, history, search/tag modes
+│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag modes
 │   ├── keymap.py           # global_keymap (consolidated) + tag/compose/command_bar maps
 │   ├── address_completer.py# AddressCompleter + _AddressLoader (notmuch address bg thread)
 │   ├── webengine.py        # MessagePage/Handler, EmbeddedImageHandler, RemoteBlocker
@@ -76,7 +76,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 │   ├── pgp_util.py         # PGP/MIME sign/encrypt via python-gnupg
 │   ├── notmuch.py          # Thin CLI wrapper — count/tags/search_files/search_json/tag/new/run
 │   ├── util.py             # HTML/text helpers, linkify/colorize, email parse, key_string, CSS
-│   ├── helpwindow.py       # HelpWindow — three-column keybinding HTML
+│   ├── helpwindow.py       # HelpWindow — keybinding HTML (Global/Compose/Command-bar; _GLOBAL_GROUPS display grouping)
 │   └── icons/hicolor/*/apps/lazarus.png  # 16/32/64/128/256/512/1024 bundled PNGs
 ├── share/
 │   ├── applications/lazarus.desktop
@@ -170,8 +170,8 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `app.py` | 393 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, delegation shims to `AppController`; `SyncMailThread` re-exported; `main()`/`install_desktop()` |
-| `compose.py` | 690 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, PGP toggles, `EditorThread`/`SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
+| `app.py` | 393 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, delegation shims to `AppController`; `SyncMailThread` re-exported; async Chromium warm-up (fire-and-forget); `main()`/`install_desktop()` |
+| `compose.py` | 690 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, hidden Cc/Bcc rows (M-c/M-b toggle, hidden = disregarded on send), PGP toggles, `EditorThread`/`SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
 | `actions.py` | 635 | `MarkableActionsMixin` (tag/archive/delete/restore hooks), `_BulkMoveWorker(QThread)` serial file-move queue, `_resolve_stale_path`/`collect_files`/`move_to_trash`/`move_to_archive`/`move_files`/`move_specific_files`/`expunge_trash`/`restore_from_trash`, `_run_notmuch_new` |
 | `util.py` | 609 | HTML/text (body_text/body_html, w3m, linkify, colorize_text, simple_escape), email parse/match, `key_string(QKeyEvent)`, message CSS |
 | `settings.py` | 494 | All defaults with docstrings — mail paths, commands, fonts, themes, filters, logging, security; exec'd `config.py` overrides |
@@ -193,7 +193,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `compose_threads.py` | 156 | `EditorThread` (temp `.eml` + `editor_command {file}`) + `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
 | `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, enqueues moves to `_BulkMoveWorker`, warns on 0-file matches |
 | `notmuch.py` | 154 | Wrapper — `run()`, `count()`, `count_batch(--batch)`, `tags()`, `search_files()`, `search_json()`, `tag()`, `new()` |
-| `helpwindow.py` | 99 | `HelpWindow(QWidget)` — three-column keybinding HTML (`_render_keymap`/`_split_dict`) |
+| `helpwindow.py` | 99 | `HelpWindow(QWidget)` — keybinding HTML (`_render_keymap`/`_split_dict`; `_GLOBAL_GROUPS` render-time display grouping; Navigation section removed) |
 | `signature.py` | 92 | `config_dir(account)` + per-account `signature`/`signature.html` loader (via `QStandardPaths`, `util.html2text` fallback) |
 | `__init__.py` | 23 | Re-exports `app`, `themes`, `settings`, `keymap`, `util` |
 | `controller.py` | 574 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `sync_mail` + `SyncMailThread` (parallel mbsync); owns `actions.batch_done` wiring |
@@ -294,7 +294,7 @@ message in the preview; the plain keys above act on the whole thread)
 | `<enter>` | Insert newline (when editor focused) |
 | `E` | Edit externally (`EditorThread`) |
 | `C-s` | Send (`SendmailThread`, disables UI, status on error) |
-| `M-c` / `M-b` | Reveal hidden Cc / Bcc field and focus it |
+| `M-c` / `M-b` | Toggle hidden Cc / Bcc row: reveal + focus, or hide — content in a hidden row is disregarded on send but remembered (re-reveal restores it) |
 | `a` | Attach file (file picker or `file_picker_command`) |
 | `[` / `]` | Previous/next SMTP account (`smtp_accounts` cycle, reloads sig) |
 | `p` / `e` | Toggle PGP sign/encrypt |
@@ -371,8 +371,8 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
 - **Type check**: `mypy lazarus` — **clean (0 errors)** as of Aug 2026; `disallow_untyped_defs = True`; keep it green
-- **Tests**: no committed suite yet — offscreen Qt harness (QT_QPA_PLATFORM=offscreen + AA_ShareOpenGLContexts before QApplication) used for ad-hoc verification; pure-logic tests are the natural next step
+- **Tests**: 162 tests in `tests/` — `python -m pytest` from the repo root (pytest injected into the lazarus-mail pipx venv). Pure logic + offscreen Qt (Tiers 1+2): notmuch stubbed, QSettings redirected to tmp, `lazarus.settings` restored per test (see `tests/conftest.py`). No WebEngine construction in tests (segfaults offscreen — models are covered, panels aren't).
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep original `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry Ruly header. Keep `key_string` / `message_css` / `LOCAL_PROTOCOLS` stable — they are part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
-- **PR workflow (Aug 2026)**: feature branches `pr/<slug>` → Forgejo API PRs (see forgejo-git skill) → merge+prune in order, rebasing downstream branches as they go. 8-PR series (mypy 182→0, protocols, perf, latent bugs) merged Aug 14 2026.
+- **PR workflow (Aug 2026)**: feature branches `pr/<slug>` → Forgejo API PRs (see forgejo-git skill) → merge+prune in order, rebasing downstream branches as they go. 8-PR cleanup series (mypy 182→0, protocols, perf, latent bugs) + test suite + features (message-level actions, list reply/forward, compose Cc/Bcc toggles) merged; each PR's description carries its verification notes.
