@@ -79,7 +79,7 @@ File moves for these actions happen asynchronously in the background, batched so
 
 ### Composing
 
-Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-trip required, though `E` still opens one if you'd rather use vim/emacs/whatever). It supports:
+Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-trip required). It supports:
 
 * inline image paste and drag-and-drop
 * address autocomplete drawn from your notmuch mail history
@@ -115,7 +115,6 @@ lazarus.settings.sent_dir = '/home/user/Mail/default/Sent'
 
 # optional, some commonly-changed ones
 lazarus.settings.theme = lazarus.themes.nord
-lazarus.settings.editor_command = "kitty nvim '{file}'"
 lazarus.settings.file_browser_command = "fman '{dir}' /home/user/Documents"
 lazarus.settings.sync_mail_command = 'mbsync -a'
 lazarus.settings.mail_root = '~/Mail'
@@ -138,7 +137,7 @@ A few settings worth knowing about beyond the basics:
 | `gnupg_keyid` | `None` | GPG key ID (or `{account: keyid}` dict) enabling PGP sign/encrypt in compose |
 | `filter_rules` | `[]` | List of `dodo.rules.Rule`s — see [Mail filters](#mail-filters) |
 
-Any setting ending in `_command` is a shell command string; `editor_command` takes a `{file}` placeholder and `file_browser_command` takes `{dir}`. If your file browser supports choosing files and writing the result to a temp file, you can set `file_picker_command` (with a `{tempfile}` placeholder) instead of using the built-in file picker.
+Any setting ending in `_command` is a shell command string; `file_browser_command` takes a `{dir}` placeholder. If your file browser supports choosing files and writing the result to a temp file, you can set `file_picker_command` (with a `{tempfile}` placeholder) instead of using the built-in file picker.
 
 By default, remote content (images, etc.) in HTML mail is blocked and links prompt for confirmation before opening — see `html_block_remote_requests`, `html_confirm_open_links`, and `html_confirm_open_links_trusted_hosts` if you want to loosen that.
 

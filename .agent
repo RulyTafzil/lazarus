@@ -38,7 +38,6 @@ per-account signatures, parallel mbsync, hicolor icons.
 | IMAP sync | `mbsync` (default) or `offlineimap` | `SyncMailThread` runs `mbsync -V <acct>` in parallel |
 | SMTP send | `msmtp` | `msmtp -a "{account}" -t`; per-account via `send_mail_command` dict |
 | PGP | `python-gnupg` (optional) | `lazarus/pgp_util.py`; `gnupg_home`/`gnupg_keyid` settings |
-| Editor | `$EDITOR` via `editor_command` | External escape hatch (`EditorThread`), default `xterm -e vim {file}` |
 | File browser | `file_browser_command` / `file_picker_command` | Attachments / file picker |
 | Build | `setuptools >=42` | `setup.py` + `pyproject.toml`; `share/` + `package_data` for icons |
 | Logging | stdlib `logging` | Level/file from `settings.log_level`/`log_file`; status bar mirror |
@@ -60,7 +59,7 @@ per-account signatures, parallel mbsync, hicolor icons.
 │   ├── thread_model.py     # ThreadModel + ThreadItem (conversation/thread modes)
 │   ├── compose.py          # ComposePanel — reply/forward, account switch, sig, PGP
 │   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop
-│   ├── compose_threads.py  # EditorThread + SendmailThread (msmtp + sent save)
+│   ├── compose_threads.py  # SendmailThread (msmtp + sent save)
 │   ├── mime_builder.py     # ComposeData dataclass + build_message() (multipart/related)
 │   ├── actions.py          # MarkableActionsMixin + _BulkMoveWorker + move/expunge helpers
 │   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
@@ -144,7 +143,7 @@ Helpers:
  ├── RichTextEditor(QTextEdit) — inline image temp dir, insert_image_from_file/data, body_html/text, collect_inline_images
  ├── AddressCompleter(QCompleter) — notmuch address preload in _AddressLoader thread, MatchContains
  ├── MessagePage/Handler, EmbeddedImageHandler, RemoteBlockingUrlRequestInterceptor (webengine.py)
- ├── EditorThread / SendmailThread (compose_threads.py — QThreads)
+ └── SendmailThread (compose_threads.py — QThread)
  └── _BulkMoveWorker(QThread) + MarkableActionsMixin (actions.py)
 ```
 
@@ -171,7 +170,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | File | Lines | Purpose |
 |------|-------|---------|
 | `app.py` | 358 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, sync timer, async Chromium warm-up; `main()`/`install_desktop()`; no delegation shims (panels get `AppController`) |
-| `compose.py` | 779 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, hidden Cc/Bcc rows (M-c/M-b toggle, hidden = disregarded on send), PGP toggles, `_cycle_account` (next/prev SMTP), `EditorThread`/`SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
+| `compose.py` | 699 | `ComposePanel` — compose/reply/forward; header bar, field sync, account switch, `_sig_block_text`/`_insert_signature`/`_reload_signature`, hidden Cc/Bcc rows (M-c/M-b toggle, hidden = disregarded on send), PGP toggles, `_cycle_account` (next/prev SMTP), `SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
 | `controller.py` | 651 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `sync_mail` + `SyncMailThread` (parallel mbsync); owns `actions.batch_done` wiring. The single `PanelApp` implementer — panels + global keymap dispatch here |
 | `actions.py` | 646 | `MarkableActionsMixin` (tag/archive/delete/restore hooks), `_BulkMoveWorker(QThread)` serial file-move queue, `_resolve_stale_path`/`collect_files`/`move_to_trash`/`move_to_archive`/`move_files`/`move_specific_files`/`expunge_trash`/`restore_from_trash`, `_run_notmuch_new` |
 | `thread.py` | 592 | `ThreadPanel` — double-buffered `QWebEngineView`, message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `reply`/`forward`/`open_attachments` (via `notmuch.show_part`), `scroll_message` |
@@ -192,11 +191,12 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `keys.py` | 187 | `key_string` + `basic_keytab`/`keytab` (split from util) |
 | `util.py` | 184 | Compat shim re-exporting split helpers + owned: email/account helpers (`get_header_addresses`/`strip_email_address`/`email_is_me`/…), header split/wrap, `make_message_css`, `sort_tags` |
 | `config.py` | 179 | `ConfigError` + `load_config()` — exec config.py with file:lineno + validation (required fields, smtp_accounts, `~Mail` typo) |
-| `compose_threads.py` | 172 | `EditorThread` (temp `.eml` + `editor_command {file}`) + `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
+| `compose_threads.py` | 143 | `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
 | `notmuch.py` | 168 | Wrapper — `run()`, `count()`, `count_batch(--batch)`, `tags()`, `search_files()`, `search_json()`, `show_part()` (binary part extraction), `tag()`, `new()` |
 | `mail_utils.py` | 167 | Mail-content helpers — `message_parts`, `body_text/html`, `quote`, `write_attachments` (via `notmuch.show_part`) |
 | `pgp_util.py` | 165 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
 | `protocols.py` | 155 | `PanelApp`/`ThreadList`/`ThreadView` structural protocols + `LIST_METHODS`/`THREAD_METHODS` fail-fast sets |
+| `style.py` | 71 | Memoised `cell_font()`/`theme_color()` for list/tree cell rendering (used by search/thread/tag models) |
 | `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, enqueues moves to `_BulkMoveWorker`, warns on 0-file matches |
 | `helpwindow.py` | 133 | `HelpWindow(QWidget)` — keybinding HTML (`_render_keymap`/`_split_dict`; `_GLOBAL_GROUPS` render-time display grouping; Navigation section removed) |
 | `html_utils.py` | 107 | Rendering helpers — `linkify`, `colorize_text`, `w3m_html2text`, `html2html` |
@@ -293,7 +293,6 @@ message in the preview; the plain keys above act on the whole thread)
 |-----|--------|
 | `<escape>` | Toggle focus (editor ↔ chrome) |
 | `<enter>` | Insert newline (when editor focused) |
-| `E` | Edit externally (`EditorThread`) |
 | `C-s` | Send (`SendmailThread`, disables UI, status on error) |
 | `M-c` / `M-b` | Toggle hidden Cc / Bcc row: reveal + focus, or hide — content in a hidden row is disregarded on send but remembered (re-reveal restores it) |
 | `a` | Attach file (file picker or `file_picker_command`) |
@@ -321,7 +320,6 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `sync_mail_interval` | `300` | Auto-sync secs; `-1` disables |
 | `send_mail_command` | `'msmtp -a "{account}" -t'` | `str` or `{account: cmd}`; `{account}` placeholder |
 | `smtp_accounts` | `['default']` | Account names; drives parallel `mbsync -V` + compose switch |
-| `editor_command` | `"xterm -e vim '{file}'"` | External editor; `{file}` temp `.eml` |
 | `file_browser_command` | `"nautilus '{dir}'"` | Attachment viewer; `{dir}` temp dir |
 | `file_picker_command` | `None` | Optional picker; `{tempfile}` out list |
 | `web_browser_command` | `''` | Empty → desktop default |
@@ -365,7 +363,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Sync**: `mbsync -a -V` per account in parallel (`synchronize_flags=true`), fallback `sync_mail_command`
 - **Send**: `msmtp` with `gmail` + `contact` accounts
 - **Theme**: Nord
-- **Editor**: neovim in kitty (`editor_command` override)
+- **Editor**: n/a (built-in `RichTextEditor` is the only compose editor; external `$EDITOR` flow removed Aug 2026)
 - **Notmuch**: `post-new` hook maps folders→tags, strips Trash/Spam tags
 
 ## Development
@@ -378,4 +376,5 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
 - **PR workflow (Aug 2026)**: feature branches `pr/<slug>` → Forgejo API PRs (see forgejo-git skill) → merge+prune in order, rebasing downstream branches as they go. 8-PR cleanup series (mypy 182→0, protocols, perf, latent bugs) + test suite + features (message-level actions, list reply/forward, compose Cc/Bcc toggles) merged; each PR's description carries its verification notes.
 - **Aug 2026 cleanup (pr/refactor-cleanup)**: dead code + unused imports removed (incl. all `from . import app` runtime imports — app.py no longer imports panel modules), Dodo shim layer deleted (AppController is the sole `PanelApp` implementer), duplication consolidated (`notmuch.show_part`, `util.sort_tags`, `_cycle_account`, single `_parse_address_list`), Qt star imports → explicit. Net −149 LOC, 158 tests, mypy 0. 
+- **Aug 2026 (pr/cleanup-style-editor)**: shared `style.cell_font`/`theme_color` (memoised, used by all three list/tree models), `ThreadItem.row_in_parent` → O(1) `ThreadModel.parent`, file-browser fallback in argv form (no shell), `sanitize_filename` comment; **external-editor flow removed** — `EditorThread`, `editor_command`, compose `E` key, and the raw-message round-trip all deleted (built-in `RichTextEditor` is the only compose editor).
 - **Linter**: `pyflakes lazarus` (pipx venv) should stay clean apart from the intentional re-exports in `lazarus/__init__.py` and `lazarus/util.py`.

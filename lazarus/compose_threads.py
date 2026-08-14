@@ -16,10 +16,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-"""Background threads for compose operations.
+"""Background send thread.
 
-:class:`EditorThread` runs the external editor as an escape hatch.
 :class:`SendmailThread` builds and sends the MIME message via msmtp.
+(An external-editor escape hatch used to live here as ``EditorThread``;
+it was removed — the built-in ``RichTextEditor`` is the only compose
+editor now.)
 """
 
 from __future__ import annotations
@@ -29,9 +31,6 @@ from PyQt6.QtCore import QObject, QThread
 import mailbox
 import email.parser
 import shlex
-import tempfile
-import os
-import subprocess
 from subprocess import PIPE, Popen, TimeoutExpired
 import traceback
 import logging
@@ -45,34 +44,6 @@ if TYPE_CHECKING:
     from .compose import ComposePanel
 
 logger = logging.getLogger(__name__)
-
-
-class EditorThread(QThread):
-    """A QThread used for editing mail with the external editor."""
-
-    def __init__(self, raw_message: str, panel: ComposePanel,
-                 parent: Optional[QObject] = None):
-        super().__init__(parent)
-        self.panel = panel
-        self.raw_message_string = raw_message
-        self.file = ''
-
-    def run(self) -> None:
-        fd, file = tempfile.mkstemp('.eml')
-        self.file = file
-        with os.fdopen(fd, 'w') as f:
-            f.write(self.raw_message_string)
-
-        cmd = settings.editor_command.format(file=file)
-        # editor_command is intentionally a shell command (documented as
-        # "xterm -e vim '{file}'" style); run as shell for compatibility.
-        subprocess.run(cmd, shell=True)
-
-        with open(file, 'r') as f1:
-            self.raw_message_string = f1.read()
-
-        if self.panel.is_open:
-            os.remove(file)
 
 
 class SendmailThread(QThread):

@@ -160,7 +160,6 @@ taking :class:`~lazarus.search.TagPanel` as input.
 compose_keymap: Keymap = {
   '<escape>':    ('toggle focus', lambda p: p.escape_focus()),
   '<enter>':     ('insert newline', lambda p: p.insert_newline() if hasattr(p, 'insert_newline') else None),
-  'E':           ('edit externally', lambda p: p.edit_externally()),
   'C-s':         ('send', lambda p: p.send()),
   'M-c':         ('reveal Cc', lambda p: p.reveal_cc()),
   'M-b':         ('reveal Bcc', lambda p: p.reveal_bcc()),
