@@ -18,9 +18,10 @@
 """Built-in rich-text email editor.
 
 :class:`RichTextEditor` is a :class:`~PyQt6.QtWidgets.QTextEdit` subclass
-that supports inline images via paste or drag-and-drop.  It is the default
-compose editor in Lazarus, replacing the external-editor workflow while keeping
-the external editor as an escape hatch (``E`` key).
+that supports inline images via paste or drag-and-drop, formatting
+shortcuts (Ctrl+B/I/U), and a compact :meth:`formatting_toolbar` strip.
+It is the only compose editor — the external-editor escape hatch was
+removed.
 """
 
 from __future__ import annotations
@@ -29,14 +30,17 @@ import uuid
 import tempfile
 import re
 import logging
-from typing import Optional, Dict
+from typing import Callable, Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import (
-    QTextImageFormat, QImage, QKeyEvent,
-    QDragEnterEvent, QDropEvent,
+    QColor, QFont, QImage, QKeyEvent, QTextBlockFormat, QTextImageFormat,
+    QTextListFormat, QDragEnterEvent, QDropEvent,
 )
-from PyQt6.QtWidgets import QTextEdit, QWidget
+from PyQt6.QtWidgets import (
+    QButtonGroup, QColorDialog, QFileDialog, QFrame, QHBoxLayout, QTextEdit,
+    QToolButton, QWidget,
+)
 
 from . import settings
 
@@ -215,6 +219,166 @@ class RichTextEditor(QTextEdit):
         fmt = self.currentCharFormat()
         fmt.setFontUnderline(not self.fontUnderline())
         self.mergeCurrentCharFormat(fmt)
+
+    # ------------------------------------------------------------------
+    # Formatting toolbar
+    # ------------------------------------------------------------------
+
+    def formatting_toolbar(self) -> QWidget:
+        """Build the compact formatting strip shown above the editor.
+
+        Bold / Italic / Underline, alignment, bullet / numbered lists,
+        text colour, and insert-image.  Buttons reflect the cursor's
+        current character format (kept in sync via
+        ``currentCharFormatChanged`` / ``cursorPositionChanged``).  All
+        buttons are ``NoFocus`` so keyboard focus never leaves the
+        editor; toolbar use is mouse-driven, and the existing
+        Ctrl+B/I/U shortcuts keep working.
+        """
+        bar = QWidget()
+        hlay = QHBoxLayout(bar)
+        hlay.setContentsMargins(8, 4, 8, 4)
+        hlay.setSpacing(2)
+
+        def make(text: str, tip: str, *, checkable: bool = False,
+                 slot: Callable[..., Any] | None = None) -> QToolButton:
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            b.setCheckable(checkable)
+            b.setAutoRaise(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setStyleSheet(
+                f'QToolButton {{ color: {settings.theme["fg"]};'
+                f' border-radius: 3px; padding: 2px 6px; }}'
+                f'QToolButton:checked {{'
+                f'  background-color: {settings.theme["bg_button"]}; }}'
+                f'QToolButton:hover {{'
+                f'  background-color: {settings.theme["bg_alt"]}; }}')
+            if slot is not None:
+                b.clicked.connect(slot)
+            hlay.addWidget(b)
+            return b
+
+        def separator() -> None:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
+            hlay.addWidget(sep)
+
+        # -- character formatting --------------------------------------
+        bold = make('B', 'Bold (Ctrl+B)', checkable=True,
+                    slot=self.toggle_bold)
+        f = bold.font()
+        f.setBold(True)
+        bold.setFont(f)
+        italic = make('I', 'Italic (Ctrl+I)', checkable=True,
+                      slot=self.toggle_italic)
+        f = italic.font()
+        f.setItalic(True)
+        italic.setFont(f)
+        underline = make('U', 'Underline (Ctrl+U)', checkable=True,
+                         slot=self.toggle_underline)
+        f = underline.font()
+        f.setUnderline(True)
+        underline.setFont(f)
+
+        # -- alignment (exclusive group) -------------------------------
+        separator()
+        align_group = QButtonGroup(self)
+        align_group.setExclusive(True)
+        align_buttons: list[tuple[QToolButton, Qt.AlignmentFlag]] = []
+        for glyph, tip, flag in (
+                ('L', 'Align left', Qt.AlignmentFlag.AlignLeft),
+                ('C', 'Align center', Qt.AlignmentFlag.AlignHCenter),
+                ('R', 'Align right', Qt.AlignmentFlag.AlignRight),
+        ):
+            b = make(glyph, tip, checkable=True)
+            b.clicked.connect(
+                lambda _checked=False, a=flag: self._set_alignment(a))
+            align_group.addButton(b)
+            align_buttons.append((b, flag))
+
+        # -- lists -----------------------------------------------------
+        separator()
+        bullet = make('•', 'Bulleted list', checkable=True,
+                      slot=lambda: self._toggle_list(
+                          QTextListFormat.Style.ListDisc))
+        numbered = make('1.', 'Numbered list', checkable=True,
+                        slot=lambda: self._toggle_list(
+                            QTextListFormat.Style.ListDecimal))
+
+        # -- colour / image --------------------------------------------
+        separator()
+        self._color_btn = make('A', 'Text colour', slot=self._choose_text_color)
+        self._image_btn = make('🖼', 'Insert image', slot=self._choose_image)
+
+        self._fmt_buttons = {
+            'bold': bold, 'italic': italic, 'underline': underline,
+            'bullet': bullet, 'numbered': numbered,
+        }
+        self._align_buttons = align_buttons
+
+        self.currentCharFormatChanged.connect(
+            lambda _fmt: self._sync_format_buttons())
+        self.cursorPositionChanged.connect(self._sync_format_buttons)
+        return bar
+
+    def _set_alignment(self, flag: Qt.AlignmentFlag) -> None:
+        """Align the current paragraph and restore editor focus."""
+        self.setAlignment(flag)
+        self._sync_format_buttons()
+        self.setFocus()
+
+    def _toggle_list(self, style: QTextListFormat.Style) -> None:
+        """Toggle the current block between *style* list and no list."""
+        cursor = self.textCursor()
+        lst = cursor.currentList()
+        if lst is not None and lst.format().style() == style:
+            cursor.beginEditBlock()
+            lst.remove(cursor.block())
+            cursor.endEditBlock()
+            cursor.setBlockFormat(QTextBlockFormat())
+        else:
+            cursor.createList(style)
+
+    def _choose_text_color(self) -> None:
+        """Pick a text colour via a dialog and apply it to the selection."""
+        color = QColorDialog.getColor(self.textColor(), self, 'Text colour')
+        if color.isValid():
+            self.setTextColor(color)
+        self.setFocus()
+
+    def _choose_image(self) -> None:
+        """Insert an image file at the cursor via a file dialog."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Insert image', '',
+            'Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)')
+        if path:
+            self.insert_image_from_file(path)
+        self.setFocus()
+
+    def _sync_format_buttons(self) -> None:
+        """Reflect the cursor's character format in the toolbar buttons."""
+        fmt = self.currentCharFormat()
+        self._fmt_buttons['bold'].setChecked(fmt.fontWeight() >= 700)
+        self._fmt_buttons['italic'].setChecked(fmt.fontItalic())
+        self._fmt_buttons['underline'].setChecked(fmt.fontUnderline())
+
+        lst = self.textCursor().currentList()
+        lst_style = lst.format().style() if lst is not None else None
+        self._fmt_buttons['bullet'].setChecked(
+            lst_style == QTextListFormat.Style.ListDisc)
+        self._fmt_buttons['numbered'].setChecked(
+            lst_style == QTextListFormat.Style.ListDecimal)
+
+        align = self.alignment()
+        for b, flag in self._align_buttons:
+            b.setChecked(align & flag == flag)
+
+        self._color_btn.setStyleSheet(
+            f'QToolButton {{ color: {fmt.foreground().color().name()};'
+            f' border-radius: 3px; padding: 2px 6px; }}')
 
     # ------------------------------------------------------------------
     # Qt event overrides

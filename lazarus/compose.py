@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Optional, List
 
 from PyQt6.QtCore import QEvent, QObject, QTimer, Qt
-from PyQt6.QtGui import QKeyEvent, QTextCursor
+from PyQt6.QtGui import QFont, QFontMetrics, QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
     QVBoxLayout, QWidget,
@@ -69,6 +69,12 @@ class ComposePanel(panel.Panel):
         self.mode = mode
         self.msg = msg
         self.temp_dirs: List[str] = []
+
+        # Widest field label, so every input box shares a left edge.
+        fm = QFontMetrics(QFont(settings.message_font, settings.message_font_size))
+        self._label_width = max(
+            fm.horizontalAdvance(t)
+            for t in ('To:', 'Cc:', 'Bcc:', 'Subject:')) + 8
 
         # ── Structured compose data ──────────────────────────────────
         self._data = mime_builder.ComposeData()
@@ -161,48 +167,48 @@ class ComposePanel(panel.Panel):
 
         # --- To field ---
         self.to_field = QLineEdit()
-        self.to_field.setPlaceholderText('To')
         self.to_field.setStyleSheet(self._field_style())
         self._to_completer = address_completer.AddressCompleter(self)
         self._to_completer.set_line_edit(self.to_field)
-        lay.addWidget(self.to_field)
+        lay.addWidget(self._make_field_row('To:', self.to_field))
 
-        # --- Cc row (hidden by default; C-c reveals) ---
+        # --- Cc row (hidden by default; M-c reveals) ---
         self.cc_row = QWidget(self)
         cc_layout = QHBoxLayout(self.cc_row)
         cc_layout.setContentsMargins(0, 0, 0, 0)
-        cc_layout.setSpacing(4)
+        cc_layout.setSpacing(8)
         self.cc_field = QLineEdit()
-        self.cc_field.setPlaceholderText('Cc')
         self.cc_field.setStyleSheet(self._field_style())
         self._cc_completer = address_completer.AddressCompleter(self)
         self._cc_completer.set_line_edit(self.cc_field)
-        cc_layout.addWidget(self.cc_field)
+        cc_layout.addWidget(self._make_label('Cc:'))
+        cc_layout.addWidget(self.cc_field, stretch=1)
         self.cc_row.hide()
         lay.addWidget(self.cc_row)
 
-        # --- Bcc row (hidden by default; C-b reveals) ---
+        # --- Bcc row (hidden by default; M-b reveals) ---
         self.bcc_row = QWidget(self)
         bcc_layout = QHBoxLayout(self.bcc_row)
         bcc_layout.setContentsMargins(0, 0, 0, 0)
-        bcc_layout.setSpacing(4)
+        bcc_layout.setSpacing(8)
         self.bcc_field = QLineEdit()
-        self.bcc_field.setPlaceholderText('Bcc')
         self.bcc_field.setStyleSheet(self._field_style())
         self._bcc_completer = address_completer.AddressCompleter(self)
         self._bcc_completer.set_line_edit(self.bcc_field)
-        bcc_layout.addWidget(self.bcc_field)
+        bcc_layout.addWidget(self._make_label('Bcc:'))
+        bcc_layout.addWidget(self.bcc_field, stretch=1)
         self.bcc_row.hide()
         lay.addWidget(self.bcc_row)
 
         # --- Subject field ---
         self.subject_field = QLineEdit()
-        self.subject_field.setPlaceholderText('Subject')
         self.subject_field.setStyleSheet(self._field_style())
-        lay.addWidget(self.subject_field)
+        lay.addWidget(self._make_field_row('Subject:', self.subject_field))
 
-        # --- Editor ---
+        # --- Editor toolbar + editor ---
         self.editor = editor_mod.RichTextEditor(self)
+        self.format_bar = self.editor.formatting_toolbar()
+        lay.addWidget(self.format_bar)
         lay.addWidget(self.editor, stretch=1)
 
         # --- Attachment bar ---
@@ -236,6 +242,30 @@ class ComposePanel(panel.Panel):
         hlay.addStretch()
         hlay.addWidget(self.status_label)
         return bar
+
+    def _make_label(self, text: str) -> QLabel:
+        """A right-aligned field label (fixed width so all input boxes
+        share a left edge)."""
+        lbl = QLabel(text)
+        lbl.setFixedWidth(self._label_width)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignRight
+                         | Qt.AlignmentFlag.AlignVCenter)
+        lbl.setStyleSheet(
+            f'color: {settings.theme["fg_dim"]};'
+            f'font-family: {settings.message_font};'
+            f'font-size: {settings.message_font_size}pt;'
+        )
+        return lbl
+
+    def _make_field_row(self, label: str, field: QLineEdit) -> QWidget:
+        """A labeled input row: right-aligned label + field."""
+        row = QWidget()
+        hlay = QHBoxLayout(row)
+        hlay.setContentsMargins(0, 0, 0, 0)
+        hlay.setSpacing(8)
+        hlay.addWidget(self._make_label(label))
+        hlay.addWidget(field, stretch=1)
+        return row
 
     def _field_style(self) -> str:
         """Return a stylesheet string for header line edits."""

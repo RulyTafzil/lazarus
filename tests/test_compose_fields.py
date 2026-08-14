@@ -20,6 +20,32 @@ def test_cc_and_bcc_rows_hidden_by_default(qapp):
     assert not p.bcc_row.isVisible()
 
 
+def _row_label(field) -> str:
+    """Text of the QLabel sitting left of *field* in its row layout."""
+    from PyQt6.QtWidgets import QLabel
+    row = field.parentWidget()
+    assert row is not None
+    lay = row.layout()
+    assert lay is not None
+    for i in range(lay.count()):
+        w = lay.itemAt(i).widget()
+        if isinstance(w, QLabel):
+            return w.text()
+    return ''
+
+
+def test_fields_have_left_labels(qapp):
+    """To/Cc/Bcc/Subject show real labels left of the input fields."""
+    p = _make_panel(qapp)
+    assert _row_label(p.to_field) == 'To:'
+    assert _row_label(p.subject_field) == 'Subject:'
+    assert _row_label(p.cc_field) == 'Cc:'
+    assert _row_label(p.bcc_field) == 'Bcc:'
+    # Placeholders are redundant now that labels exist.
+    assert p.to_field.placeholderText() == ''
+    assert p.subject_field.placeholderText() == ''
+
+
 def test_reveal_cc_shows_and_focuses(qapp):
     p = _make_panel(qapp)
     p.reveal_cc()
