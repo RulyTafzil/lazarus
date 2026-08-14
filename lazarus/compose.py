@@ -213,19 +213,15 @@ class ComposePanel(panel.Panel):
     def _make_header_bar(self) -> QWidget:
         """Build the top header row: Account | From | PGP status.
 
-        Visual: header_bg (bg_alt) with 4px left inset to align with
-        QTreeView items / QHeaderView sections. Account on the left,
-        From grows, status on the right. ComposePanel itself already
-        paints header_bg (see themes.py).
+        Keeps the panel's normal bg (no header_bg override). Layout:
+        4px left inset (matches QTreeView::item / QHeaderView::section),
+        Account | From | stretch | PGP status.
         """
         bar = QWidget()
-        bar.setStyleSheet(f'background: {settings.theme.get("bg_alt", settings.theme["bg"])};')
         hlay = QHBoxLayout()
-        # 4px left to match QTreeView::item / QHeaderView::section left pad
         hlay.setContentsMargins(4, 2, 4, 2)
         bar.setLayout(hlay)
         hlay.addWidget(self.account_label)
-        # Separator dot between account and From when both present
         self._from_sep = QLabel(' · ')
         self._from_sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
         hlay.addWidget(self._from_sep)
