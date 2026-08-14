@@ -149,6 +149,29 @@ def test_tag_completion_survives_notmuch_failure(qapp, fake_app, notmuch_stub,
     assert model.rowCount() == 0
 
 
+def test_completion_leaves_cursor_at_end(qapp, fake_app, notmuch_stub):
+    """After picking a tag from the completer popup, the cursor sits at
+    the end (after the trailing space) so the next term can be typed."""
+    import time
+    from lazarus import mainwindow
+    notmuch_stub.tag_list = ['inbox']
+    win = mainwindow.MainWindow(fake_app)  # starts the loader with the stub
+    bar = win.command_bar
+    model = bar._tag_model
+    deadline = time.time() + 5
+    while time.time() < deadline and model.rowCount() < 1:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert model.rowCount() == 1
+
+    bar.open('search', callback=lambda q: None)
+    bar.setPlainText('tag:in')  # triggers handleTextChanged -> prefix 'in'
+    assert bar.completer.completionPrefix() == 'in'
+    bar.handleCompletion('inbox')  # what the popup calls on activation
+    assert bar.toPlainText() == 'tag:inbox '
+    assert bar.textCursor().position() == len('tag:inbox ')
+
+
 def test_reflow_shrinks_back(mw, bar, qapp):
     box = mw._command_box
     bar.open('search', callback=lambda q: None)
