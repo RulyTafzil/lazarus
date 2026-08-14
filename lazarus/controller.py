@@ -389,6 +389,10 @@ class AppController(QObject):
         from . import panel as panel_mod
 
         def callback(tag_expr: str) -> None:
+            # Nothing to do if the expression has no real tag tokens
+            # (e.g. the prefilled '+', or an empty/'-'-only input).
+            if not [t for t in tag_expr.split() if t.strip('+-')]:
+                return
             w = self.tabs.currentWidget()
             if w and isinstance(w, panel_mod.Panel):
                 if isinstance(w, search_mod.SearchPanel):
@@ -398,6 +402,10 @@ class AppController(QObject):
                 w.refresh()
 
         self.command_bar.open(mode, callback)
+        # Default action is to add a tag: prefill '+' so the user just
+        # types the tag name; delete it and type '-' to remove instead.
+        self.command_bar.setPlainText('+')
+        self.command_bar._cursor_to_end()
 
     def _wire_sync_timer(self) -> None:
         # Timer still lives on Dodo; controller will take ownership later.

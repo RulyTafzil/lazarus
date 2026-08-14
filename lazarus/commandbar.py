@@ -19,7 +19,7 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Callable, Any
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QKeyEvent, QTextOption
+from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6 import QtCore
 
 from . import app
@@ -74,6 +74,12 @@ class CommandBar(QPlainTextEdit):
         """Ask the owner to re-size the bar to its current content."""
         if self.refit is not None:
             self.refit()
+
+    def _cursor_to_end(self) -> None:
+        """Move the edit cursor to the end of the text."""
+        c = self.textCursor()
+        c.movePosition(QTextCursor.MoveOperation.End)
+        self.setTextCursor(c)
 
     def _get_completer(self):
         """Prepare the completer for tags."""
@@ -185,6 +191,7 @@ class CommandBar(QPlainTextEdit):
                 pos = max(pos - 1, 0)
                 self.history[self.mode] = (pos, h)
                 self.setPlainText(h[pos])
+                self._cursor_to_end()
 
     def history_next(self) -> None:
         """Cycle to the next command in the command history
@@ -197,6 +204,7 @@ class CommandBar(QPlainTextEdit):
                 pos = min(pos + 1, len(h) - 1)
                 self.history[self.mode] = (pos, h)
                 self.setPlainText(h[pos])
+                self._cursor_to_end()
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
         """Process keyboard input while the command bar is in focus.
