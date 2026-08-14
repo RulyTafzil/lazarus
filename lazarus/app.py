@@ -299,6 +299,9 @@ class Dodo(QApplication):
     def tag_bar(self, mode: Literal['tag', 'tag marked']='tag') -> None:
         return self.controller.tag_bar(mode)  # type: ignore[arg-type]
 
+    def tag_message_bar(self) -> None:
+        return self.controller.tag_message_bar()
+
 
     def sync_mail(self, quiet: bool = True) -> None:
         return self.controller.sync_mail(quiet=quiet)  # type: ignore[attr-defined]

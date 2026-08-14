@@ -187,7 +187,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `tag.py` | 208 | `TagPanel` + `TagModel` — tag browser with unread/total counts |
 | `mime_builder.py` | 207 | `ComposeData` dataclass + `build_message()` — plain/HTML/multipart/related, attachments, inline images, `Date` header |
 | `commandbar.py` | 236 | `CommandBar(QPlainTextEdit)` — centered modal overlay (dim + click-away), grow-to-content width/wrap, tag autocomplete, per-mode history |
-| `keymap.py` | 184 | Consolidated `global_keymap` + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`, `navigation_keymap`; numeric `1-9` tag hotkeys |
+| `keymap.py` | 184 | Consolidated `global_keymap` + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`; numeric `1-9` tag hotkeys |
 | `pgp_util.py` | 162 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
 | `compose_model.py` | 225 | `ComposeModel` — `ComposeSeed` + `build_reply/forward/mailto` + account helpers (Qt-free, testable) |
 | `compose_threads.py` | 156 | `EditorThread` (temp `.eml` + `editor_command {file}`) + `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
@@ -225,7 +225,7 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 | `<tab>` / `S-<tab>` | Next/previous unread thread |
 | `J` / `K` | Next/previous message in thread preview |
 | `g g` / `G` | First/last thread |
-| `C-d` / `C-u` | Down/up 20 threads |
+| `M-j` / `M-k` | Down/up 20 threads |
 | `<pageup>` / `<pagedown>` | Page up/down (list) |
 | `<space>` / `-` | Page down/up (message) |
 | `<enter>` | Open thread in preview (`open_current_thread`) |
@@ -270,11 +270,22 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 | `i` | Toggle remote images |
 | `M` | Toggle list mode (conversation ↔ tree) |
 | `r` / `R` | Reply all / reply (`to_all=True/False`) |
-| `C-f` | Forward |
+| `C-y` | Forward |
 | `O` | Open attachments (dump to temp dir → file browser) |
 
+### Thread View — message-level actions (Ctrl-variants act on the selected
+message in the preview; the plain keys above act on the whole thread)
+| Key | Action |
+|-----|--------|
+| `C-u` | Toggle `unread` on the current message |
+| `C-f` | Toggle `flagged` on the current message |
+| `C-a` | Archive current message (`-inbox -unread`) |
+| `C-A` | Archive current message to local Maildir |
+| `C-d` | Move current message to Trash |
+| `C-t` | Tag current message (modal, `+` prefilled) |
+
 ### Tag Panel (`tag_keymap`)
-`j`/`k`/`↓`/`↑`, `g g`/`G`, `C-d`/`C-u`, `<enter>` (search tag).
+`j`/`k`/`↓`/`↑`, `g g`/`G`, `M-k`/`M-j`, `<enter>` (search tag).
 
 ### Compose (`compose_keymap`)
 | Key | Action |

@@ -416,6 +416,21 @@ class AppController(QObject):
         self.command_bar.setPlainText('+')
         self.command_bar._cursor_to_end()
 
+    def tag_message_bar(self) -> None:
+        """Tag the current message in the thread preview (C-t)."""
+        tp = self.main_window.active_thread()
+        if not isinstance(tp, ThreadView):
+            return
+
+        def callback(tag_expr: str) -> None:
+            if not [t for t in tag_expr.split() if t.strip('+-')]:
+                return
+            tp.tag_message(tag_expr)
+
+        self.command_bar.open('tag message', callback)
+        self.command_bar.setPlainText('+')
+        self.command_bar._cursor_to_end()
+
     def sync_mail(self, quiet: bool = True) -> None:
         """Sync mail with IMAP server
 

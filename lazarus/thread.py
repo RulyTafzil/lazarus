@@ -42,6 +42,7 @@ from . import settings
 from . import util
 from . import keymap
 from . import panel
+from . import actions
 from .protocols import PanelApp
 from .webengine import (
     MessagePage,
@@ -484,6 +485,39 @@ class ThreadPanel(panel.Panel):
 
     def tag_message(self, tag_expr: str) -> None:
         return self.model.tag_message(self.current_index, tag_expr)
+
+    # -- message-level actions (Ctrl-variants of the thread-wide keys) ------
+    # These act on the currently selected message in the thread preview,
+    # while the plain keys (u/f/a/d/A) act on the whole thread from the
+    # search list.
+
+    def toggle_message_unread(self) -> None:
+        """Toggle unread on the current message."""
+        self.toggle_message_tag('unread')
+
+    def toggle_message_flagged(self) -> None:
+        """Toggle flagged on the current message."""
+        self.toggle_message_tag('flagged')
+
+    def archive_message(self) -> None:
+        """Archive (-inbox -unread) the current message."""
+        self.model.tag_message(self.current_index, '-inbox -unread')
+        self.app.status_message('Archived message', 'info')
+
+    def archive_message_to_local(self) -> None:
+        """Move the current message's files to the local Archive."""
+        m = self.current_message
+        actions.move_to_archive('id:' + m['id'])
+        self.app.status_message('Archived message to local', 'info')
+        self.app.update_single_thread(self.thread_id, m['id'])
+
+    def delete_message(self) -> None:
+        """Move the current message to Trash and advance the cursor."""
+        m = self.current_message
+        actions.move_to_trash('id:' + m['id'])
+        self.app.status_message('Moved message to trash', 'info')
+        self.next_message()
+        self.app.update_single_thread(self.thread_id, m['id'])
 
     def toggle_html(self) -> None:
         """Toggle between HTML and plain text message view."""

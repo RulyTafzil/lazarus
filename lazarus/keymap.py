@@ -45,8 +45,8 @@ global_keymap: Keymap = {
   'S-<tab>':     ('previous unread', lambda a: a.delegate_to_list('previous_thread', unread=True)),
   'g g':         ('first thread', lambda a: a.delegate_to_list('first_thread')),
   'G':           ('last thread', lambda a: a.delegate_to_list('last_thread')),
-  'C-d':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
-  'C-u':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
+  'M-j':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
+  'M-k':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
   '<pageup>':    ('page up (list)', lambda a: a.delegate_to_list('prev_page')),
   '<pagedown>':  ('page down (list)', lambda a: a.delegate_to_list('next_page')),
   '<enter>':     ('open thread', lambda a: a.delegate_to_list('open_current_thread')),
@@ -54,25 +54,34 @@ global_keymap: Keymap = {
   'f':           ('toggle flagged', lambda a: a.delegate_to_list('toggle_thread_tag', tag='flagged')),
   's':           ('mark and advance', lambda a: a.mark_and_advance()),
   'a':           ('archive', lambda a: a.delegate_to_list('archive_thread')),
+  'A':           ('archive to local', lambda a: a.delegate_to_list('archive_to_local')),
   'd':           ('delete', lambda a: a.delegate_to_list('delete_thread')),
   'd d':         ('empty trash', lambda a: a.expunge_trash()),
   'd u':         ('restore from trash', lambda a: a.delegate_to_list('restore_thread_from_trash')),
-  'A':           ('archive to local', lambda a: a.delegate_to_list('archive_to_local')),
 
   # ── Message viewer ───────────────────────────────────────────────
   'J':           ('next message', lambda a: a.delegate_to_thread('next_message')),
   'K':           ('previous message', lambda a: a.delegate_to_thread('previous_message')),
+  'M':           ('toggle thread list mode', lambda a: a.delegate_to_thread('toggle_list_mode')),
   '<space>':     ('page down (message)', lambda a: a.delegate_to_thread('scroll_message', pages=1)),
   '-':           ('page up (message)', lambda a: a.delegate_to_thread('scroll_message', pages=-1)),
   'H':           ('toggle HTML', lambda a: a.delegate_to_thread('toggle_html')),
   'i':           ('toggle remote images', lambda a: a.delegate_to_thread('toggle_remote_content')),
-  'M':           ('toggle thread list mode', lambda a: a.delegate_to_thread('toggle_list_mode')),
   'r':           ('reply to all', lambda a: a.delegate_to_thread('reply', to_all=True)),
   'R':           ('reply', lambda a: a.delegate_to_thread('reply', to_all=False)),
-  'C-f':         ('forward', lambda a: a.delegate_to_thread('forward')),
+  'C-y':         ('forward', lambda a: a.delegate_to_thread('forward')),
   'O':           ('open attachments', lambda a: a.delegate_to_thread('open_attachments')),
   '<escape>':    ('focus list', lambda a: a.main_window.focus_list()),
   'C-<enter>':   ('close thread preview', lambda a: a.main_window.clear_thread()),
+
+  # ── Message-level actions (Ctrl-variants act on the selected message
+  #    in the thread preview; plain keys act on the whole thread) ──────
+  'C-u':         ('toggle unread (message)', lambda a: a.delegate_to_thread('toggle_message_unread')),
+  'C-f':         ('toggle flagged (message)', lambda a: a.delegate_to_thread('toggle_message_flagged')),
+  'C-a':         ('archive (message)', lambda a: a.delegate_to_thread('archive_message')),
+  'C-A':         ('archive to local (message)', lambda a: a.delegate_to_thread('archive_message_to_local')),
+  'C-d':         ('delete (message)', lambda a: a.delegate_to_thread('delete_message')),
+  'C-t':         ('tag (message)', lambda a: a.tag_message_bar()),
 
   # ── Global ───────────────────────────────────────────────────────
   '?':           ('show help', lambda a: a.show_help()),
@@ -91,7 +100,7 @@ global_keymap: Keymap = {
   '/':           ('search', lambda a: a.search_bar()),
   'C-/':         ('edit search query', lambda a: a.edit_search_query()),
   't t':         ('tag', lambda a: a.tag_bar()),
-  't m':         ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
+  't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 """The global keymap
 
@@ -106,18 +115,6 @@ for _k in '123456789':
     global_keymap[_k] = (
         f'toggle tag hotkey {_k}',
         lambda a, k=_k: a.toggle_tag_hotkey(k))
-
-# ── Navigation help (display-only) ───────────────────────────────────
-
-navigation_keymap: Keymap = {
-  'j / k':       ('next / previous thread', lambda a: None),
-  'J / K':       ('next / previous message', lambda a: None),
-  '<enter>':     ('open thread', lambda a: None),
-  '<escape>':    ('focus list', lambda a: None),
-  '<space> / -': ('page down / up (message)', lambda a: None),
-  's':           ('mark and advance', lambda a: None),
-  't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
-}
 
 # ── Local keymaps ────────────────────────────────────────────────────
 #
