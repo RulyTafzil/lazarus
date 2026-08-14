@@ -19,10 +19,11 @@
 from __future__ import annotations
 from PyQt6.QtCore import *
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QIcon, QCloseEvent
+from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent
 import logging
+import math
 import os
-from typing import Optional
+from typing import Callable, Optional
 
 from . import app
 from typing import TYPE_CHECKING
@@ -49,6 +50,52 @@ def _position_to_orientation(
         return Qt.Orientation.Vertical, True
     else:  # 'above'
         return Qt.Orientation.Vertical, False
+
+
+class SearchOverlay(QWidget):
+    """Full-window dim layer hosting the centered command bar.
+
+    Clicking anywhere on the dim dismisses the bar (rofi-style); clicks on
+    the entry box itself are swallowed by the box. The overlay is a child
+    of the central widget (not in a layout) so it floats above the
+    splitter; it is kept sized to the window on resize and re-raised on
+    show so it stays above the web view.
+    """
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self._dim_click_handler: Optional[Callable[[], None]] = None
+
+    def set_dim_click_handler(self, fn: Callable[[], None]) -> None:
+        self._dim_click_handler = fn
+
+    def mousePressEvent(self, e: QMouseEvent) -> None:
+        # Click-away dismiss. Only clicks on the dim land here; the entry
+        # and its container accept their own mouse events.
+        if self._dim_click_handler is not None:
+            self._dim_click_handler()
+        e.accept()
+
+    def showEvent(self, e: QShowEvent) -> None:
+        super().showEvent(e)
+        p = self.parentWidget()
+        if p is not None:
+            self.setGeometry(p.rect())
+        self.raise_()
+        # Deferred raise beats any late compositor/Chromium surface
+        # stacking when the overlay opens over the web view.
+        QTimer.singleShot(0, self.raise_)
+
+
+class _BarBox(QFrame):
+    """Rounded container for the mode label + entry.
+
+    Accepts mouse presses so clicks on the box padding don't fall through
+    to the dim (which would dismiss the bar).
+    """
+
+    def mousePressEvent(self, e: QMouseEvent) -> None:
+        e.accept()
 
 
 class MainWindow(QMainWindow):
@@ -163,19 +210,81 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(panel_focused)
         self.show()
 
-        # -- Command bar ----------------------------------------------------
-        command_area = QWidget(self)
+        # -- Command bar (centered modal overlay) ---------------------------
+        # The search/tag/edit-query bar opens as a modal overlay dead-center
+        # in the window: a dimmed full-window layer with the entry box on
+        # top, launcher-style. Clicking the dim dismisses; Esc still works.
+        command_area = SearchOverlay(w)
+        command_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        # Dim layer: black at partial alpha (works on light + dark themes;
+        # a theme-bg dim would be invisible against a theme-bg window).
+        dim = QColor(0, 0, 0)
+        dim.setAlphaF(0.45)
+        dim_pal = command_area.palette()
+        dim_pal.setColor(QPalette.ColorRole.Window, dim)
+        command_area.setPalette(dim_pal)
+        command_area.setAutoFillBackground(True)
+
         command_label = QLabel("search", command_area)
+        command_label.setStyleSheet(
+            f'QLabel {{ color: {settings.theme["fg_dim"]}; '
+            f'font-family: {settings.search_font}; '
+            f'font-size: {settings.search_font_size}pt; '
+            f'padding-left: 14px; }}')
+
         self.command_bar = commandbar.CommandBar(
-            self.app, command_label, command_area)
+            self.app, command_label, command_area, overlay=command_area)
         self.command_bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.command_bar.setFrameShape(QFrame.Shape.NoFrame)
+        self.command_bar.setViewportMargins(0, 6, 14, 6)
+        self.command_bar.setStyleSheet(
+            f'QPlainTextEdit {{ background: transparent; border: none; '
+            f'color: {settings.theme["fg"]}; '
+            f'font-family: {settings.search_font}; '
+            f'font-size: {settings.search_font_size}pt; '
+            f'selection-background-color: '
+            f'{settings.theme.get("bg_button", settings.theme["fg_dim"])}; '
+            f'selection-color: {settings.theme["fg"]}; }}')
 
-        command_area.setLayout(QHBoxLayout())
-        command_area.layout().addWidget(command_label)
-        command_area.layout().addWidget(self.command_bar)
+        # Rounded box holding the label + entry, with a soft drop shadow.
+        # Width/height are driven by _reflow_command_bar to fit content.
+        box = _BarBox(command_area)
+        box.setObjectName('command_box')
+        box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        box.setStyleSheet(
+            f'QFrame#command_box {{ '
+            f'background-color: {settings.theme.get("bg_alt", settings.theme["bg"])}; '
+            f'border: 1px solid {settings.theme.get("bg_button", settings.theme["fg_dim"])}; '
+            f'border-radius: 10px; }}')
+        box_lay = QHBoxLayout(box)
+        box_lay.setContentsMargins(0, 0, 0, 0)
+        box_lay.setSpacing(6)
+        box_lay.addWidget(command_label)
+        box_lay.addWidget(self.command_bar)
 
-        w.layout().addWidget(command_area)
+        shadow = QGraphicsDropShadowEffect(box)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 130))
+        box.setGraphicsEffect(shadow)
+
+        overlay_lay = QVBoxLayout(command_area)
+        overlay_lay.setContentsMargins(0, 0, 0, 0)
+        overlay_lay.addStretch(1)
+        overlay_row = QHBoxLayout()
+        overlay_row.addStretch(1)
+        overlay_row.addWidget(box)
+        overlay_row.addStretch(1)
+        overlay_lay.addLayout(overlay_row)
+        overlay_lay.addStretch(1)
+
+        command_area.set_dim_click_handler(self.command_bar.close_bar)
         command_area.setVisible(False)
+        self.command_area = command_area
+        self._command_box = box
+        self.command_bar.refit = self._reflow_command_bar
+        self._reflow_command_bar()
 
         # -- Status bar -----------------------------------------------------
         self.status_label = QLabel()
@@ -191,6 +300,59 @@ class MainWindow(QMainWindow):
         self.status_timer.setSingleShot(True)
         self.status_timer.timeout.connect(
             lambda: self.status_label.setVisible(False))
+
+    # -- command bar sizing -------------------------------------------------
+
+    def _reflow_command_bar(self) -> None:
+        """Size the command bar to its content.
+
+        The box grows with the widest line of text, capped at the window
+        width (minus side margins); beyond that the entry wraps and the
+        box grows vertically by line count.
+        """
+        bar = self.command_bar
+        overlay = self.command_area
+        box = getattr(self, '_command_box', None)
+        if box is None:
+            return
+
+        fm = bar.fontMetrics()
+        margins = bar.viewportMargins()
+        lm, tm, rm, bm = margins.left(), margins.top(), margins.right(), margins.bottom()
+        doc_m = bar.document().documentMargin()
+        text = bar.toPlainText()
+        lines = text.split('\n')
+
+        label_w = bar.label.sizeHint().width()
+        spacing = 6
+        border = 2  # 1px QSS border on each side of the box
+        side_margin = 24
+        caret = fm.horizontalAdvance('M')
+
+        max_advance = max(
+            (fm.horizontalAdvance(l) for l in lines), default=0)
+        # Horizontal space the text needs (text + margins + caret room).
+        content_need = max_advance + 2 * doc_m + lm + rm + caret
+
+        max_box_w = max(320, overlay.width() - 2 * side_margin)
+        entry_w = int(max(60, min(content_need,
+                                 max_box_w - label_w - spacing - border)))
+        box_w = int(label_w + spacing + entry_w + border)
+        box_w = max(320, min(box_w, max_box_w))
+        entry_w = box_w - label_w - spacing - border
+
+        # Wrapped line count (exact for the mono default font).
+        content_w = max(40, entry_w - lm - rm - 2 * doc_m)
+        total_lines = 0
+        for l in lines:
+            a = fm.horizontalAdvance(l)
+            total_lines += max(1, math.ceil(a / content_w))
+
+        entry_h = int(total_lines * fm.height() + 2 * doc_m + tm + bm + 2)
+        bar.setFixedWidth(entry_w)
+        bar.setFixedHeight(entry_h)
+        box.setFixedWidth(box_w)
+        box.setFixedHeight(entry_h + border)
 
     # -- splitter persistence -----------------------------------------------
 
@@ -284,6 +446,17 @@ class MainWindow(QMainWindow):
     def _save_preview_state(self, hidden: bool) -> None:
         """Persist whether the thread preview is collapsed."""
         QSettings('lazarus', 'lazarus').setValue('preview_hidden', hidden)
+
+    def resizeEvent(self, e: QResizeEvent) -> None:
+        """Keep the command-bar overlay covering the whole window."""
+        super().resizeEvent(e)
+        area = getattr(self, 'command_area', None)
+        cw = self.centralWidget()
+        if area is not None and cw is not None:
+            area.setGeometry(cw.rect())
+        # Max width of the bar depends on window width.
+        if area is not None and area.isVisible():
+            self._reflow_command_bar()
 
     # -- status bar ---------------------------------------------------------
 

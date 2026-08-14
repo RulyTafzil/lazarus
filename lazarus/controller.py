@@ -381,7 +381,7 @@ class AppController(QObject):
         if not isinstance(w, search.SearchPanel):
             return
         self.command_bar.open('search', callback=w.set_query)  # type: ignore[arg-type]
-        self.command_bar.setText(w.q)
+        self.command_bar.setPlainText(w.q)
 
     def tag_bar(self, mode: Literal['tag', 'tag marked'] = 'tag') -> None:
         from . import search as search_mod

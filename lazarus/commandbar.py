@@ -19,7 +19,7 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Callable, Any
 from PyQt6.QtWidgets import *
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtGui import QKeyEvent, QTextOption
 from PyQt6 import QtCore
 
 from . import app
@@ -33,19 +33,47 @@ from . import search
 from . import thread
 from . import notmuch
 
-class CommandBar(QLineEdit):
-    """A command bar that appears on the bottom of the screen when searching
-    or tagging."""
+class CommandBar(QPlainTextEdit):
+    """A command bar that opens as a centered modal overlay when searching
+    or tagging.
 
-    def __init__(self, a: "Dodo | AppController", label: QLabel, parent: QWidget):
+    The entry is a wrapping multi-line editor whose size is driven by its
+    content (via :attr:`refit`): the container grows with the query up to
+    the window width, then wraps to additional lines.
+    """
+
+    def __init__(self, a: "Dodo | AppController", label: QLabel, parent: QWidget,
+                 overlay: Optional[QWidget] = None):
         super().__init__(parent)
         self.app = a
         self.label = label
+        # The full-window dim layer to show/hide when the bar opens/closes.
+        # Kept separate from the widget parent chain because the entry is
+        # re-parented into the bar's styled container by its layout.
+        self.overlay = overlay
         self.mode = ''
         self.history: Dict[str, Tuple[int, List[str]]] = {}
         self.callback: Optional[Callable[[str], Any]] = None
 
+        # Wrapping multi-line entry, sized externally to fit its content.
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
+        self.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setMinimumSize(40, 30)
+
+        # Called by the owner to resize the entry/container to content.
+        self.refit: Optional[Callable[[], None]] = None
+        self.textChanged.connect(self._refit)
+
         self.completer = self._get_completer()
+
+    def _refit(self) -> None:
+        """Ask the owner to re-size the bar to its current content."""
+        if self.refit is not None:
+            self.refit()
 
     def _get_completer(self):
         """Prepare the completer for tags."""
@@ -57,7 +85,9 @@ class CommandBar(QLineEdit):
         completer.setWidget(self)
         completer.activated.connect(self.handleCompletion)
 
-        self.textChanged.connect(self.handleTextChanged)
+        # QPlainTextEdit.textChanged carries no payload (unlike QLineEdit).
+        self.textChanged.connect(
+            lambda: self.handleTextChanged(self.toPlainText()))
         return completer
 
     def handleTextChanged(self, text: str):
@@ -81,7 +111,7 @@ class CommandBar(QLineEdit):
     def handleCompletion(self, text):
         """Use the choosen tag."""
         prefix = self.completer.completionPrefix()
-        self.setText(self.text()[:-len(prefix)] + text + " ")
+        self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
 
     def open(self, mode: str, callback: Callable[[str], Any]) -> None:
         """Open the command bar and give it focus
@@ -99,10 +129,11 @@ class CommandBar(QLineEdit):
         self.callback = callback
         self.label.setText(mode)
 
-        p = self.parent()
-        if isinstance(p, QWidget): p.setVisible(True)
+        target = self.overlay if self.overlay is not None else self.parent()
+        if isinstance(target, QWidget): target.setVisible(True)
 
         self.setFocus()
+        self._refit()
 
     def close_bar(self) -> None:
         """Clear the command and close
@@ -114,9 +145,9 @@ class CommandBar(QLineEdit):
             _, h = self.history[self.mode]
             self.history[self.mode] = (len(h), h)
 
-        self.setText('')
-        p = self.parent()
-        if isinstance(p, QWidget): p.setVisible(False)
+        self.setPlainText('')
+        target = self.overlay if self.overlay is not None else self.parent()
+        if isinstance(target, QWidget): target.setVisible(False)
 
         w = self.app.tabs.currentWidget()
         if w: w.setFocus()
@@ -132,14 +163,14 @@ class CommandBar(QLineEdit):
             return
 
         if self.callback:
-            self.callback(self.text())
+            self.callback(self.toPlainText())
 
         if self.mode in self.history:
             pos, h = self.history[self.mode]
-            h.append(self.text())
+            h.append(self.toPlainText())
             self.history[self.mode] = (pos + 1, h)
         else:
-            self.history[self.mode] = (1, [self.text()])
+            self.history[self.mode] = (1, [self.toPlainText()])
 
         self.close_bar()
 
@@ -153,7 +184,7 @@ class CommandBar(QLineEdit):
             if len(h) != 0:
                 pos = max(pos - 1, 0)
                 self.history[self.mode] = (pos, h)
-                self.setText(h[pos])
+                self.setPlainText(h[pos])
 
     def history_next(self) -> None:
         """Cycle to the next command in the command history
@@ -165,7 +196,7 @@ class CommandBar(QLineEdit):
             if len(h) != 0:
                 pos = min(pos + 1, len(h) - 1)
                 self.history[self.mode] = (pos, h)
-                self.setText(h[pos])
+                self.setPlainText(h[pos])
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
         """Process keyboard input while the command bar is in focus.
