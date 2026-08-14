@@ -293,7 +293,8 @@ message in the preview; the plain keys above act on the whole thread)
 | `<escape>` | Toggle focus (editor ↔ chrome) |
 | `<enter>` | Insert newline (when editor focused) |
 | `E` | Edit externally (`EditorThread`) |
-| `C-s` / `C-S` | Send (`SendmailThread`, disables UI, status on error) |
+| `C-s` | Send (`SendmailThread`, disables UI, status on error) |
+| `M-c` / `M-b` | Reveal hidden Cc / Bcc field and focus it |
 | `a` | Attach file (file picker or `file_picker_command`) |
 | `[` / `]` | Previous/next SMTP account (`smtp_accounts` cycle, reloads sig) |
 | `p` / `e` | Toggle PGP sign/encrypt |
