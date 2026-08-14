@@ -31,10 +31,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Optional, Protocol, runtime_checkable, Union
 
 if TYPE_CHECKING:
-    from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QTabWidget
 
-    from .controller import SyncMailThread
     from .mainwindow import MainWindow
     from .panel import Panel
 
@@ -51,8 +49,6 @@ class PanelApp(Protocol):
     main_window: "MainWindow"
     tabs: "QTabWidget"
     panel_history: list["Panel"]
-    sync_thread: Optional["SyncMailThread"]
-    sync_timer: Optional["QTimer"]
 
     def show_help(self) -> None: ...
     def raise_panel(self, p: "Panel") -> None: ...
