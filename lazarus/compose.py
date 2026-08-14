@@ -378,60 +378,95 @@ class ComposePanel(panel.Panel):
         document.  On subsequent calls (account switch) the old signature
         block is replaced in-place — preserving any quoted reply text
         that appears below it.
+
+        Bug fix: an empty ``_sig_block`` (no-sig account) previously
+        matched at index 0 (``''.find('') == 0``) and caused the new sig
+        to be inserted *before* user text. Empty old blocks are now
+        treated as "no sig present" and the new sig is inserted after
+        user text but before quoted/forwarded content when that exists.
         """
         doc = self.editor.document()
         full_text = doc.toPlainText()
 
         new_block = self._sig_block_text()
 
-        # If we have a cached block (even empty — meaning "no sig yet"),
-        # replace it in-place so the signature always stays above quoted text.
+        # In-place replacement only when we have a non-empty cached sig
+        # that is actually found in the document.
         if getattr(self, '_sig_block', None) is not None:
             old_block = self._sig_block
-            idx = full_text.find(old_block)
-            if idx >= 0:
-                # Save the widget's cursor position before the replace —
-                # QTextCursor(doc) still shares the document, so insertText
-                # through it can push the widget cursor forward.
-                old_pos = self.editor.textCursor().position()
-                cursor = QTextCursor(doc)
-                cursor.setPosition(idx)
-                cursor.setPosition(
-                    idx + len(old_block),
-                    QTextCursor.MoveMode.KeepAnchor)
-                if new_block:
-                    cursor.insertText(new_block)
-                else:
-                    cursor.removeSelectedText()
-                self._sig_block = new_block
-                # Restore widget cursor, adjusting for sig length change
-                # if the cursor was after the replaced block.
-                len_diff = len(new_block) - len(old_block)
-                if old_pos > idx + len(old_block):
-                    old_pos += len_diff
-                elif old_pos > idx:
-                    old_pos = idx + len(new_block)
-                if self.editor.textCursor().position() != old_pos:
-                    c = self.editor.textCursor()
-                    c.setPosition(old_pos)
-                    self.editor.setTextCursor(c)
-                return
+            if old_block:
+                idx = full_text.find(old_block)
+                if idx >= 0:
+                    old_pos = self.editor.textCursor().position()
+                    cursor = QTextCursor(doc)
+                    cursor.setPosition(idx)
+                    cursor.setPosition(
+                        idx + len(old_block),
+                        QTextCursor.MoveMode.KeepAnchor)
+                    if new_block:
+                        cursor.insertText(new_block)
+                    else:
+                        cursor.removeSelectedText()
+                    self._sig_block = new_block
+                    len_diff = len(new_block) - len(old_block)
+                    if old_pos > idx + len(old_block):
+                        old_pos += len_diff
+                    elif old_pos > idx:
+                        old_pos = idx + len(new_block)
+                    if self.editor.textCursor().position() != old_pos:
+                        c = self.editor.textCursor()
+                        c.setPosition(old_pos)
+                        self.editor.setTextCursor(c)
+                    return
+                # Non-empty old sig not found (user deleted it) — fall
+                # through to insertion logic below if we have a new sig.
+                if not new_block:
+                    self._sig_block = new_block
+                    return
+            else:
+                # old_block == '' -> no previous sig
+                if not new_block:
+                    return
+                # fall through to insertion
 
-        # No old signature — append at end.
+        # No old sig found (or no previous sig) — insert new sig if any.
         if not new_block:
+            # Ensure cache is set for future switches
+            if getattr(self, '_sig_block', None) is None:
+                self._sig_block = ''
             return
-        cursor = self.editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if full_text and not full_text.endswith('\n'):
-            cursor.insertText('\n')
-        cursor.insertText(new_block)
+
+        # Find quoted/forwarded block to insert *before* it, so the sig
+        # stays above the quoted text. Otherwise append at end after user
+        # text (the reported bug was sig inserted before user text).
+        insert_idx = -1
+        for marker in ("\nOn ", "---------- Forwarded message", "\n> "):
+            idx = full_text.find(marker)
+            if idx != -1:
+                insert_idx = idx
+                break
+
+        cursor = QTextCursor(doc)
+        if insert_idx != -1:
+            cursor.setPosition(insert_idx)
+            # new_block starts with "\n-- \n", so inserting at the
+            # leading "\n" of the marker keeps correct spacing.
+            # If the marker has no leading \n (forwarded at pos 0), just
+            # insert there — leading \n in new_block still separates.
+            if full_text and insert_idx == 0 and full_text.startswith("\n"):
+                # Avoid doubling the leading newline when inserting at 0
+                # (rare, but keeps formatting tidy).
+                pass
+            cursor.insertText(new_block)
+        else:
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            if full_text and not full_text.endswith('\n'):
+                cursor.insertText('\n')
+            cursor.insertText(new_block)
         self._sig_block = new_block
-        # textCursor() shares the document with the widget — inserting
-        # through it pushes the widget's own cursor forward when it was
-        # sitting at the insertion point.  This branch only ever runs
-        # on an empty document (mailto / blank-compose), so force the
-        # cursor back to the start explicitly.
-        self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+        if not full_text.strip():
+            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
 
     def _reload_signature(self) -> None:
         """Swap the signature when the account changes."""
