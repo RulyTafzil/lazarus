@@ -66,8 +66,29 @@ def test_reply_keeps_cc_hidden_when_empty(qapp):
     assert not p.cc_row.isVisible()
 
 
+def test_meta_chords_dispatch_through_panel_keymap(qapp):
+    """Alt+C / Alt+B reach the panel keymap (eventFilter routes modifier
+    chords from the editor), revealing the rows."""
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt
+    p = _make_panel(qapp)
+
+    ev_c = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C,
+                     Qt.KeyboardModifier.AltModifier)
+    p.keyPressEvent(ev_c)
+    assert p.cc_row.isVisible()
+
+    ev_b = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B,
+                     Qt.KeyboardModifier.AltModifier)
+    p.keyPressEvent(ev_b)
+    assert p.bcc_row.isVisible()
+
+
 def test_send_bound_only_to_cs(qapp):
     assert 'C-s' in keymap.compose_keymap
     assert 'C-S' not in keymap.compose_keymap
-    assert 'C-c' in keymap.compose_keymap
-    assert 'C-b' in keymap.compose_keymap
+    assert 'M-c' in keymap.compose_keymap
+    assert 'M-b' in keymap.compose_keymap
+    # Ctrl variants stay free for copy/bold in the editor
+    assert 'C-c' not in keymap.compose_keymap
+    assert 'C-b' not in keymap.compose_keymap
