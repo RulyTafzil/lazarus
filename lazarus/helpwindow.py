@@ -55,6 +55,30 @@ def _split_dict(d: dict) -> tuple[dict, dict]:
     return dict(items[:mid]), dict(items[mid:])
 
 
+# The help window's "Navigation" section: a curated, grouped view of
+# global_keymap entries, so the descriptions stay in one place (keymap.py).
+_NAVIGATION_GROUPS: list[tuple[str, tuple[str, ...]]] = [
+    ('j / k', ('j', 'k')),
+    ('J / K', ('J', 'K')),
+    ('<enter>', ('<enter>',)),
+    ('<escape>', ('<escape>',)),
+    ('<space> / -', ('<space>', '-')),
+    ('s', ('s',)),
+    ('t m', ('t m',)),
+]
+
+
+def _navigation_keymap() -> dict:
+    """Derive the Navigation help group from the global keymap."""
+    out: dict = {}
+    for display, keys in _NAVIGATION_GROUPS:
+        descs = [keymap.global_keymap[k][0]
+                 for k in keys if k in keymap.global_keymap]
+        if descs:
+            out[display] = (' / '.join(descs), lambda a: None)
+    return out
+
+
 class HelpWindow(QWidget):
     """A three-column window showing all keybindings"""
 
@@ -70,7 +94,7 @@ class HelpWindow(QWidget):
         global_a, global_b = _split_dict(keymap.global_keymap)
 
         columns = [
-            [("Navigation", keymap.navigation_keymap),
+            [("Navigation", _navigation_keymap()),
              ("Compose view", keymap.compose_keymap),
              ("Command bar", keymap.command_bar_keymap)],
             [("Global", global_a)],

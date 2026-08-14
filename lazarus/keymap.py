@@ -45,8 +45,8 @@ global_keymap: Keymap = {
   'S-<tab>':     ('previous unread', lambda a: a.delegate_to_list('previous_thread', unread=True)),
   'g g':         ('first thread', lambda a: a.delegate_to_list('first_thread')),
   'G':           ('last thread', lambda a: a.delegate_to_list('last_thread')),
-  'M-k':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
-  'M-j':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
+  'M-j':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
+  'M-k':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
   '<pageup>':    ('page up (list)', lambda a: a.delegate_to_list('prev_page')),
   '<pagedown>':  ('page down (list)', lambda a: a.delegate_to_list('next_page')),
   '<enter>':     ('open thread', lambda a: a.delegate_to_list('open_current_thread')),
@@ -100,7 +100,7 @@ global_keymap: Keymap = {
   '/':           ('search', lambda a: a.search_bar()),
   'C-/':         ('edit search query', lambda a: a.edit_search_query()),
   't t':         ('tag', lambda a: a.tag_bar()),
-  't m':         ('tag marked', lambda a: a.tag_bar(mode='tag marked')),
+  't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
 }
 """The global keymap
 
@@ -115,18 +115,6 @@ for _k in '123456789':
     global_keymap[_k] = (
         f'toggle tag hotkey {_k}',
         lambda a, k=_k: a.toggle_tag_hotkey(k))
-
-# ── Navigation help (display-only) ───────────────────────────────────
-
-navigation_keymap: Keymap = {
-  'j / k':       ('next / previous thread', lambda a: None),
-  'J / K':       ('next / previous message', lambda a: None),
-  '<enter>':     ('open thread', lambda a: None),
-  '<escape>':    ('focus list', lambda a: None),
-  '<space> / -': ('page down / up (message)', lambda a: None),
-  's':           ('mark and advance', lambda a: None),
-  't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
-}
 
 # ── Local keymaps ────────────────────────────────────────────────────
 #
