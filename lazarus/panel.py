@@ -209,7 +209,9 @@ class Panel(QWidget):
         if hasattr(self, 'open_current_thread'):
             self.open_current_thread()
 
-    def focusInEvent(self, event: QFocusEvent):
+    def focusInEvent(self, event: QFocusEvent | None):
+        if event is None:
+            return
         super().focusInEvent(event)
         if self.dirty:
             self.refresh()
@@ -316,7 +318,7 @@ class Panel(QWidget):
         logger.info('before_close: end')
         return True
 
-    def keyPressEvent(self, e: QKeyEvent) -> None:
+    def keyPressEvent(self, e: QKeyEvent | None) -> None:
         """Passes key events to the appropriate keymap
 
         First a key press (possibly with modifiers) is translated into a string
@@ -330,6 +332,8 @@ class Panel(QWidget):
         do nothing.
         """
 
+        if e is None:
+            return
         k = util.key_string(e)
         logger.info('keyPressEvent: %s', k)
         if not k: return None

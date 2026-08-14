@@ -69,14 +69,16 @@ class SearchOverlay(QWidget):
     def set_dim_click_handler(self, fn: Callable[[], None]) -> None:
         self._dim_click_handler = fn
 
-    def mousePressEvent(self, e: QMouseEvent) -> None:
+    def mousePressEvent(self, e: QMouseEvent | None) -> None:
         # Click-away dismiss. Only clicks on the dim land here; the entry
         # and its container accept their own mouse events.
+        if e is None:
+            return
         if self._dim_click_handler is not None:
             self._dim_click_handler()
         e.accept()
 
-    def showEvent(self, e: QShowEvent) -> None:
+    def showEvent(self, e: QShowEvent | None) -> None:
         super().showEvent(e)
         p = self.parentWidget()
         if p is not None:
@@ -94,8 +96,9 @@ class _BarBox(QFrame):
     to the dim (which would dismiss the bar).
     """
 
-    def mousePressEvent(self, e: QMouseEvent) -> None:
-        e.accept()
+    def mousePressEvent(self, e: QMouseEvent | None) -> None:
+        if e is not None:
+            e.accept()
 
 
 class MainWindow(QMainWindow):
@@ -447,7 +450,7 @@ class MainWindow(QMainWindow):
         """Persist whether the thread preview is collapsed."""
         QSettings('lazarus', 'lazarus').setValue('preview_hidden', hidden)
 
-    def resizeEvent(self, e: QResizeEvent) -> None:
+    def resizeEvent(self, e: QResizeEvent | None) -> None:
         """Keep the command-bar overlay covering the whole window."""
         super().resizeEvent(e)
         area = getattr(self, 'command_area', None)
@@ -496,10 +499,11 @@ class MainWindow(QMainWindow):
                 return False
         return True
 
-    def closeEvent(self, e: QCloseEvent) -> None:
+    def closeEvent(self, e: QCloseEvent | None) -> None:
         conf = QSettings('lazarus', 'lazarus')
         conf.setValue("main_window_geometry", self.saveGeometry())
-        if self.before_close_all():
-            e.accept()
+        if e is None or self.before_close_all():
+            if e is not None:
+                e.accept()
         else:
             e.ignore()

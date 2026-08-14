@@ -207,7 +207,7 @@ class CommandBar(QPlainTextEdit):
                 self.setPlainText(h[pos])
                 self._cursor_to_end()
 
-    def keyPressEvent(self, e: QKeyEvent) -> None:
+    def keyPressEvent(self, e: QKeyEvent | None) -> None:
         """Process keyboard input while the command bar is in focus.
 
         Translate the key event into a string with :func:`~lazarus.util.key_string`
@@ -217,6 +217,8 @@ class CommandBar(QPlainTextEdit):
 
         Note: Key chords are NOT supported in the command bar.
         """
+        if e is None:
+            return
         if self.completer.popup().isVisible() and e.key() in [
             QtCore.Qt.Key.Key_Enter,
             QtCore.Qt.Key.Key_Return,

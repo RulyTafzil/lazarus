@@ -88,11 +88,13 @@ class HelpWindow(QWidget):
 
         self.resize(950, 780)
 
-    def keyPressEvent(self, e: QKeyEvent) -> None:
+    def keyPressEvent(self, e: QKeyEvent | None) -> None:
         """Handle key press
 
         If <escape> is pressed, exit, otherwise pass the keypress on."""
 
+        if e is None:
+            return
         if e.key() == Qt.Key.Key_Escape:
             self.close()
         else:

@@ -673,7 +673,7 @@ class ComposePanel(panel.Panel):
         else:
             self.editor.setFocus()
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Override to let certain keys pass through to child line edits
         before the panel keymap intercepts them.
 
@@ -681,6 +681,8 @@ class ComposePanel(panel.Panel):
         ``<enter>`` and ``<tab>`` must reach the widget for the completer
         to accept a suggestion.
         """
+        if event is None:
+            return
         fw = self.focusWidget()
         if isinstance(fw, QLineEdit) and event.key() in (
                 Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab):
@@ -689,7 +691,7 @@ class ComposePanel(panel.Panel):
             return
         super().keyPressEvent(event)
 
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
         """Intercept compose command chords before QTextEdit consumes them.
 
         QTextEdit handles alphanumeric keys as text input, so Ctrl chords
@@ -697,6 +699,8 @@ class ComposePanel(panel.Panel):
         with modifiers (Ctrl, Alt, Meta) plus ``<escape>`` and ``<enter>``
         — plain letters and symbols pass through to the editor as text.
         """
+        if obj is None or event is None:
+            return super().eventFilter(obj, event)
         if obj is self.editor and event.type() == QEvent.Type.KeyPress:
             key_event = typing.cast(QKeyEvent, event)
             mods = key_event.modifiers()

@@ -218,8 +218,10 @@ class RichTextEditor(QTextEdit):
     # Qt event overrides
     # ------------------------------------------------------------------
 
-    def insertFromMimeData(self, source: QMimeData) -> None:
+    def insertFromMimeData(self, source: QMimeData | None) -> None:
         """Intercept paste to handle image data."""
+        if source is None:
+            return
         if source.hasImage():
             img = source.imageData()
             if isinstance(img, QImage) and not img.isNull():
@@ -241,13 +243,17 @@ class RichTextEditor(QTextEdit):
         # Fall through to default text/html handling
         super().insertFromMimeData(source)
 
-    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+    def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
+        if event is None:
+            return
         if event.mimeData().hasImage() or event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
-    def dropEvent(self, event: QDropEvent) -> None:
+    def dropEvent(self, event: QDropEvent | None) -> None:
+        if event is None:
+            return
         md = event.mimeData()
         if md.hasImage():
             img = md.imageData()
@@ -268,11 +274,12 @@ class RichTextEditor(QTextEdit):
 
         super().dropEvent(event)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
+    def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Handle formatting shortcuts that aren't consumed by the panel
         keymap (the panel sees Ctrl+B/I/U before we do, so these only
         fire when the panel keymap doesn't bind them)."""
-
+        if event is None:
+            return
         mods = event.modifiers()
         ctrl = mods & Qt.KeyboardModifier.ControlModifier
 

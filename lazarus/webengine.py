@@ -61,7 +61,9 @@ class MessageHandler(QWebEngineUrlSchemeHandler):
         super().__init__(parent)
         self.message_json: Optional[dict] = None
 
-    def requestStarted(self, request: QWebEngineUrlRequestJob) -> None:
+    def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
+        if request is None:
+            return
         mode = request.requestUrl().toString()[len('message:'):]
 
         if self.message_json:
@@ -127,7 +129,9 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
         with open(filename, 'rb') as f:
             self.message = email.parser.BytesParser().parse(f)
 
-    def requestStarted(self, request: QWebEngineUrlRequestJob) -> None:
+    def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
+        if request is None:
+            return
         cid = request.requestUrl().toString()[len('cid:'):]
         content_type = None
         if self.message:
@@ -183,7 +187,7 @@ class MessagePage(QWebEnginePage):
 
     def javaScriptConsoleMessage(
             self, level: QWebEnginePage.JavaScriptConsoleMessageLevel,
-            message: str, line: int, source: str) -> None:
+            message: str | None, line: int, source: str | None) -> None:
         """Suppress JS console noise from malformed email HTML."""
         pass
 
