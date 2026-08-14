@@ -20,7 +20,9 @@ from __future__ import annotations
 from typing import Optional, List, Set
 from PyQt6.QtCore import QSettings, pyqtSignal, QTimer, QRect
 from PyQt6.QtGui import QColor, QFocusEvent, QKeyEvent, QPalette, QResizeEvent, QShowEvent
-from PyQt6.QtWidgets import *
+from PyQt6.QtWidgets import (
+    QAbstractSlider, QMessageBox, QTreeView, QVBoxLayout, QWidget,
+)
 import shutil
 import logging
 

@@ -17,8 +17,12 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from PyQt6.QtCore import *
-from PyQt6.QtWidgets import *
+from PyQt6.QtCore import QByteArray, QSettings, QTimer, Qt
+from PyQt6.QtWidgets import (
+    QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
+    QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout,
+    QWidget,
+)
 from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent
 import logging
 import math

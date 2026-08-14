@@ -19,9 +19,12 @@
 from __future__ import annotations
 from typing import Optional, List
 
-from PyQt6.QtCore import *
+from PyQt6.QtCore import QEvent, QObject, QTimer, Qt
 from PyQt6.QtGui import QKeyEvent, QTextCursor
-from PyQt6.QtWidgets import *
+from PyQt6.QtWidgets import (
+    QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
+    QVBoxLayout, QWidget,
+)
 import email.utils
 import email.policy
 import email.message

@@ -18,7 +18,7 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Callable, Any
-from PyQt6.QtWidgets import *
+from PyQt6.QtWidgets import QCompleter, QLabel, QPlainTextEdit, QWidget
 from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6 import QtCore
 

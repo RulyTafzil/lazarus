@@ -19,8 +19,8 @@
 from __future__ import annotations
 import os
 
-from PyQt6.QtCore import *
-from PyQt6.QtWidgets import *
+from PyQt6.QtCore import QSocketNotifier, QTimer, Qt
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWebEngineCore import QWebEngineUrlScheme
 import sys
 import signal

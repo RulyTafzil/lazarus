@@ -19,11 +19,16 @@
 from __future__ import annotations
 from typing import Optional, Union
 
-from PyQt6.QtCore import *
+from PyQt6.QtCore import QModelIndex, QObject, QSettings, QTimer, QUrl, Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import *
-from PyQt6.QtWebEngineCore import *
-from PyQt6.QtWebEngineWidgets import *
+from PyQt6.QtWidgets import (
+    QFileDialog, QHeaderView, QSplitter, QStackedLayout, QTextBrowser,
+    QTreeView, QWidget,
+)
+from PyQt6.QtWebEngineCore import (
+    QWebEngineProfile, QWebEngineScript, QWebEngineSettings,
+)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 import logging
 import os
