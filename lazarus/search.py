@@ -36,6 +36,7 @@ from . import notmuch
 from . import keymap
 from . import panel
 from . import actions
+from .protocols import PanelApp
 
 logger = logging.getLogger(__name__)
 
@@ -267,7 +268,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
 
     This is used as the main entry point for the GUI, i.e. a search for "tag:inbox"."""
 
-    def __init__(self, a: "Dodo | AppController", q: str, keep_open: bool=False, parent: Optional[QWidget]=None):
+    def __init__(self, a: PanelApp, q: str, keep_open: bool=False, parent: Optional[QWidget]=None):
         self._dirty_content = False
         self._dirty_title = False
         super().__init__(a, keep_open, parent)

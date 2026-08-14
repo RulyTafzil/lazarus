@@ -51,6 +51,7 @@ from . import settings
 from . import rules
 from . import actions
 from . import notmuch
+from .protocols import ThreadList, ThreadView, LIST_METHODS, THREAD_METHODS
 
 if TYPE_CHECKING:
     from .mainwindow import MainWindow
@@ -258,36 +259,51 @@ class AppController(QObject):
 
     def navigate_list(self, direction: str) -> None:
         w = self.tabs.currentWidget()
-        if w and hasattr(w, 'next_thread') and hasattr(w, 'previous_thread'):
+        if isinstance(w, ThreadList):
             if direction == 'next':
-                w.next_thread()  # type: ignore[attr-defined]
+                w.next_thread()
             elif direction == 'previous':
-                w.previous_thread()  # type: ignore[attr-defined]
+                w.previous_thread()
+        else:
+            logger.warning('navigate_list: current tab is not a thread list')
 
     def mark_and_advance(self) -> None:
         w = self.tabs.currentWidget()
-        if w and hasattr(w, 'toggle_thread_tag') and hasattr(w, 'next_thread'):
-            w.toggle_thread_tag('marked')  # type: ignore[attr-defined]
-            w.next_thread()  # type: ignore[attr-defined]
+        if isinstance(w, ThreadList):
+            w.toggle_thread_tag('marked')
+            w.next_thread()
 
     def delegate_to_list(self, method: str, **kwargs: object) -> None:
-        from . import panel as panel_mod  # lazy to avoid cycle
+        """Call *method* on the current list tab, if it is a thread list.
+
+        Fail-fast: unknown method names (typos) are logged instead of
+        silently doing nothing.
+        """
         w = self.tabs.currentWidget()
-        if w and hasattr(w, method):
-            getattr(w, method)(**kwargs)
+        if not isinstance(w, ThreadList):
+            return
+        if method not in LIST_METHODS:
+            logger.warning('delegate_to_list: unknown method %r', method)
+            return
+        getattr(w, method)(**kwargs)
 
     def delegate_to_thread(self, method: str, **kwargs: object) -> None:
+        """Call *method* on the active thread preview, if any."""
         tp = self.main_window.active_thread()
-        if tp is not None and hasattr(tp, method):
-            getattr(tp, method)(**kwargs)
+        if not isinstance(tp, ThreadView):
+            return
+        if method not in THREAD_METHODS:
+            logger.warning('delegate_to_thread: unknown method %r', method)
+            return
+        getattr(tp, method)(**kwargs)
 
     def toggle_tag_hotkey(self, key: str) -> None:
         tag = settings.tag_hotkeys.get(key)
         if not tag:
             return
         w = self.tabs.currentWidget()
-        if w and hasattr(w, 'toggle_thread_tag'):
-            w.toggle_thread_tag(tag)  # type: ignore[attr-defined]
+        if isinstance(w, ThreadList):
+            w.toggle_thread_tag(tag)
 
     def add_panel(self, p: "Panel", focus: bool = True) -> None:
         self.tabs.addTab(p, p.title())

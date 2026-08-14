@@ -33,6 +33,7 @@ from . import settings
 from . import keymap
 from . import panel
 from . import notmuch
+from .protocols import PanelApp
 from .search import columns
 
 
@@ -141,7 +142,7 @@ class TagModel(QAbstractItemModel):
 class TagPanel(panel.Panel):
     """A panel showing all tags"""
 
-    def __init__(self, a: "Dodo | AppController", keep_open: bool=False, parent: Optional[QWidget]=None):
+    def __init__(self, a: PanelApp, keep_open: bool=False, parent: Optional[QWidget]=None):
         super().__init__(a, keep_open, parent)
         self.set_keymap(keymap.tag_keymap)
         self.tree = panel.HeaderInsetTreeView()

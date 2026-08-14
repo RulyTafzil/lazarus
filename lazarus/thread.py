@@ -31,6 +31,7 @@ import shlex
 import shutil
 import subprocess
 import email.utils
+from typing import cast
 
 from . import app
 from typing import TYPE_CHECKING
@@ -41,6 +42,7 @@ from . import settings
 from . import util
 from . import keymap
 from . import panel
+from .protocols import PanelApp
 from .webengine import (
     MessagePage,
     MessageHandler,
@@ -68,7 +70,7 @@ class ThreadPanel(panel.Panel):
     :param thread_id: the unique ID notmuch uses to identify this thread
     """
 
-    def __init__(self, a: "Dodo | AppController", thread_id: str, search_query: str,
+    def __init__(self, a: PanelApp, thread_id: str, search_query: str,
                  parent: Optional[QWidget] = None):
         super().__init__(a, parent=parent)
         self.set_keymap(keymap.thread_keymap)
@@ -102,8 +104,9 @@ class ThreadPanel(panel.Panel):
 
         self.message_info = QTextBrowser()
 
-        # Shared profile for URL scheme handlers
-        self.message_profile = QWebEngineProfile(self.app)
+        # Shared profile for URL scheme handlers (parent is the app, a
+        # QObject — cast because PanelApp is structural).
+        self.message_profile = QWebEngineProfile(cast(QObject, self.app))
 
         self.image_handler = EmbeddedImageHandler(self)
         self.message_profile.installUrlSchemeHandler(
