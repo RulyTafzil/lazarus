@@ -108,16 +108,23 @@ class MainWindow(QMainWindow):
             settings.thread_pane_position)
         self.main_splitter = QSplitter(orientation)
         self.main_splitter.setChildrenCollapsible(False)
-        if _want:
-            # Main splitter (between tabs and thread preview) sits in the
-            # translucent central widget — its handle would show desktop.
-            # Keep the handle's "...." indicator (Fusion CE_Splitter) and
-            # ensure the splitter itself paints bg so the handle strip is opaque.
-            self.main_splitter.setAutoFillBackground(True)
-            pal_sp = self.main_splitter.palette()
-            pal_sp.setColor(QPalette.ColorRole.Window, QColor(settings.theme['bg']))
-            self.main_splitter.setPalette(pal_sp)
+        # Keep QSplitter itself transparent so QTabBar transparency can show
+        # desktop, but force the splitter *handle* opaque — it's a separate
+        # QSplitterHandle child that sits in transparent central widget and
+        # would otherwise show desktop. Handle paints "...." via Fusion
+        # CE_Splitter on the handle's own palette.
         w.layout().addWidget(self.main_splitter, stretch=1)
+        # Handle(s) are created when widgets are added; patch after layout.
+        # Do it post-add via singleShot so handles exist.
+        if _want:
+            def _opaque_handles() -> None:
+                for i in range(1, self.main_splitter.count()):
+                    h = self.main_splitter.handle(i)
+                    h.setAutoFillBackground(True)
+                    pal_h = h.palette()
+                    pal_h.setColor(QPalette.ColorRole.Window, QColor(settings.theme['bg']))
+                    h.setPalette(pal_h)
+            QTimer.singleShot(0, _opaque_handles)
 
         # List side: tabs (searches, compose, tags)
         self.tabs = QTabWidget()
