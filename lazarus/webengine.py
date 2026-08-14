@@ -22,7 +22,7 @@ Extracted from ``thread.py`` to keep that module focused on the
 """
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from PyQt6.QtCore import QBuffer, QIODevice, QObject, QUrl, QUrlQuery
 from PyQt6.QtWidgets import QMessageBox
@@ -43,10 +43,6 @@ from . import util
 from .protocols import PanelApp
 
 LOCAL_PROTOCOLS = ['cid', 'message']
-
-if TYPE_CHECKING:
-    from .app import Dodo
-    from .controller import AppController
 
 
 # ---------------------------------------------------------------------------

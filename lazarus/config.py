@@ -35,9 +35,7 @@ re-configuring logging or creating the main window.
 from __future__ import annotations
 
 import os
-import sys
 import traceback
-from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QStandardPaths
 
@@ -136,7 +134,6 @@ def _validate_settings() -> list[str]:
         errors.append(f"filter_rules must be a list, got {type(settings.filter_rules).__name__}")
 
     # -- log level ---------------------------------------------------------
-    import logging as _logging
     if settings.log_level.upper() not in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
         errors.append(f"log_level = {settings.log_level!r} — must be DEBUG/INFO/WARNING/ERROR/CRITICAL")
 

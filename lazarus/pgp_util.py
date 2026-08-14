@@ -22,9 +22,6 @@ import email
 import email.utils
 import email.message
 import email.policy
-import logging
-import os
-import re
 import sys
 from typing import Any, Optional, Protocol
 

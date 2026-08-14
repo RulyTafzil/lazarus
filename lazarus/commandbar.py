@@ -22,15 +22,8 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import QKeyEvent, QTextCursor, QTextOption
 from PyQt6 import QtCore
 
-from . import app
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import util
 from . import keymap
-from . import search
-from . import thread
 from . import notmuch
 from .protocols import PanelApp
 

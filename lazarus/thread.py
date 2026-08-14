@@ -17,10 +17,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import List, Optional, Any, Union
+from typing import Optional, Union
 
 from PyQt6.QtCore import *
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import *
 from PyQt6.QtWebEngineCore import *
 from PyQt6.QtWebEngineWidgets import *
@@ -33,11 +33,6 @@ import subprocess
 import email.utils
 from typing import cast
 
-from . import app
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import settings
 from . import util
 from . import keymap
@@ -50,14 +45,7 @@ from .webengine import (
     EmbeddedImageHandler,
     RemoteBlockingUrlRequestInterceptor,
 )
-from .thread_model import (
-    ThreadModel,
-    ThreadItem,
-    EmptyThreadError,
-    flat_thread,
-    short_string,
-    iter_thread_messages,
-)
+from .thread_model import ThreadModel, EmptyThreadError
 
 logger = logging.getLogger(__name__)
 
@@ -441,9 +429,6 @@ class ThreadPanel(panel.Panel):
 
     def previous_message(self) -> None:
         self._select_index(self.thread_list.indexAbove(self.current_index))
-
-    def next_unread(self) -> None:
-        self._select_index(self.model.next_unread(self.current_index))
 
     def scroll_message(
             self,

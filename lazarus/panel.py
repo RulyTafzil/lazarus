@@ -18,8 +18,8 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
 from typing import Optional, List, Set
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QRect
-from PyQt6.QtGui import QColor, QFocusEvent, QFont, QKeyEvent, QPalette, QResizeEvent, QShowEvent
+from PyQt6.QtCore import QSettings, pyqtSignal, QTimer, QRect
+from PyQt6.QtGui import QColor, QFocusEvent, QKeyEvent, QPalette, QResizeEvent, QShowEvent
 from PyQt6.QtWidgets import *
 import shutil
 import logging
@@ -28,11 +28,6 @@ from . import keymap
 from . import util
 from . import settings
 from .protocols import PanelApp
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 
 logger = logging.getLogger(__name__)
 

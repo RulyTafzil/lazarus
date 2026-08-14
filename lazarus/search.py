@@ -17,20 +17,15 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import Optional, Any, overload, Literal, Set
+from typing import Optional, Any, Set
 
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QObject, QSettings
-from PyQt6.QtWidgets import QTreeView, QWidget, QVBoxLayout, QLabel
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtGui import QFont, QColor
 import subprocess
 import json
 import logging
 
-from . import app
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import settings
 from . import notmuch
 from . import keymap
@@ -314,11 +309,6 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             self.error_view.setText(self.model.error_msg)
             self.error_view.show()
         self.has_refreshed.emit()
-
-    def _select_first_row(self) -> None:
-        """Select the first row in the tree view."""
-        if self.model.rowCount() > 0:
-            self.tree.setCurrentIndex(self.model.index(0, 0))
 
     def _select_near_row(self, target_row: int) -> None:
         """Select the row at *target_row* if valid, else the last row."""

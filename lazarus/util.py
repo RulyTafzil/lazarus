@@ -30,7 +30,8 @@ New code should import from the owning module directly:
 * HTML/text:  :mod:`lazarus.html_utils` (linkify, colorize, html2text, …)
 * Mail parts: :mod:`lazarus.mail_utils` (message_parts, body_text, write_attachments, …)
 * Keys:       :mod:`lazarus.keys` (key_string, basic_keytab, keytab)
-* This file:  email identity + header/header-wrap helpers
+* This file:  email identity + message helpers (strip/parse addresses,
+              header splitting, wrapping, message CSS)
 
 A ``DeprecationWarning`` is not yet emitted to avoid spamming on every
 start — clean imports at your leisure.
@@ -39,7 +40,6 @@ start — clean imports at your leisure.
 from __future__ import annotations
 
 import email.utils
-import re
 import textwrap
 from typing import List, Tuple, Dict, Optional
 
@@ -137,26 +137,6 @@ def wrap_message(s: str) -> str:
             body_wrap += textwrap.fill(line, width=settings.wrap_column) + '\n'
 
     return headers + '\n' + body_wrap
-
-
-def add_header_line(s: str, h: str) -> str:
-    """Add the given string to the headers, i.e. before the first
-    blank line, in the provided string."""
-
-    (headers, body) = separate_headers(s)
-    return headers + h + '\n\n' + body
-
-
-def replace_header(s: str, h: str, new_value: str) -> str:
-    """Replace a single header without doing full message parsing
-
-    Note this ONLY works for short (i.e. unwrapped) headers."""
-
-    (headers, body) = separate_headers(s)
-    old_h = re.compile(r'^' + h + r':.*$', re.MULTILINE)
-    headers = old_h.sub(h + ': ' + new_value, headers)
-
-    return headers + '\n' + body
 
 
 def make_message_css() -> str:

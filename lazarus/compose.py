@@ -39,7 +39,6 @@ from . import panel
 from . import keymap
 from . import settings
 from . import util
-from . import pgp_util
 from . import signature
 from . import editor as editor_mod
 from . import address_completer
@@ -47,12 +46,6 @@ from . import mime_builder
 from . import compose_model
 from . import compose_threads
 from .protocols import PanelApp
-
-# gnupg is only needed for pgp/mime support, do not throw when not present
-try:
-    import gnupg  # type: ignore[import-not-found]
-except ImportError as ex:
-    pass
 
 
 class ComposePanel(panel.Panel):
@@ -762,12 +755,6 @@ class ComposePanel(panel.Panel):
                     panel_mod.Panel.keyPressEvent(self, key_event)
                     return True
         return super().eventFilter(obj, event)
-
-    def set_status(self, status: str, color: str) -> None:
-        """Set the status label text and color."""
-        self.status_label.setText(status)
-        self.status_label.setStyleSheet(
-            f'color: {settings.theme[color]}; font-style: italic;')
 
 
 # -----------------------------------------------------------------------

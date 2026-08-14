@@ -25,15 +25,13 @@ import math
 import os
 from typing import Callable, Optional
 
-from . import app
+from . import commandbar
+from . import panel
+from . import settings
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .controller import AppController
     from .app import Dodo
-from . import commandbar
-from . import panel
-from . import settings
-from . import themes
 
 logger = logging.getLogger(__name__)
 
@@ -417,13 +415,8 @@ class MainWindow(QMainWindow):
         self._active_thread = thread_panel
         self.thread_container.addWidget(thread_panel)
         self.thread_container.setCurrentWidget(thread_panel)
-        thread_panel.has_refreshed.connect(self._on_thread_refreshed)
         thread_panel.setFocus()
         self._save_preview_state(hidden=False)
-
-    def _on_thread_refreshed(self) -> None:
-        """Update window title when the active thread refreshes."""
-        pass  # title updates handled by refresh_tab_titles / panel itself
 
     def focus_list(self) -> None:
         """Move keyboard focus back to the current list tab."""

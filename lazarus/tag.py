@@ -17,24 +17,17 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import Optional, Any, overload, Literal, List, Tuple
+from typing import Optional, Any, List, Tuple
 
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QObject
-from PyQt6.QtWidgets import QTreeView, QWidget
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QFont, QColor
-import json
 
-from . import app
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import settings
 from . import keymap
 from . import panel
 from . import notmuch
 from .protocols import PanelApp
-from .search import columns
 
 
 class TagModel(QAbstractItemModel):

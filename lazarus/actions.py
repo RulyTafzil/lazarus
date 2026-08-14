@@ -127,7 +127,6 @@ def _get_worker() -> _BulkMoveWorker:
 
 def shutdown_worker() -> None:
     """Call from aboutToQuit — joins the worker if alive."""
-    global _worker
     if _worker is not None and _worker.isRunning():
         try:
             _worker.shutdown()
