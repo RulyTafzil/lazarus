@@ -68,6 +68,18 @@ def flat_thread(d: list) -> List[dict]:
     return thread
 
 
+def latest_message(thread_data: list) -> Optional[dict]:
+    """Return the most recent message of a thread (``notmuch show`` shape).
+
+    ``thread_data`` is one thread as returned by ``notmuch show --format=json``
+    (a list of ``[message, [children]]`` trees). Returns None if empty.
+    """
+    msgs = flat_thread(thread_data)
+    if not msgs:
+        return None
+    return max(msgs, key=lambda m: m['timestamp'])
+
+
 def short_string(m: dict) -> str:
     """Return a short description string for the given message."""
     if 'headers' in m and 'From' in m['headers']:

@@ -283,6 +283,12 @@ class Dodo(QApplication):
     def open_compose(self, mode: str='', msg: Optional[dict]=None) -> None:
         return self.controller.open_compose(mode, msg)
 
+    def reply(self, to_all: bool = True) -> None:
+        return self.controller.reply(to_all)
+
+    def forward(self) -> None:
+        return self.controller.forward()
+
 
     def open_tags(self, keep_open: bool=False) -> None:
         return self.controller.open_tags(keep_open=keep_open)

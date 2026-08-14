@@ -37,6 +37,7 @@ from . import keymap
 from . import panel
 from . import actions
 from .protocols import PanelApp
+from .thread_model import latest_message
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +437,42 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         thread_id = self.model.thread_id(self.tree.currentIndex())
         if thread_id:
             self.app.open_thread(thread_id, self.model.q)
+
+    # -- reply / forward from the list --------------------------------------
+    # These act on the selected thread's most recent email without opening
+    # the preview (r / R / C-y from the search list).
+
+    def _thread_latest_message(self) -> Optional[dict]:
+        """Fetch the most recent message of the selected thread."""
+        thread_id = self._current_thread_id()
+        if not thread_id:
+            return None
+        try:
+            r = notmuch.run('show', '--exclude=false', '--format=json',
+                            '--', f'thread:{thread_id}', check=True)
+            data = json.loads(r.stdout)
+        except (subprocess.CalledProcessError, json.JSONDecodeError, IndexError):
+            return None
+        if not data:
+            return None
+        return latest_message(data[0])
+
+    def reply(self, to_all: bool = True) -> None:
+        """Reply to the selected thread's most recent email."""
+        msg = self._thread_latest_message()
+        if msg is None:
+            self.app.status_message('No message to reply to', 'warning')
+            return
+        self.app.open_compose(
+            mode='replyall' if to_all else 'reply', msg=msg)
+
+    def forward(self) -> None:
+        """Forward the selected thread's most recent email."""
+        msg = self._thread_latest_message()
+        if msg is None:
+            self.app.status_message('No message to forward', 'warning')
+            return
+        self.app.open_compose(mode='forward', msg=msg)
 
     # -- MarkableActionsMixin hooks -------------------------------------
     # tag_thread, toggle_thread_tag, archive_thread, delete_thread, and

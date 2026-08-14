@@ -269,8 +269,8 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 | `H` | Toggle HTML/plaintext |
 | `i` | Toggle remote images |
 | `M` | Toggle list mode (conversation ↔ tree) |
-| `r` / `R` | Reply all / reply (`to_all=True/False`) |
-| `C-y` | Forward |
+| `r` / `R` | Reply all / reply — focused context: preview's current message, or the list's selected thread (most recent email) |
+| `C-y` | Forward — same focused-context rule |
 | `O` | Open attachments (dump to temp dir → file browser) |
 
 ### Thread View — message-level actions (Ctrl-variants act on the selected
