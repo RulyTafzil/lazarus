@@ -219,7 +219,6 @@ class SearchModel(QAbstractItemModel):
     def data(self, index: QModelIndex, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         """Overrides `QAbstractItemModel.data` to populate a view with search results"""
 
-        global columns
         if index.row() >= len(self.d) or index.column() >= len(columns):
             return None
 
@@ -230,7 +229,6 @@ class SearchModel(QAbstractItemModel):
     def headerData(self, section: int, orientation: Qt.Orientation, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         """Overrides `QAbstractItemModel.headerData` to populate a view with column names"""
 
-        global columns
         if role == Qt.ItemDataRole.DisplayRole and section < len(columns):
             return columns[section]
         else:
@@ -245,7 +243,6 @@ class SearchModel(QAbstractItemModel):
     def columnCount(self, index: QModelIndex=QModelIndex()) -> int:
         """The number of columns"""
 
-        global columns
         return len(columns)
 
     def rowCount(self, index: QModelIndex=QModelIndex()) -> int:

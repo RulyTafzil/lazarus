@@ -44,7 +44,7 @@ import signal
 import subprocess
 from typing import TYPE_CHECKING, Optional, Literal
 
-from PyQt6.QtCore import QObject, QSettings, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, QThread, pyqtSignal
 from PyQt6.QtWidgets import QMessageBox
 
 from . import settings
@@ -227,15 +227,9 @@ class AppController(QObject):
         self.tabs = main_window.tabs
         self.command_bar = main_window.command_bar
 
-        # Dodo owns these for now; controller proxies via app.  Use
-        # getattr so construction order does not matter if controller
-        # is created before sync fields exist.
+        # Dodo owns the sync thread/timer; the controller reads them via
+        # the app (getattr so construction order does not matter).
         self.panel_history: list["Panel"] = getattr(app, "panel_history", [])  # type: ignore[assignment]
-
-        self.sync_thread: "SyncMailThread | None" = getattr(app, "sync_thread", None)  # type: ignore[assignment]
-        self.sync_timer: QTimer | None = getattr(app, "sync_timer", None)
-
-        self._wire_sync_timer()
 
     # -- panel orchestration (moved from Dodo) ------------------------------
 
@@ -244,12 +238,8 @@ class AppController(QObject):
         self.main_window.activateWindow()
 
     def show_help(self) -> None:
-        """Show help window — lives on Dodo (AppController is plain QObject)."""
-        # AppController doesn't own the HelpWindow; delegate to the app.
-        try:
-            self.app.show_help()  # type: ignore[attr-defined]
-        except AttributeError:
-            pass
+        """Show the help window (owned by Dodo)."""
+        self.app.show_help()
 
     def message(self, title: str, body: str) -> None:
         QMessageBox.warning(self.main_window, title, body)
@@ -423,10 +413,6 @@ class AppController(QObject):
         self.command_bar.setPlainText('+')
         self.command_bar._cursor_to_end()
 
-    def _wire_sync_timer(self) -> None:
-        # Timer still lives on Dodo; controller will take ownership later.
-        pass
-
     def sync_mail(self, quiet: bool = True) -> None:
         """Sync mail with IMAP server
 
@@ -435,12 +421,12 @@ class AppController(QObject):
         :param quiet: If this is True, do not change the window title during sync.
                       Status bar messages are always shown."""
 
-        if self.sync_thread is not None and self.sync_thread.isRunning():
+        t = getattr(self.app, 'sync_thread', None)
+        if t is not None and t.isRunning():
             return
 
         t = SyncMailThread(parent=self.app)
-        self.sync_thread = t
-        self.app.sync_thread = t  # type: ignore[attr-defined]  # keep Dodo shim in sync
+        self.app.sync_thread = t
 
         def done() -> None:
             if t.notmuch_rc == 0 and settings.filter_rules:
@@ -490,8 +476,7 @@ class AppController(QObject):
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
                 self.main_window.update()
-            self.sync_thread = None
-            self.app.sync_thread = None  # type: ignore[attr-defined]
+            self.app.sync_thread = None
             t.deleteLater()
 
         self.status_message('Syncing...', 'info')
@@ -582,14 +567,12 @@ class AppController(QObject):
                 tp.refresh()
 
     def _cleanup_sync(self) -> None:
-        if self.sync_timer is not None and self.sync_timer.isActive():
-            self.sync_timer.stop()
-        elif self.app.sync_timer is not None and self.app.sync_timer.isActive():  # type: ignore[attr-defined]
-            self.app.sync_timer.stop()  # type: ignore[attr-defined]
-        if self.sync_thread is not None and self.sync_thread.isRunning():
-            self.sync_thread.stop()
-        elif self.app.sync_thread is not None and self.app.sync_thread.isRunning():  # type: ignore[attr-defined]
-            self.app.sync_thread.stop()  # type: ignore[attr-defined]
+        timer = getattr(self.app, 'sync_timer', None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+        thread = getattr(self.app, 'sync_thread', None)
+        if thread is not None and thread.isRunning():
+            thread.stop()
         # Join bulk-move worker so Quit never races a pending batch_done emit.
         try:
             from . import actions as actions_mod
