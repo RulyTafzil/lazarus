@@ -314,7 +314,7 @@ class AppController(QObject):
                 self.main_window.focus_list()
                 return
 
-        if not to_close:
+        if to_close is None:
             index = self.tabs.currentIndex()
         elif isinstance(to_close, int):
             index = to_close

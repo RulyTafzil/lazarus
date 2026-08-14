@@ -33,6 +33,6 @@ setuptools.setup(
     package_data={'lazarus': ['icons/hicolor/*/apps/lazarus.png']},
     data_files=data_files,
     install_requires=["PyQt6>=6.2", "PyQt6-WebEngine>=6.2", "bleach>=5.0"],
-    python_requires=">=3.7",
+    python_requires=">=3.10",
     entry_points={'console_scripts': 'lazarus=lazarus.app:main'},
 )
