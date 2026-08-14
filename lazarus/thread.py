@@ -86,9 +86,11 @@ class ThreadPanel(panel.Panel):
 
         self.thread_list = QTreeView()
         self.thread_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.thread_list.header().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents)
-        self.thread_list.header().setStretchLastSection(False)
+        header = self.thread_list.header()
+        if header is not None:
+            header.setSectionResizeMode(
+                QHeaderView.ResizeMode.ResizeToContents)
+            header.setStretchLastSection(False)
         self.thread_list.setHeaderHidden(True)
         self.thread_list.setRootIsDecorated(False)
         self.thread_list.setModel(self.model)
@@ -115,8 +117,10 @@ class ThreadPanel(panel.Panel):
         self.message_handler = MessageHandler(self)
         self.message_profile.installUrlSchemeHandler(
             b'message', self.message_handler)
-        self.message_profile.settings().setAttribute(
-            QWebEngineSettings.WebAttribute.JavascriptEnabled, False)
+        ws = self.message_profile.settings()
+        if ws is not None:
+            ws.setAttribute(
+                QWebEngineSettings.WebAttribute.JavascriptEnabled, False)
 
         self.url_interceptor = RemoteBlockingUrlRequestInterceptor()
         self.message_profile.setUrlRequestInterceptor(self.url_interceptor)
@@ -149,7 +153,9 @@ class ThreadPanel(panel.Panel):
         view.setZoomFactor(1.2)
         view.setStyleSheet(
             f'background-color: {settings.theme["bg"]};')
-        view.page().setBackgroundColor(QColor(settings.theme['bg']))
+        page = view.page()
+        if page is not None:
+            page.setBackgroundColor(QColor(settings.theme['bg']))
         return view
 
     @property
@@ -228,7 +234,9 @@ class ThreadPanel(panel.Panel):
         # Info area keeps its height; message viewer absorbs all resize.
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        self.layout().addWidget(splitter)
+        lay = self.layout()
+        if lay is not None:
+            lay.addWidget(splitter)
 
         # save splitter positions
         window_settings = QSettings("lazarus", "lazarus")
@@ -368,9 +376,13 @@ class ThreadPanel(panel.Panel):
         if self.html_mode:
             if 'filename' in m and len(m['filename']) != 0:
                 self.image_handler.set_message(m['filename'][0])
-            inactive.page().setUrl(QUrl('message:html'))
+            page = inactive.page()
+            if page is not None:
+                page.setUrl(QUrl('message:html'))
         else:
-            inactive.page().setUrl(QUrl('message:plain'))
+            page = inactive.page()
+            if page is not None:
+                page.setUrl(QUrl('message:plain'))
 
     def _on_load_finished(self, ok: bool) -> None:
         """Schedule the swap after Chromium has painted a frame.
@@ -434,20 +446,23 @@ class ThreadPanel(panel.Panel):
             lines: Optional[int] = None,
             pages: Optional[Union[float, int]] = None,
             pos: Optional[str] = None) -> None:
+        page = self.message_view.page()
+        if page is None:
+            return
         if pos == 'top':
-            self.message_view.page().runJavaScript(
+            page.runJavaScript(
                 'window.scrollTo(0, 0)',
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
         elif pos == 'bottom':
-            self.message_view.page().runJavaScript(
+            page.runJavaScript(
                 'window.scrollTo(0, document.body.scrollHeight)',
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
         elif lines is not None:
-            self.message_view.page().runJavaScript(
+            page.runJavaScript(
                 f'window.scrollBy(0, {lines} * 20)',
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
         elif pages is not None:
-            self.message_view.page().runJavaScript(
+            page.runJavaScript(
                 f'window.scrollBy(0, {pages} * 0.9 * window.innerHeight)',
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
 

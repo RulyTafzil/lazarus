@@ -67,22 +67,26 @@ class HeaderInsetTreeView(QTreeView):
         # Header sections are styled via QSS as bg_alt; the corner fill
         # must match. Prefer the header's own palette (which QSS tints to
         # bg_alt) and fall back to settings.theme.
-        try:
-            c = self.header().palette().color(QPalette.ColorRole.Window)
-            if c.isValid():
-                return c.name()
-        except Exception:
-            pass
+        header = self.header()
+        if header is not None:
+            try:
+                c = header.palette().color(QPalette.ColorRole.Window)
+                if c.isValid():
+                    return c.name()
+            except Exception:
+                pass
         try:
             return settings.theme.get('bg_alt', settings.theme['bg'])
         except Exception:
             return '#3b4252'
 
     def _update_corner(self) -> None:
-        if self.isHeaderHidden() or not self.verticalScrollBar().isVisible():
+        vbar = self.verticalScrollBar()
+        header = self.header()
+        if (vbar is None or header is None
+                or self.isHeaderHidden() or not vbar.isVisible()):
             self._corner.hide()
             return
-        header = self.header()
         hg = header.geometry()
         r = self.rect()
         fw = self.frameWidth()
@@ -108,6 +112,8 @@ class HeaderInsetTreeView(QTreeView):
         try:
             header = self.header()
             vbar = self.verticalScrollBar()
+            if header is None or vbar is None:
+                return
             hg = header.geometry()
             vg = vbar.geometry()
             header_bottom = hg.y() + hg.height()
@@ -161,8 +167,8 @@ class Panel(QWidget):
         self.is_open = True
 
         self.keymap: Optional[dict] = None
-        self.setLayout(QVBoxLayout())
-        self.layout().setContentsMargins(0, 0, 0, 0)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
         self.dirty = True
         self.temp_dirs: List[str] = []
         self._geometry_key: str | None = None
@@ -194,8 +200,10 @@ class Panel(QWidget):
 
         Call this once after creating the panel's QTreeView.
         """
-        tree.selectionModel().currentChanged.connect(
-            lambda _cur, _prev: self._auto_open_timer.start())
+        sm = tree.selectionModel()
+        if sm is not None:
+            sm.currentChanged.connect(
+                lambda _cur, _prev: self._auto_open_timer.start())
 
     def _on_auto_open(self) -> None:
         """Called by the debounce timer to open the selected thread.

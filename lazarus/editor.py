@@ -149,6 +149,8 @@ class RichTextEditor(QTextEdit):
         Inline images become ``[Image: filename]`` placeholders.
         """
         doc = self.document()
+        if doc is None:
+            return ''
         plain = doc.toPlainText()
 
         # Append image placeholders
@@ -246,7 +248,8 @@ class RichTextEditor(QTextEdit):
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         if event is None:
             return
-        if event.mimeData().hasImage() or event.mimeData().hasUrls():
+        md = event.mimeData()
+        if md is not None and (md.hasImage() or md.hasUrls()):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
@@ -255,6 +258,8 @@ class RichTextEditor(QTextEdit):
         if event is None:
             return
         md = event.mimeData()
+        if md is None:
+            return
         if md.hasImage():
             img = md.imageData()
             if isinstance(img, QImage) and not img.isNull():

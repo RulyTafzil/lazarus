@@ -132,7 +132,9 @@ class ComposePanel(panel.Panel):
         # added to the QTabWidget/QSplitter and has real geometry.
         def _reset_cursor_to_top() -> None:
             self.editor.moveCursor(QTextCursor.MoveOperation.Start)
-            self.editor.verticalScrollBar().setValue(0)
+            sb = self.editor.verticalScrollBar()
+            if sb is not None:
+                sb.setValue(0)
         QTimer.singleShot(0, _reset_cursor_to_top)
 
         self._sync_data_from_fields()
@@ -172,9 +174,9 @@ class ComposePanel(panel.Panel):
 
         # --- Cc / Bcc row (side-by-side, 50% each) ---
         cc_bcc_row = QWidget(self)
-        cc_bcc_row.setLayout(QHBoxLayout())
-        cc_bcc_row.layout().setContentsMargins(0, 0, 0, 0)
-        cc_bcc_row.layout().setSpacing(4)
+        row_layout = QHBoxLayout(cc_bcc_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(4)
         self.cc_field = QLineEdit()
         self.cc_field.setPlaceholderText('Cc')
         self.cc_field.setStyleSheet(self._field_style())
@@ -185,8 +187,8 @@ class ComposePanel(panel.Panel):
         self.bcc_field.setStyleSheet(self._field_style())
         self._bcc_completer = address_completer.AddressCompleter(self)
         self._bcc_completer.set_line_edit(self.bcc_field)
-        cc_bcc_row.layout().addWidget(self.cc_field)
-        cc_bcc_row.layout().addWidget(self.bcc_field)
+        row_layout.addWidget(self.cc_field)
+        row_layout.addWidget(self.bcc_field)
         lay.addWidget(cc_bcc_row)
 
         # --- Subject field ---
@@ -387,6 +389,8 @@ class ComposePanel(panel.Panel):
         user text but before quoted/forwarded content when that exists.
         """
         doc = self.editor.document()
+        if doc is None:
+            return
         full_text = doc.toPlainText()
 
         new_block = self._sig_block_text()
@@ -742,5 +746,8 @@ def _clear_layout(layout: QLayout) -> None:
     """Remove all widgets from *layout*."""
     while layout.count():
         item = layout.takeAt(0)
-        if item.widget():
-            item.widget().deleteLater()
+        if item is None:
+            continue
+        w = item.widget()
+        if w is not None:
+            w.deleteLater()

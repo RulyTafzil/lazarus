@@ -206,13 +206,17 @@ class AddressCompleter(QCompleter):
         prefix = _extract_active_token(text)
         self._current_prefix = prefix
 
+        popup = self.popup()
+        if popup is None:
+            return
+
         if len(prefix) < _MIN_CHARS:
-            self.popup().hide()
+            popup.hide()
             return
 
         global _shared_addresses
         if not _shared_addresses:
-            self.popup().hide()
+            popup.hide()
             return
 
         # Filter in Python (instant on ~200 addresses).
@@ -221,11 +225,12 @@ class AddressCompleter(QCompleter):
         self._model.setStringList(matches)
 
         if not matches:
-            self.popup().hide()
+            popup.hide()
             return
 
-        popup = self.popup()
-        popup.setCurrentIndex(self.completionModel().index(0, 0))
+        model = self.completionModel()
+        if model is not None:
+            popup.setCurrentIndex(model.index(0, 0))
         self.complete()
 
 
