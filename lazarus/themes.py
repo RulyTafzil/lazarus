@@ -148,9 +148,13 @@ QSplitter::handle:vertical {{
    Thread preview's QStackedWidget empty area also needs bg, but
    QTabWidget's internal stack must stay transparent (desktop gap).
    That's handled via mainwindow.py palette for thread_container; keep
-   QSS narrow to Panels here. */
-Panel, SearchPanel, TagPanel, ComposePanel, ThreadPanel {{
+   QSS narrow to Panels here.
+   Compose gets header_bg (bg_alt) to match the header row. */
+Panel, SearchPanel, TagPanel, ThreadPanel {{
     background: {bg};
+}}
+ComposePanel {{
+    background: {header_bg};
 }}
 /* ── Tab bar: tabs keep accent bg, bar/pane background transparent
    so desktop shows through. QTabWidget/QTabBar are WA_Translucent on

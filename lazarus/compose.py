@@ -170,27 +170,30 @@ class ComposePanel(panel.Panel):
         self._to_completer.set_line_edit(self.to_field)
         lay.addWidget(self.to_field)
 
-        # --- Cc field ---
+        # --- Cc / Bcc row (side-by-side, 50% each) ---
+        cc_bcc_row = QWidget(self)
+        cc_bcc_row.setLayout(QHBoxLayout())
+        cc_bcc_row.layout().setContentsMargins(0, 0, 0, 0)
+        cc_bcc_row.layout().setSpacing(4)
         self.cc_field = QLineEdit()
         self.cc_field.setPlaceholderText('Cc')
         self.cc_field.setStyleSheet(self._field_style())
         self._cc_completer = address_completer.AddressCompleter(self)
         self._cc_completer.set_line_edit(self.cc_field)
-        lay.addWidget(self.cc_field)
+        self.bcc_field = QLineEdit()
+        self.bcc_field.setPlaceholderText('Bcc')
+        self.bcc_field.setStyleSheet(self._field_style())
+        self._bcc_completer = address_completer.AddressCompleter(self)
+        self._bcc_completer.set_line_edit(self.bcc_field)
+        cc_bcc_row.layout().addWidget(self.cc_field)
+        cc_bcc_row.layout().addWidget(self.bcc_field)
+        lay.addWidget(cc_bcc_row)
 
         # --- Subject field ---
         self.subject_field = QLineEdit()
         self.subject_field.setPlaceholderText('Subject')
         self.subject_field.setStyleSheet(self._field_style())
         lay.addWidget(self.subject_field)
-
-        # --- Bcc field ---
-        self.bcc_field = QLineEdit()
-        self.bcc_field.setPlaceholderText('Bcc')
-        self.bcc_field.setStyleSheet(self._field_style())
-        self._bcc_completer = address_completer.AddressCompleter(self)
-        self._bcc_completer.set_line_edit(self.bcc_field)
-        lay.addWidget(self.bcc_field)
 
         # --- Editor ---
         self.editor = editor_mod.RichTextEditor(self)
