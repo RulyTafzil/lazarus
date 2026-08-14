@@ -577,15 +577,18 @@ class ThreadPanel(panel.Panel):
         cmd = template.format(dir=dest)
         exe = shlex.split(template)[0] if template.strip() else ''
         if exe and shutil.which(exe) is None:
-            for fb in ('nautilus', 'dolphin', 'thunar'):
+            # Configured browser is missing — fall back to any installed
+            # file manager. argv form (no shell) so paths containing
+            # quotes or metacharacters are handled safely.
+            for fb in ('nautilus', 'dolphin', 'thunar', 'xdg-open'):
                 if shutil.which(fb):
-                    cmd = f"{fb} '{dest}'"
-                    break
-            else:
-                if shutil.which('xdg-open'):
-                    cmd = f"xdg-open '{dest}'"
-                else:
+                    try:
+                        subprocess.Popen([fb, dest])
+                    except OSError as e:
+                        self.app.status_message(
+                            f"Failed to open file browser: {e}", 'error')
                     return
+            return
         try:
             subprocess.Popen(cmd, shell=True)
         except OSError as e:

@@ -21,7 +21,7 @@ from typing import Optional, Any, Set
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex
 from PyQt6.QtWidgets import QWidget, QLabel
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor
 import subprocess
 import json
 import logging
@@ -32,6 +32,7 @@ from . import keymap
 from . import panel
 from . import actions
 from . import util
+from . import style
 from .protocols import PanelApp
 from .thread_model import latest_message
 
@@ -80,13 +81,12 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
             return f'\uf086 {total}' if total > 1 else ''
 
     elif role == Qt.ItemDataRole.FontRole:
+        bold = ('unread' in thread_d['tags'] or 'flagged' in thread_d['tags'])
         if col == 'tags':
-            font = QFont(settings.tag_font, settings.tag_font_size)
-        else:
-            font = QFont(settings.search_font, settings.search_font_size)
-        if 'unread' in thread_d['tags'] or 'flagged' in thread_d['tags']:
-            font.setBold(True)
-        return font
+            return style.cell_font(
+                settings.tag_font, settings.tag_font_size, bold=bold)
+        return style.cell_font(
+            settings.search_font, settings.search_font_size, bold=bold)
 
     elif role == Qt.ItemDataRole.ForegroundRole:
         for tag in settings.search_color_overrides.keys() & thread_d['tags']:
@@ -96,13 +96,13 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
         unread_color = 'fg_' + col + '_unread'
         flagged_color = 'fg_' + col + '_flagged'
         if 'unread' in thread_d['tags'] and unread_color in settings.theme:
-            return QColor(settings.theme[unread_color])
+            return style.theme_color(unread_color)
         elif 'flagged' in thread_d['tags'] and flagged_color in settings.theme:
-            return QColor(settings.theme[flagged_color])
+            return style.theme_color(flagged_color)
         elif color in settings.theme:
-            return QColor(settings.theme[color])
+            return style.theme_color(color)
         else:
-            return QColor(settings.theme['fg'])
+            return style.theme_color('fg')
 
     elif role == Qt.ItemDataRole.ToolTipRole and col == 'tags':
         return ' '.join(thread_d['tags'])

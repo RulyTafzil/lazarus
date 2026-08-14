@@ -21,12 +21,12 @@ from typing import Optional, Any, List, Tuple
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtGui import QFont, QColor
 
 from . import settings
 from . import keymap
 from . import panel
 from . import notmuch
+from . import style
 from .protocols import PanelApp
 
 
@@ -88,15 +88,14 @@ class TagModel(QAbstractItemModel):
             else:
                 return self.d[row][0]
         elif role == Qt.ItemDataRole.FontRole:
-            font = QFont(settings.search_font, settings.search_font_size)
-            if self.d[row][1] != '0':
-                font.setBold(True)
-            return font
+            return style.cell_font(
+                settings.search_font, settings.search_font_size,
+                bold=self.d[row][1] != '0')
         elif role == Qt.ItemDataRole.ForegroundRole:
             if self.d[row][1] != '0':
-                return QColor(settings.theme['fg_subject_unread'])
+                return style.theme_color('fg_subject_unread')
             else:
-                return QColor(settings.theme['fg'])
+                return style.theme_color('fg')
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         """Overrides `QAbstractItemModel.headerData` to populate a view with column names"""

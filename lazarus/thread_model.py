@@ -28,7 +28,6 @@ from collections.abc import Generator
 from PyQt6.QtCore import (
     QAbstractItemModel, QModelIndex, Qt, pyqtSignal,
 )
-from PyQt6.QtGui import QFont, QColor
 import email.utils
 import json
 import logging
@@ -37,6 +36,7 @@ import subprocess
 
 from . import settings
 from . import notmuch
+from . import style
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,17 @@ def short_string(m: dict) -> str:
 class ThreadItem:
     """A single message together with its reply-children."""
 
-    def __init__(self, raw_data: list, parent: ThreadItem | None):
+    def __init__(self, raw_data: list, parent: ThreadItem | None,
+                 row_in_parent: int = 0):
         self.msg = raw_data[0]
         self.parent = parent
-        self.children = [ThreadItem(elt, self) for elt in raw_data[1]]
+        # Index of this item within its parent's ``children`` (or within
+        # the model's ``roots`` for top-level items) — lets
+        # ``ThreadModel.parent`` resolve a parent index in O(1) instead
+        # of scanning siblings on every call.
+        self.row_in_parent = row_in_parent
+        self.children = [ThreadItem(elt, self, i)
+                         for i, elt in enumerate(raw_data[1])]
 
     def thread_string(self) -> str:
         from_hdr = self.msg.get('headers', {}).get('From', '(message) <>')
@@ -133,9 +140,10 @@ def make_thread_trees(raw_thread_data: list) -> list[ThreadItem]:
         return False
 
     if _has_multiple_children(raw_thread_data):
-        return [ThreadItem(root, None) for root in raw_thread_data]
-    return [ThreadItem([msg, []], None)
-            for msg in iter_thread_messages(raw_thread_data)]
+        return [ThreadItem(root, None, i)
+                for i, root in enumerate(raw_thread_data)]
+    return [ThreadItem([msg, []], None, i)
+            for i, msg in enumerate(iter_thread_messages(raw_thread_data))]
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +199,8 @@ class ThreadModel(QAbstractItemModel):
 
     def _compute_roots(self, raw_data: list) -> list[ThreadItem]:
         if self._mode == 'conversation':
-            return [ThreadItem([msg, []], None)
-                    for msg in flat_thread(raw_data)]
+            return [ThreadItem([msg, []], None, i)
+                    for i, msg in enumerate(flat_thread(raw_data))]
         return make_thread_trees(raw_data)
 
     # -- data fetching -------------------------------------------------------
@@ -367,18 +375,16 @@ class ThreadModel(QAbstractItemModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return item.thread_string()
         elif role == Qt.ItemDataRole.FontRole:
-            font = QFont(settings.search_font, settings.search_font_size)
-            if m['id'] not in self.matches:
-                font.setItalic(True)
-            if 'tags' in m and 'unread' in m['tags']:
-                font.setBold(True)
-            return font
+            return style.cell_font(
+                settings.search_font, settings.search_font_size,
+                bold='unread' in m.get('tags', []),
+                italic=m['id'] not in self.matches)
         elif role == Qt.ItemDataRole.ForegroundRole:
             if m['id'] not in self.matches:
-                return QColor(settings.theme['fg_subject_irrelevant'])
-            if 'tags' in m and 'unread' in m['tags']:
-                return QColor(settings.theme['fg_subject_unread'])
-            return QColor(settings.theme['fg'])
+                return style.theme_color('fg_subject_irrelevant')
+            if 'unread' in m.get('tags', []):
+                return style.theme_color('fg_subject_unread')
+            return style.theme_color('fg')
         return None
 
     def index(self, row: int, column: int,
@@ -394,12 +400,9 @@ class ThreadModel(QAbstractItemModel):
         data = child.internalPointer()
         if data is None or data.parent is None:
             return QModelIndex()
-        aunties = (data.parent.parent.children if data.parent.parent
-                   else self.roots)
-        for i, c in enumerate(aunties):
-            if c == data.parent:
-                return self.createIndex(i, 0, data.parent)
-        return QModelIndex()
+        # The parent's row within its own parent's children is stored on
+        # the parent item — no sibling scan needed.
+        return self.createIndex(data.parent.row_in_parent, 0, data.parent)
 
     def columnCount(self, index: QModelIndex = QModelIndex()) -> int:
         return 1

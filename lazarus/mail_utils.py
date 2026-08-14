@@ -123,6 +123,11 @@ def sanitize_filename(name: str) -> str:
     root = root[:max_bytes - len(ext)]
     excess = len(os.fsencode(root + ext)) - max_bytes
 
+    # The loops below drop ~excess/4 characters per pass rather than one
+    # at a time: every character is at least one byte, so removing k
+    # characters always shrinks the encoded size by >= k and we can never
+    # overshoot the 255-byte limit — a handful of passes converges even
+    # for names full of multi-byte characters.
     while excess > 0 and root:
         root = root[:(-excess // 4)]
         excess = len(os.fsencode(root + ext)) - max_bytes

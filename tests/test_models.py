@@ -150,6 +150,36 @@ def test_thread_model_builds_tree(notmuch_stub, qapp, monkeypatch):
     assert len(flat_thread(thread)) >= 1
 
 
+def test_thread_model_parent_resolves_rows(notmuch_stub, qapp, monkeypatch):
+    """parent() returns the parent index with the correct row (O(1) via
+    ThreadItem.row_in_parent)."""
+    thread = [_message_tree(
+        make_message('m1', 'First'),
+        [
+            _message_tree(make_message('m2', 'Reply-1')),
+            _message_tree(make_message('m3', 'Reply-2'),
+                          [_message_tree(make_message('m4', 'Nested'))]),
+        ],
+    )]
+    _patch_thread_notmuch(monkeypatch, thread, ('m1', 'm2', 'm3', 'm4'))
+    model = ThreadModel('thread:t1', 'tag:inbox', 'thread')
+    model.refresh()
+
+    root = model.index(0, 0)
+    assert model.parent(root) == QModelIndex()  # top-level item
+
+    child0 = model.index(0, 0, root)
+    child1 = model.index(1, 0, root)
+    assert model.parent(child0) == root
+    assert model.parent(child1) == root
+
+    # m4 is nested under m3 (the second child) — its parent must resolve
+    # to child1 with row 1, not a sibling scan artifact.
+    nested = model.index(0, 0, child1)
+    assert model.parent(nested) == child1
+    assert nested.row() == 0
+
+
 def test_flat_thread_sorts_by_timestamp(notmuch_stub, qapp, monkeypatch):
     m1 = make_message('m1', 'First', timestamp=100)
     m2 = make_message('m2', 'Second', timestamp=200)
