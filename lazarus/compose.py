@@ -109,6 +109,9 @@ class ComposePanel(panel.Panel):
                 msg, self.signature_text, to_all=(mode == 'replyall'))
             self.to_field.setText(seed.to_text)
             self.cc_field.setText(seed.cc_text)
+            # reply-all populates Cc — reveal the hidden row so it's visible
+            if seed.cc_text:
+                self.cc_row.show()
             self.subject_field.setText(seed.subject)
             self.editor.setPlainText(seed.body)
             self._sig_block = seed.sig_block
@@ -172,24 +175,33 @@ class ComposePanel(panel.Panel):
         self._to_completer.set_line_edit(self.to_field)
         lay.addWidget(self.to_field)
 
-        # --- Cc / Bcc row (side-by-side, 50% each) ---
-        cc_bcc_row = QWidget(self)
-        row_layout = QHBoxLayout(cc_bcc_row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(4)
+        # --- Cc row (hidden by default; C-c reveals) ---
+        self.cc_row = QWidget(self)
+        cc_layout = QHBoxLayout(self.cc_row)
+        cc_layout.setContentsMargins(0, 0, 0, 0)
+        cc_layout.setSpacing(4)
         self.cc_field = QLineEdit()
         self.cc_field.setPlaceholderText('Cc')
         self.cc_field.setStyleSheet(self._field_style())
         self._cc_completer = address_completer.AddressCompleter(self)
         self._cc_completer.set_line_edit(self.cc_field)
+        cc_layout.addWidget(self.cc_field)
+        self.cc_row.hide()
+        lay.addWidget(self.cc_row)
+
+        # --- Bcc row (hidden by default; C-b reveals) ---
+        self.bcc_row = QWidget(self)
+        bcc_layout = QHBoxLayout(self.bcc_row)
+        bcc_layout.setContentsMargins(0, 0, 0, 0)
+        bcc_layout.setSpacing(4)
         self.bcc_field = QLineEdit()
         self.bcc_field.setPlaceholderText('Bcc')
         self.bcc_field.setStyleSheet(self._field_style())
         self._bcc_completer = address_completer.AddressCompleter(self)
         self._bcc_completer.set_line_edit(self.bcc_field)
-        row_layout.addWidget(self.cc_field)
-        row_layout.addWidget(self.bcc_field)
-        lay.addWidget(cc_bcc_row)
+        bcc_layout.addWidget(self.bcc_field)
+        self.bcc_row.hide()
+        lay.addWidget(self.bcc_row)
 
         # --- Subject field ---
         self.subject_field = QLineEdit()
@@ -298,6 +310,18 @@ class ComposePanel(panel.Panel):
         self._data.subject = self.subject_field.text()
         self._data.body_html = self.editor.body_html()
         self._data.body_text = self.editor.toPlainText()
+
+    # -- hidden Cc / Bcc fields (C-c / C-b) ------------------------------
+
+    def reveal_cc(self) -> None:
+        """Reveal the hidden Cc row and focus its field."""
+        self.cc_row.show()
+        self.cc_field.setFocus()
+
+    def reveal_bcc(self) -> None:
+        """Reveal the hidden Bcc row and focus its field."""
+        self.bcc_row.show()
+        self.bcc_field.setFocus()
 
     # ── Attachments ──────────────────────────────────────────────────
 
