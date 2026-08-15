@@ -319,22 +319,37 @@ library and any packs found in ``~/.config/lazarus/themes/*.json`` -- see
 `lazarus.themes.build_registry`.
 """
 
-theme_overrides: Dict[str, Dict[str, str]] = {}
+theme_overrides: Dict[str, Dict[str, str | int]] = {}
 """Per-theme color corrections, keyed by theme name.
 
 Terminal-style themes (the bundled library and any user JSON packs) are
 mapped to Lazarus's color keys by a best-effort heuristic -- it won't
 always pick the color you'd choose by hand. Use this to override specific
-keys for a specific theme by name, without editing the source pack::
+keys for a specific theme by name, without editing the source pack.
+Each value can be:
+
+* a literal hex color: ``'fg_link': '#8be9fd'``
+* an ANSI palette index (0-15) of the *source* theme entry: ``'fg_subject_unread': 3``
+  uses that theme's palette color 3
+* a named terminal color of the *source* theme: ``'fg_tags': 'foreground'``,
+  or ``'background'`` / ``'foreground'`` / ``'cursor-color'`` /
+  ``'selection-background'`` / ``'selection-foreground'``
+* another Lazarus key of the same mapped theme: ``'fg_date': 'fg_dim'``
+
+Example::
 
     theme_overrides = {
         'Dracula': {
             'fg_link': '#8be9fd',
-            'bg_alt': '#21222c',
+            'fg_subject_unread': 3,          # palette yellow
+            'fg_tags': 'foreground',
         },
     }
 
 Only the listed keys are overridden; everything else stays as mapped.
+Hand-written themes (nord, ...) have no source palette, so palette-index
+and named-color references only resolve for pack themes -- hex values
+apply everywhere.
 """
 
 search_font = 'DejaVu Sans Mono'

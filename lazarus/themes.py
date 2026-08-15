@@ -478,7 +478,10 @@ gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 # concept of Lazarus's semantic keys (fg_link, bg_highlight, ...), so
 # importing one is a best-effort heuristic mapping, not a lossless
 # translation. `settings.theme_overrides` lets a user hand-correct specific
-# keys per theme name without editing the source pack.
+# keys per theme name without editing the source pack -- values may be a
+# literal hex color, an ANSI palette index (0-15) of the source entry, a
+# named terminal color (background/foreground/cursor-color/selection-*),
+# or another Lazarus key of the same theme.
 #
 # Expected shape of one entry (extra/missing optional keys are tolerated):
 #   {
@@ -534,7 +537,10 @@ def terminal_theme_to_lazarus(entry: dict) -> dict:
 
     This is a best-effort default, not a precise translation -- terminal
     palettes have no notion of e.g. "link color" or "highlight color".
-    Use `settings.theme_overrides[name]` to hand-correct specific keys.
+    Use `settings.theme_overrides[name]` to hand-correct specific keys:
+    values may be a literal hex color, an ANSI palette index (0-15) of
+    *entry*, a named terminal color, or another Lazarus key of the
+    mapped theme (see `_resolve_override_value`).
     """
     pal = entry['palette']
     bg = entry['background']
@@ -586,23 +592,27 @@ def _user_theme_dir() -> Path:
     return Path(base) / 'lazarus' / 'themes'
 
 
-def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str]]:
+def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str], dict[str, dict]]:
     """Load one JSON theme-pack file (a list of terminal-style entries).
 
-    Returns (mapped_themes, errors). A malformed individual entry is
-    skipped (with an error recorded) rather than failing the whole file,
-    so one bad theme in a 600-entry pack doesn't take out the rest.
+    Returns (mapped_themes, errors, raw_entries). A malformed individual
+    entry is skipped (with an error recorded) rather than failing the
+    whole file, so one bad theme in a 600-entry pack doesn't take out
+    the rest. ``raw_entries`` maps each accepted name back to its
+    original pack entry -- `_apply_overrides` needs it to resolve
+    palette-index / named-color references.
     """
     path = Path(path)
     themes: dict[str, dict] = {}
+    raw_entries: dict[str, dict] = {}
     errors: list[str] = []
     try:
         raw = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError) as e:
-        return {}, [f"{path}: could not read/parse JSON ({e})"]
+        return {}, [f"{path}: could not read/parse JSON ({e})"], {}
 
     if not isinstance(raw, list):
-        return {}, [f"{path}: expected a JSON list of theme objects"]
+        return {}, [f"{path}: expected a JSON list of theme objects"], {}
 
     for i, entry in enumerate(raw):
         if not isinstance(entry, dict):
@@ -613,22 +623,89 @@ def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str]]:
             errors.extend(entry_errors)
             continue
         themes[entry['name']] = terminal_theme_to_lazarus(entry)
-    return themes, errors
+        raw_entries[entry['name']] = entry
+    return themes, errors, raw_entries
 
 
-def _apply_overrides(registry: dict[str, dict]) -> None:
+_NAMED_OVERRIDE_COLORS = {
+    'background': lambda e: e['background'],
+    'foreground': lambda e: e['foreground'],
+    'cursor-color': lambda e: e.get('cursor-color') or e['foreground'],
+    'selection-background': lambda e: e.get('selection-background') or e['background'],
+    'selection-foreground': lambda e: e.get('selection-foreground') or e['foreground'],
+}
+
+
+def _resolve_override_value(value: str | int,
+                            entry: dict | None,
+                            theme: dict) -> str | None:
+    """Resolve one `theme_overrides` value to a hex color string.
+
+    Supported forms:
+      - a literal hex color (``'#8be9fd'``) -- used as-is;
+      - an ANSI palette index of the source entry (0-15, int or str) --
+        e.g. ``3`` picks the pack's palette color 3;
+      - a named terminal color of the source entry -- ``'background'``,
+        ``'foreground'``, ``'cursor-color'``, ``'selection-background'``,
+        ``'selection-foreground'``;
+      - another Lazarus key of the mapped theme -- e.g. ``'fg_dim'``
+        resolves to whatever the heuristic mapped it to.
+
+    Returns None when the reference can't be resolved (caller logs and
+    skips the key).
+    """
+    if isinstance(value, str) and value.startswith('#'):
+        return value
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and 0 <= value <= 15:
+        if entry is None:
+            return None
+        return entry['palette'][str(value)]
+    if (isinstance(value, str) and value.isdigit()
+            and 0 <= int(value) <= 15):
+        if entry is None:
+            return None
+        return entry['palette'][str(int(value))]
+    if isinstance(value, str) and value in _NAMED_OVERRIDE_COLORS:
+        if entry is None:
+            return None
+        return _NAMED_OVERRIDE_COLORS[value](entry)
+    if isinstance(value, str) and value in theme:
+        return theme[value]
+    return None
+
+
+def _apply_overrides(registry: dict[str, dict],
+                     raw_entries: dict[str, dict] | None = None) -> None:
     """Apply `settings.theme_overrides[name]` on top of matching REGISTRY
-    entries, in place. Unknown theme names are logged and skipped (not a
-    hard error -- a typo here shouldn't block startup)."""
+    entries, in place. Values are resolved via `_resolve_override_value`
+    (hex color, palette index, named terminal color, or another Lazarus
+    key). Unknown theme names and unresolvable references are logged and
+    skipped -- not a hard error, a typo here shouldn't block startup.
+    """
     overrides = getattr(_settings, 'theme_overrides', None)
     if not overrides:
         return
+    raw_entries = raw_entries or {}
     for name, keys in overrides.items():
         if name not in registry:
             logger.warning(
                 "theme_overrides: no theme named %r in registry -- skipping", name)
             continue
-        registry[name] = {**registry[name], **keys}
+        current = dict(registry[name])
+        entry = raw_entries.get(name)
+        for key, value in keys.items():
+            hex_color = _resolve_override_value(value, entry, current)
+            if hex_color is None:
+                logger.warning(
+                    "theme_overrides: %r: %r -> %r is not a hex color, "
+                    "palette index 0-15, or named terminal color -- skipping",
+                    name, key, value)
+                continue
+            current[key] = hex_color
+        if current != registry[name]:
+            registry[name] = current
 
 
 def build_registry() -> dict[str, dict]:
@@ -659,31 +736,34 @@ def build_registry() -> dict[str, dict]:
         'gruvbox_dark_soft': gruvbox_dark_soft,
     }
     builtin_names = set(registry)
+    raw_entries: dict[str, dict] = {}
 
     builtin_pack = _builtin_pack_path()
     if builtin_pack.exists():
-        mapped, errors = load_theme_pack(builtin_pack)
+        mapped, errors, pack_raw = load_theme_pack(builtin_pack)
         for msg in errors:
             logger.warning("theme pack: %s", msg)
         for name, theme in mapped.items():
             if name in builtin_names:
                 continue  # hand-tuned Python theme wins
             registry[name] = theme
+            raw_entries[name] = pack_raw[name]
     else:
         logger.warning("bundled theme pack not found at %s", builtin_pack)
 
     user_dir = _user_theme_dir()
     if user_dir.is_dir():
         for path in sorted(user_dir.glob('*.json')):
-            mapped, errors = load_theme_pack(path)
+            mapped, errors, pack_raw = load_theme_pack(path)
             for msg in errors:
                 logger.warning("theme pack: %s", msg)
             for name, theme in mapped.items():
                 if name in builtin_names:
                     continue  # hand-tuned Python theme still wins
                 registry[name] = theme
+                raw_entries[name] = pack_raw[name]
 
-    _apply_overrides(registry)
+    _apply_overrides(registry, raw_entries)
     return registry
 
 

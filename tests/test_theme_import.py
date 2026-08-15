@@ -111,14 +111,14 @@ def test_load_theme_pack_skips_bad_entries(tmp_path):
     pack_path = tmp_path / 'pack.json'
     pack_path.write_text(json.dumps([good, bad]))
 
-    mapped, errors = themes.load_theme_pack(pack_path)
+    mapped, errors, _raw = themes.load_theme_pack(pack_path)
     assert 'Dracula' in mapped
     assert 'Broken' not in mapped
     assert any('Broken' in e or '[1]' in e for e in errors)
 
 
 def test_load_theme_pack_missing_file():
-    mapped, errors = themes.load_theme_pack('/nonexistent/pack.json')
+    mapped, errors, _raw = themes.load_theme_pack('/nonexistent/pack.json')
     assert mapped == {}
     assert errors
 
@@ -126,7 +126,7 @@ def test_load_theme_pack_missing_file():
 def test_load_theme_pack_not_a_list(tmp_path):
     pack_path = tmp_path / 'pack.json'
     pack_path.write_text(json.dumps({'name': 'oops'}))
-    mapped, errors = themes.load_theme_pack(pack_path)
+    mapped, errors, _raw = themes.load_theme_pack(pack_path)
     assert mapped == {}
     assert any('list' in e for e in errors)
 
@@ -148,7 +148,7 @@ def test_bundled_pack_entries_map_completely():
     opening a thread under any imported theme crashed with
     KeyError 'fg_subject_unread'.
     """
-    mapped, errors = themes.load_theme_pack(themes._builtin_pack_path())
+    mapped, errors, _raw = themes.load_theme_pack(themes._builtin_pack_path())
     assert not errors, errors[:3]
     assert len(mapped) >= 600
     incomplete = {
@@ -214,3 +214,86 @@ def test_no_overrides_is_a_noop():
     before = dict(registry['Dracula'])
     themes._apply_overrides(registry)
     assert registry['Dracula'] == before
+
+
+# --- override value forms (hex / palette index / named / lazarus key) ---
+
+def _override(keys):
+    _reset()
+    settings.theme_overrides = {'Dracula': keys}
+    registry = {'Dracula': themes.terminal_theme_to_lazarus(DRACULA_ENTRY)}
+    raw = {'Dracula': DRACULA_ENTRY}
+    return registry, raw
+
+
+def test_override_palette_index_resolves_to_source_hex():
+    registry, raw = _override({'fg_subject_unread': 3})
+    themes._apply_overrides(registry, raw)
+    assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['3']
+
+
+def test_override_palette_index_str_form():
+    registry, raw = _override({'fg_subject_unread': '11'})
+    themes._apply_overrides(registry, raw)
+    assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['11']
+
+
+def test_override_named_terminal_colors():
+    registry, raw = _override({
+        'fg_tags': 'foreground',
+        'bg_alt': 'selection-background',
+        'fg': 'cursor-color',
+    })
+    themes._apply_overrides(registry, raw)
+    assert registry['Dracula']['fg_tags'] == DRACULA_ENTRY['foreground']
+    assert registry['Dracula']['bg_alt'] == DRACULA_ENTRY['selection-background']
+    assert registry['Dracula']['fg'] == DRACULA_ENTRY['cursor-color']
+
+
+def test_override_references_another_lazarus_key():
+    registry, raw = _override({'fg_date': 'fg_dim'})
+    themes._apply_overrides(registry, raw)
+    assert registry['Dracula']['fg_date'] == registry['Dracula']['fg_dim']
+
+
+def test_override_missing_named_color_falls_back():
+    entry = dict(DRACULA_ENTRY)
+    del entry['cursor-color']
+    registry, raw = _override({'fg': 'cursor-color'})
+    themes._apply_overrides(registry, {'Dracula': entry})
+    assert registry['Dracula']['fg'] == entry['foreground']
+
+
+def test_override_unresolvable_value_warns_and_skips(caplog):
+    registry, raw = _override({'fg_subject_unread': 99, 'fg_link': '#000000'})
+    with caplog.at_level('WARNING', logger='lazarus.themes'):
+        themes._apply_overrides(registry, raw)
+    # 99 is out of range: skipped, hex still applies
+    assert registry['Dracula']['fg_subject_unread'] != '99'
+    assert registry['Dracula']['fg_link'] == '#000000'
+    assert any('skipping' in r.message for r in caplog.records)
+
+
+def test_override_hand_written_theme_rejects_palette_refs(caplog):
+    """Hand-written themes have no source entry -- palette/named
+    references can't resolve; hex overrides still apply."""
+    _reset()
+    settings.theme_overrides = {'nord': {'fg_link': 'foreground'}}
+    registry = {'nord': dict(themes.nord)}
+    with caplog.at_level('WARNING', logger='lazarus.themes'):
+        themes._apply_overrides(registry)  # no raw entries
+    assert registry['nord']['fg_link'] == themes.nord['fg_link']  # untouched
+    assert any('skipping' in r.message for r in caplog.records)
+
+
+def test_build_registry_resolves_palette_overrides(tmp_path, monkeypatch):
+    """End to end: a palette-index override lands as the source hex in
+    the assembled registry."""
+    _reset()
+    settings.theme_overrides = {'Dracula': {'fg_subject_unread': 3}}
+    pack_path = tmp_path / 'mine.json'
+    pack_path.write_text(json.dumps([DRACULA_ENTRY]))
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+
+    registry = themes.build_registry()
+    assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['3']
