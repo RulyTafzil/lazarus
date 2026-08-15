@@ -75,3 +75,27 @@ def test_glyph_image_renders_nonblank(qapp):
     n = sum(1 for y in range(img.height()) for x in range(img.width())
             if img.pixelColor(x, y).alpha() > 0)
     assert n > 8  # the glyph actually painted, not blank
+
+
+def _lightness(hex_color: str) -> int:
+    from PyQt6.QtGui import QColor
+    return QColor(hex_color).lightness()
+
+
+def test_disabled_foreground_dimmed_near_bg_alt():
+    settings.theme = {'bg': '#2e3440', 'bg_alt': '#3b4252',
+                      'fg': '#d8dee9', 'fg_dim': '#4c566a'}
+    c = style.disabled_foreground()
+    # clearly dimmer than fg_dim, and close to (but not into) bg_alt
+    assert _lightness(c) < _lightness(settings.theme['fg_dim'])
+    assert abs(_lightness(c) - _lightness(settings.theme['bg_alt'])) < 25
+    assert _lightness(c) > _lightness(settings.theme['bg'])  # never invisible
+    assert style.disabled_foreground() == c  # cached
+
+
+def test_disabled_foreground_visible_on_light_themes():
+    # light themes often have bg == bg_alt; the blend must stay visible
+    settings.theme = {'bg': '#fdf6e3', 'bg_alt': '#fdf6e3',
+                      'fg': '#002b36', 'fg_dim': '#93a1a1'}
+    c = style.disabled_foreground()
+    assert _lightness(c) < _lightness(settings.theme['bg']) - 20

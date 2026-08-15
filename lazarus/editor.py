@@ -68,7 +68,7 @@ def _toolbar_btn_qss(color_hex: str) -> str:
         f'QToolButton:hover {{'
         f'  background-color: {settings.theme["bg_alt"]}; }}'
         f'QToolButton:disabled {{'
-        f'  color: {settings.theme["fg_dim"]}; }}'
+        f'  color: {style.disabled_foreground()}; }}'
         f'QToolButton:disabled:hover {{'
         f'  background-color: transparent; }}')
 

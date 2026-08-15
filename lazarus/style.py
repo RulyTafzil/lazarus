@@ -85,6 +85,30 @@ def theme_color(name: str) -> QColor:
     return color
 
 
+def disabled_foreground() -> str:
+    """A strongly dimmed foreground colour for disabled controls.
+
+    Blends ``fg_dim`` toward the header background (``bg_alt``) so
+    disabled glyphs recede close to the toolbar background — but never
+    *into* it: light themes often define ``bg == bg_alt``, which would
+    make the glyph invisible.  The 65/35 blend keeps light themes
+    discernible while making dark themes nearly fade out.  Cached per
+    theme.
+    """
+    key = (id(settings.theme), 'disabled_fg')
+    color = _colors.get(key)
+    if color is None:
+        bg_alt = QColor(settings.theme.get('bg_alt', settings.theme['bg']))
+        fg_dim = QColor(settings.theme.get('fg_dim', settings.theme['fg']))
+        color = QColor(
+            int(fg_dim.red() * 0.35 + bg_alt.red() * 0.65),
+            int(fg_dim.green() * 0.35 + bg_alt.green() * 0.65),
+            int(fg_dim.blue() * 0.35 + bg_alt.blue() * 0.65),
+        )
+        _colors[key] = color
+    return color.name()
+
+
 def nerd_font_family() -> str:
     """Resolve the NerdFont family used for icon glyphs.
 

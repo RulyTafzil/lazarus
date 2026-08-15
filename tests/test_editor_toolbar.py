@@ -211,8 +211,10 @@ def test_plain_mode_dims_disabled_buttons(qapp):
 
     ed.toggle_plain()
     assert all(not b.isEnabled() for b in ed._format_buttons)
-    # the QSS carries a real disabled rule (incl. no hover fill)
-    assert 'QToolButton:disabled' in bold.styleSheet()
+    # the QSS carries a real disabled rule (incl. no hover fill) using
+    # the strongly dimmed foreground
+    from lazarus import style
+    assert f'color: {style.disabled_foreground()}' in bold.styleSheet()
     assert 'QToolButton:disabled:hover' in bold.styleSheet()
     after_img = bold.grab().toImage()
     before, after = _glyph_lightness_change(before_img, after_img)
