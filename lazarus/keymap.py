@@ -88,7 +88,7 @@ global_keymap: Keymap = {
 
   # ── Global ───────────────────────────────────────────────────────
   '?':           ('show help', lambda a: a.show_help()),
-  'Q':           ('quit', lambda a: a.prompt_quit()),
+  'C-q':           ('quit', lambda a: a.prompt_quit()),
   '`':           ('sync mail', lambda a: a.sync_mail(quiet=False)),
   'C-r':         ('apply filter rules', lambda a: a.apply_filter_rules()),
   'l':           ('next panel', lambda a: a.next_panel()),
