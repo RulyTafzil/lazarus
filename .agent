@@ -321,7 +321,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | Setting | Default | Purpose |
 |---------|---------|---------|
 | `theme` | `themes.nord` | Palette dict; `apply_theme()` at startup; `M-<`/`M->`/`t h` switch live (QSettings `last_theme_name` remembered across launches) |
-| `theme_overrides` | `{}` | `{theme_name: {key: value}}` manual mapping on top of the heuristic terminal-theme mapping — value can be a hex color, an ANSI palette index of the source theme (`'fg_subject_unread': 3`), a named terminal color (`'fg_tags': 'foreground'`), or another Lazarus key (`'fg_date': 'fg_dim'`) |
+| `theme_overrides` | `{}` | `{theme_name: {key: value}}` manual mapping on top of the heuristic terminal-theme mapping; special key `'*'` applies to every pack theme (replaces the heuristic), per-theme entries run after and win — value can be a hex color, an ANSI palette index of the source theme (`'fg_subject_unread': 3`), a named terminal color (`'fg_tags': 'foreground'`), or another Lazarus key (`'fg_date': 'fg_dim'`) |
 | `colormap.py` | (file) | `~/.config/lazarus/themes/colormap.py` — auto-created on first run, never overwritten; documents all 19 color keys + the built-in heuristic (generated from `DEFAULT_TERMINAL_MAP`, no drift), exec'd at startup and merged per-key over config.py's `theme_overrides` (this file wins) |
 | `sync_mail_command` | `'offlineimap'` | Fallback shell sync when `smtp_accounts` empty |
 | `sync_mail_interval` | `300` | Auto-sync secs; `-1` disables |

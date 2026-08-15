@@ -482,7 +482,9 @@ gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 # keys per theme name without editing the source pack -- values may be a
 # literal hex color, an ANSI palette index (0-15) of the source entry, a
 # named terminal color (background/foreground/cursor-color/selection-*),
-# or another Lazarus key of the same theme.
+# or another Lazarus key of the same theme. The special key '*' applies
+# to every pack theme (replacing the heuristic); per-theme entries run
+# after it and win.
 #
 # Expected shape of one entry (extra/missing optional keys are tolerated):
 #   {
@@ -704,36 +706,78 @@ def _resolve_override_value(value: str | int,
     return None
 
 
+def _merge_override(name: str,
+                    keys: dict,
+                    registry: dict[str, dict],
+                    raw_entries: dict[str, dict]) -> None:
+    """Apply one {lazarus_key: value} override dict to ``registry[name]``,
+    resolving values against the theme's source entry. Unresolvable
+    references are logged and skipped."""
+    if not isinstance(keys, dict):
+        logger.warning(
+            "theme_overrides: %r: expected a {key: value} dict -- skipping", name)
+        return
+    current = dict(registry[name])
+    entry = raw_entries.get(name)
+    for key, value in keys.items():
+        hex_color = _resolve_override_value(value, entry, current)
+        if hex_color is None:
+            logger.warning(
+                "theme_overrides: %r: %r -> %r is not a hex color, "
+                "palette index 0-15, or named terminal color -- skipping",
+                name, key, value)
+            continue
+        current[key] = hex_color
+    if current != registry[name]:
+        registry[name] = current
+
+
+# Special theme_overrides key: applied to EVERY pack theme (in place of
+# the built-in heuristic) before the per-theme overrides run. No theme
+# in the bundled library is named '*'. Hand-written Python themes are
+# hand-tuned and deliberately skipped -- palette/named references need a
+# source entry, and '*' targets the terminal-theme heuristic.
+_GLOBAL_OVERRIDE_KEY = '*'
+
+
 def _apply_overrides(registry: dict[str, dict],
                      raw_entries: dict[str, dict] | None = None) -> None:
-    """Apply `settings.theme_overrides[name]` on top of matching REGISTRY
+    """Apply `settings.theme_overrides` on top of matching REGISTRY
     entries, in place. Values are resolved via `_resolve_override_value`
     (hex color, palette index, named terminal color, or another Lazarus
-    key). Unknown theme names and unresolvable references are logged and
+    key). Two levels:
+
+    * ``'*'`` -- applied to every pack theme (replaces the heuristic);
+    * ``theme_name`` -- applied to that one theme, after ``'*'``.
+
+    Unknown theme names and unresolvable references are logged and
     skipped -- not a hard error, a typo here shouldn't block startup.
     """
     overrides = getattr(_settings, 'theme_overrides', None)
     if not overrides:
         return
+    overrides = dict(overrides)
     raw_entries = raw_entries or {}
+
+    global_keys = overrides.pop(_GLOBAL_OVERRIDE_KEY, None)
+    if global_keys is not None:
+        if not isinstance(global_keys, dict):
+            logger.warning(
+                "theme_overrides: %r: expected a {key: value} dict -- skipping",
+                _GLOBAL_OVERRIDE_KEY)
+            global_keys = None
+        else:
+            for name in registry:
+                if name not in raw_entries:
+                    continue  # hand-written theme -- already hand-tuned
+                _merge_override(name, global_keys, registry, raw_entries)
+
     for name, keys in overrides.items():
         if name not in registry:
             logger.warning(
                 "theme_overrides: no theme named %r in registry -- skipping", name)
             continue
-        current = dict(registry[name])
-        entry = raw_entries.get(name)
-        for key, value in keys.items():
-            hex_color = _resolve_override_value(value, entry, current)
-            if hex_color is None:
-                logger.warning(
-                    "theme_overrides: %r: %r -> %r is not a hex color, "
-                    "palette index 0-15, or named terminal color -- skipping",
-                    name, key, value)
-                continue
-            current[key] = hex_color
-        if current != registry[name]:
-            registry[name] = current
+        _merge_override(name, keys, registry, raw_entries)
 
 
 def build_registry() -> dict[str, dict]:
@@ -851,10 +895,17 @@ def render_override_template() -> str:
             lines.append(f'#   {key:<22}{chain_text(key)}')
     lines += [
         '#',
+        '# To override a heuristic for EVERY theme, use the special "*" theme:',
+        '#',
         '# theme_overrides = {',
+        "#     '*': {",
+        "#         'fg_subject': 2,               # palette green, every theme",
+        "#         'fg_tags': 'foreground',",
+        '#     },',
+        '#',
+        '# Per-theme overrides run after "*" and win:',
         '#     # \'Dracula\': {',
         "#     #     'fg_subject_unread': 3,       # palette yellow",
-        "#     #     'fg_tags': 'foreground',",
         '#     # },',
         '# }',
         '',

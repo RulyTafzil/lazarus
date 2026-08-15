@@ -320,12 +320,18 @@ library and any packs found in ``~/.config/lazarus/themes/*.json`` -- see
 """
 
 theme_overrides: Dict[str, Dict[str, str | int]] = {}
-"""Per-theme color corrections, keyed by theme name.
+"""Color mapping corrections, keyed by theme name.
 
 Terminal-style themes (the bundled library and any user JSON packs) are
 mapped to Lazarus's color keys by a best-effort heuristic -- it won't
-always pick the color you'd choose by hand. Use this to override specific
-keys for a specific theme by name, without editing the source pack.
+always pick the color you'd choose by hand. Use this to override
+specific keys, without editing the source pack. Two levels:
+
+* the special key ``'*'`` applies to **every** pack theme (replaces the
+  built-in heuristic); hand-written themes (nord, ...) are skipped --
+  they are hand-tuned and have no source palette;
+* a theme name applies to that one theme only, after ``'*'`` (wins).
+
 Each value can be:
 
 * a literal hex color: ``'fg_link': '#8be9fd'``
@@ -339,17 +345,19 @@ Each value can be:
 Example::
 
     theme_overrides = {
+        '*': {
+            'fg_subject': 2,               # palette green, every theme
+            'fg_tags': 'foreground',
+        },
         'Dracula': {
             'fg_link': '#8be9fd',
-            'fg_subject_unread': 3,          # palette yellow
-            'fg_tags': 'foreground',
+            'fg_subject_unread': 3,        # palette yellow
         },
     }
 
 Only the listed keys are overridden; everything else stays as mapped.
-Hand-written themes (nord, ...) have no source palette, so palette-index
-and named-color references only resolve for pack themes -- hex values
-apply everywhere.
+Palette-index and named-color references resolve only for pack themes
+(which have a source palette) -- hex values apply everywhere.
 """
 
 search_font = 'DejaVu Sans Mono'
