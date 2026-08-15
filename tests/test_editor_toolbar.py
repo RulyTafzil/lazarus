@@ -180,3 +180,41 @@ def test_segment_buttons_match_toolbar_style(qapp):
     ed._plain_btn.click()
     assert ed._plain_btn.isChecked()
     assert not ed._html_btn.isChecked()
+
+
+def _glyph_lightness_change(before_img, after_img):
+    """Average lightness of the pixels that changed between the two
+    renders — the glyph itself (the background is identical in both,
+    whatever the palette).  Returns (before_avg, after_avg)."""
+    changed = [(x, y) for y in range(before_img.height())
+               for x in range(before_img.width())
+               if before_img.pixelColor(x, y) != after_img.pixelColor(x, y)]
+    if not changed:
+        return 0, 0
+    before = sum(before_img.pixelColor(x, y).lightness()
+                 for x, y in changed) // len(changed)
+    after = sum(after_img.pixelColor(x, y).lightness()
+                for x, y in changed) // len(changed)
+    return before, after
+
+
+def test_plain_mode_dims_disabled_buttons(qapp):
+    """In plaintext mode the formatting buttons render visibly dimmed
+    (fg_dim) — the explicit QSS color must not defeat the disabled
+    grey-out.  Compares the same button enabled vs disabled and measures
+    only the changed (glyph) pixels, so palette noise cancels out."""
+    p = _panel(qapp)
+    ed = p.editor
+    bold = ed._fmt_buttons['bold']
+    assert bold.isEnabled() and not bold.isChecked()
+    before_img = bold.grab().toImage()
+
+    ed.toggle_plain()
+    assert all(not b.isEnabled() for b in ed._format_buttons)
+    # the QSS carries a real disabled rule (incl. no hover fill)
+    assert 'QToolButton:disabled' in bold.styleSheet()
+    assert 'QToolButton:disabled:hover' in bold.styleSheet()
+    after_img = bold.grab().toImage()
+    before, after = _glyph_lightness_change(before_img, after_img)
+    assert after < before - 40, (
+        f'disabled button not visibly dimmed: {after} vs {before}')

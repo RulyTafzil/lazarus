@@ -47,6 +47,31 @@ from . import style
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Toolbar button styling
+# ---------------------------------------------------------------------------
+
+def _toolbar_btn_qss(color_hex: str) -> str:
+    """Stylesheet shared by the compose toolbar buttons.
+
+    Text in *color_hex*, checked fill, hover fill, and a **dimmed
+    disabled state** (plaintext mode) with no hover — the explicit
+    ``color`` would otherwise override Qt's automatic disabled
+    grey-out and the buttons would look active while inert.
+    """
+    return (
+        f'QToolButton {{ color: {color_hex};'
+        f' border-radius: 3px; padding: 1px 5px; }}'
+        f'QToolButton:checked {{'
+        f'  background-color: {settings.theme["bg_button"]}; }}'
+        f'QToolButton:hover {{'
+        f'  background-color: {settings.theme["bg_alt"]}; }}'
+        f'QToolButton:disabled {{'
+        f'  color: {settings.theme["fg_dim"]}; }}'
+        f'QToolButton:disabled:hover {{'
+        f'  background-color: transparent; }}')
+
 # ---------------------------------------------------------------------------
 # Image size limits
 # ---------------------------------------------------------------------------
@@ -303,13 +328,7 @@ class RichTextEditor(QTextEdit):
             b.setCheckable(checkable)
             b.setAutoRaise(True)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.setStyleSheet(
-                f'QToolButton {{ color: {settings.theme["fg"]};'
-                f' border-radius: 3px; padding: 1px 5px; }}'
-                f'QToolButton:checked {{'
-                f'  background-color: {settings.theme["bg_button"]}; }}'
-                f'QToolButton:hover {{'
-                f'  background-color: {settings.theme["bg_alt"]}; }}')
+            b.setStyleSheet(_toolbar_btn_qss(settings.theme['fg']))
             if slot is not None:
                 b.clicked.connect(slot)
             hlay.addWidget(b)
@@ -464,8 +483,7 @@ class RichTextEditor(QTextEdit):
             b.setChecked(align & flag == flag)
 
         self._color_btn.setStyleSheet(
-            f'QToolButton {{ color: {fmt.foreground().color().name()};'
-            f' border-radius: 3px; padding: 1px 5px; }}')
+            _toolbar_btn_qss(fmt.foreground().color().name()))
 
         # Plaintext mode: highlight the matching segment and grey out
         # the formatting buttons (they are meaningless without rich text).
