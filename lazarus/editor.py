@@ -283,13 +283,14 @@ class RichTextEditor(QTextEdit):
         """
         self._plain_mode = not self._plain_mode
         if self._plain_mode:
-            # Strip formatting in place; drop Qt's object-replacement
-            # chars for any embedded images (their filenames still
-            # surface as [Image: …] placeholders via body_text()).
-            self.setPlainText(self.toPlainText().replace('\ufffc', ''))
-            # Fresh char format so newly typed text is not bold/italic
-            # from the previous rich mode.
+            # Reset the editor's char format BEFORE re-inserting the
+            # text: setPlainText() inserts with the current format, so a
+            # bold/italic cursor would otherwise re-format the whole
+            # body when stripping.  (Drop Qt's object-replacement chars
+            # for embedded images too — their filenames still surface as
+            # [Image: …] placeholders via body_text().)
             self.setCurrentCharFormat(QTextCharFormat())
+            self.setPlainText(self.toPlainText().replace('\ufffc', ''))
         if hasattr(self, '_fmt_buttons'):
             self._sync_format_buttons()
         return self._plain_mode
