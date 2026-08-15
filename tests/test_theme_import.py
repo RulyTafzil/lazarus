@@ -393,78 +393,102 @@ def test_load_colormap_errors_do_not_block_startup(tmp_path, monkeypatch,
     assert any('must be a dict' in r.message for r in caplog.records)
 
 
-# --- '*' global override level -----------------------------------------
+# --- default_heuristic (replace the built-in mapping) ----------------
 
-def _two_theme_registry():
-    """Two pack themes with different palettes + one hand-written theme."""
+def _two_theme_entries():
+    """Two pack entries with different palettes."""
     dracula = dict(DRACULA_ENTRY)
     mono = dict(DRACULA_ENTRY)
     mono['name'] = 'Mono'
     mono['palette'] = {**DRACULA_ENTRY['palette'], '2': '#00ff00',
                        '3': '#0000ff'}
-    registry = {
-        'Dracula': themes.terminal_theme_to_lazarus(dracula),
-        'Mono': themes.terminal_theme_to_lazarus(mono),
-        'nord': dict(themes.nord),
-    }
-    raw = {'Dracula': dracula, 'Mono': mono}
+    return dracula, mono
+
+
+def _registry_from_entries(*entries):
+    """Mapped registry + raw entries for the given pack entries."""
+    registry = {}
+    raw = {}
+    for entry in entries:
+        registry[entry['name']] = themes.terminal_theme_to_lazarus(entry)
+        raw[entry['name']] = entry
     return registry, raw
 
 
-def test_star_applies_to_every_pack_theme():
-    """'*' replaces the heuristic for all pack themes, resolved against
-    each theme's own palette."""
-    _reset()
-    settings.theme_overrides = {'*': {'fg_subject': 2}}
-    registry, raw = _two_theme_registry()
-    themes._apply_overrides(registry, raw)
-    assert registry['Dracula']['fg_subject'] == DRACULA_ENTRY['palette']['2']
-    assert registry['Mono']['fg_subject'] == '#00ff00'  # Mono's own palette 2
-    assert registry['nord']['fg_subject'] == themes.nord['fg_subject']  # untouched
+def test_default_heuristic_replaces_mapping_for_all():
+    """Replacing a heuristic line changes that key for every theme,
+    resolved against each theme's own palette; other keys keep default."""
+    dracula, mono = _two_theme_entries()
+    heuristic = {'fg_subject': 2, 'fg_tags': 'foreground'}
+    d = themes.terminal_theme_to_lazarus(dracula, heuristic)
+    m = themes.terminal_theme_to_lazarus(mono, heuristic)
+    assert d['fg_subject'] == DRACULA_ENTRY['palette']['2']
+    assert m['fg_subject'] == '#00ff00'           # Mono's own palette 2
+    assert d['fg_tags'] == DRACULA_ENTRY['foreground']
+    # untouched keys keep the default heuristic
+    assert d['fg_link'] == themes.terminal_theme_to_lazarus(dracula)['fg_link']
+    assert set(d) == set(themes.THEME_KEYS)
 
 
-def test_specific_theme_override_wins_over_star():
+def test_default_heuristic_hex_and_lazarus_key_forms():
+    dracula, _mono = _two_theme_entries()
+    heuristic = {'fg_link': '#8be9fd', 'fg_date': 'fg_dim'}
+    d = themes.terminal_theme_to_lazarus(dracula, heuristic)
+    assert d['fg_link'] == '#8be9fd'
+    assert d['fg_date'] == d['fg_dim']
+
+
+def test_per_theme_override_wins_over_default_heuristic():
     _reset()
-    settings.theme_overrides = {
-        '*': {'fg_subject': 2},
-        'Dracula': {'fg_subject': 3},
-    }
-    registry, raw = _two_theme_registry()
+    settings.default_heuristic = {'fg_subject': 2}
+    settings.theme_overrides = {'Dracula': {'fg_subject': 3}}
+    registry, raw = _registry_from_entries(*_two_theme_entries())
+    # simulate build_registry order: map with heuristic, then overrides
+    for name in registry:
+        entry = raw.get(name)
+        if entry is not None:
+            registry[name] = themes.terminal_theme_to_lazarus(
+                entry, settings.default_heuristic)
     themes._apply_overrides(registry, raw)
     assert registry['Dracula']['fg_subject'] == DRACULA_ENTRY['palette']['3']
-    assert registry['Mono']['fg_subject'] == '#00ff00'  # still from '*'
+    assert registry['Mono']['fg_subject'] == '#00ff00'  # still from heuristic
 
 
-def test_star_named_color_applies_globally():
+def test_default_heuristic_flows_through_build_registry(tmp_path, monkeypatch):
     _reset()
-    settings.theme_overrides = {'*': {'fg_tags': 'foreground'}}
-    registry, raw = _two_theme_registry()
-    themes._apply_overrides(registry, raw)
-    assert registry['Dracula']['fg_tags'] == DRACULA_ENTRY['foreground']
-    assert registry['Mono']['fg_tags'] == DRACULA_ENTRY['foreground']
+    settings.default_heuristic = {'fg_subject': 2}
+    pack_path = tmp_path / 'pack.json'
+    pack_path.write_text(json.dumps([DRACULA_ENTRY]))
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+
+    registry = themes.build_registry()
+    assert registry['Dracula']['fg_subject'] == DRACULA_ENTRY['palette']['2']
+    assert registry['Dracula']['fg_link'] == themes.terminal_theme_to_lazarus(
+        DRACULA_ENTRY)['fg_link']  # default for other keys
 
 
-def test_star_non_dict_warns(caplog):
-    _reset()
-    settings.theme_overrides = {'*': 'oops'}
-    registry, raw = _two_theme_registry()
+def test_default_heuristic_bad_value_warns(caplog):
+    dracula, _mono = _two_theme_entries()
     with caplog.at_level('WARNING', logger='lazarus.themes'):
-        themes._apply_overrides(registry, raw)
-    assert registry['Dracula']['fg_subject'] == themes.terminal_theme_to_lazarus(
-        DRACULA_ENTRY)['fg_subject']  # untouched
-    assert any('skipping' in r.message for r in caplog.records)
+        # 99 out of range; 'nope' is not a known lazarus key
+        d = themes.terminal_theme_to_lazarus(
+            dracula, {'fg_subject': 99, 'fg_tags': 'nope'})
+    assert d['fg_subject'] == themes.terminal_theme_to_lazarus(
+        dracula)['fg_subject']  # defaults kept
+    assert d['fg_tags'] == themes.terminal_theme_to_lazarus(dracula)['fg_tags']
+    assert sum(1 for r in caplog.records if 'heuristic' in r.message) >= 2
 
 
-def test_load_colormap_merges_star_and_specific(tmp_path, monkeypatch):
-    """colormap.py can define both levels; '*' flows through load."""
+def test_load_colormap_merges_heuristic_and_overrides(tmp_path, monkeypatch):
+    """colormap.py can define both default_heuristic and theme_overrides."""
     _reset()
     (tmp_path / 'colormap.py').write_text(
-        "theme_overrides = {'*': {'fg_subject': 2}, "
-        "'Dracula': {'fg_subject_unread': 3}}\n")
+        "default_heuristic = {'fg_subject': 2}\n"
+        "theme_overrides = {'Dracula': {'fg_subject_unread': 3}}\n")
     monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
     themes.load_colormap()
-    assert settings.theme_overrides == {
-        '*': {'fg_subject': 2}, 'Dracula': {'fg_subject_unread': 3}}
+    assert settings.default_heuristic == {'fg_subject': 2}
+    assert settings.theme_overrides == {'Dracula': {'fg_subject_unread': 3}}
 
     pack_path = tmp_path / 'pack.json'
     pack_path.write_text(json.dumps([DRACULA_ENTRY]))

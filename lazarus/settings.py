@@ -320,17 +320,13 @@ library and any packs found in ``~/.config/lazarus/themes/*.json`` -- see
 """
 
 theme_overrides: Dict[str, Dict[str, str | int]] = {}
-"""Color mapping corrections, keyed by theme name.
+"""Per-theme color corrections, keyed by theme name.
 
 Terminal-style themes (the bundled library and any user JSON packs) are
 mapped to Lazarus's color keys by a best-effort heuristic -- it won't
-always pick the color you'd choose by hand. Use this to override
-specific keys, without editing the source pack. Two levels:
-
-* the special key ``'*'`` applies to **every** pack theme (replaces the
-  built-in heuristic); hand-written themes (nord, ...) are skipped --
-  they are hand-tuned and have no source palette;
-* a theme name applies to that one theme only, after ``'*'`` (wins).
+always pick the color you'd choose by hand. Use this to hand-correct
+specific keys for one theme, without editing the source pack. To change
+the heuristic itself for *every* theme, use `default_heuristic` instead.
 
 Each value can be:
 
@@ -345,10 +341,6 @@ Each value can be:
 Example::
 
     theme_overrides = {
-        '*': {
-            'fg_subject': 2,               # palette green, every theme
-            'fg_tags': 'foreground',
-        },
         'Dracula': {
             'fg_link': '#8be9fd',
             'fg_subject_unread': 3,        # palette yellow
@@ -358,6 +350,27 @@ Example::
 Only the listed keys are overridden; everything else stays as mapped.
 Palette-index and named-color references resolve only for pack themes
 (which have a source palette) -- hex values apply everywhere.
+"""
+
+default_heuristic: Dict[str, str | int] = {}
+"""Replace lines of the built-in terminal-theme heuristic, for every
+pack theme, without editing the source pack.
+
+The heuristic maps terminal-theme entries (16 ANSI palette colors +
+background/foreground/cursor-color/selection-*) onto Lazarus's 19
+semantic color keys (see ``lazarus.themes.DEFAULT_TERMINAL_MAP``). Any
+key listed there can be overridden here; values use the same forms as
+`theme_overrides` (hex, palette index, named terminal color, or another
+Lazarus key). `theme_overrides['ThemeName']` runs after this and wins::
+
+    default_heuristic = {
+        'fg_subject': 2,               # palette green, every theme
+        'fg_tags': 'foreground',
+        'fg_date': 'fg_dim',
+    }
+
+Affects pack (terminal-style) themes only -- hand-written themes
+(nord, ...) are literal palettes, not heuristic products.
 """
 
 search_font = 'DejaVu Sans Mono'

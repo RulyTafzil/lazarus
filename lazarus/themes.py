@@ -478,13 +478,13 @@ gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 # used by Ghostty, Alacritty, iTerm2, Windows Terminal, etc. It has no
 # concept of Lazarus's semantic keys (fg_link, bg_highlight, ...), so
 # importing one is a best-effort heuristic mapping, not a lossless
-# translation. `settings.theme_overrides` lets a user hand-correct specific
-# keys per theme name without editing the source pack -- values may be a
-# literal hex color, an ANSI palette index (0-15) of the source entry, a
-# named terminal color (background/foreground/cursor-color/selection-*),
-# or another Lazarus key of the same theme. The special key '*' applies
-# to every pack theme (replacing the heuristic); per-theme entries run
-# after it and win.
+# translation. `settings.default_heuristic` lets a user replace the
+# heuristic per key for every theme (mirrors DEFAULT_TERMINAL_MAP);
+# `settings.theme_overrides` then hand-corrects individual themes --
+# values may be a literal hex color, an ANSI palette index (0-15) of
+# the source entry, a named terminal color
+# (background/foreground/cursor-color/selection-*), or another Lazarus
+# key of the same theme.
 #
 # Expected shape of one entry (extra/missing optional keys are tolerated):
 #   {
@@ -573,39 +573,112 @@ never drift from the actual mapping."""
 
 def _resolve_chain(chain: tuple[tuple[str, str], ...],
                    entry: dict,
-                   resolved: dict[str, str]) -> str:
-    """First candidate that resolves wins; final fallback is the source
-    'foreground'."""
+                   resolved: dict[str, str],
+                   default: str | None) -> str | None:
+    """First candidate that resolves wins; else *default*.
+
+    Candidate kinds: ('named', ...) source color, ('palette', ...) ANSI
+    index, ('key', ...) another resolved Lazarus key, ('hex', ...) a
+    literal color.
+    """
     for kind, value in chain:
         if kind == 'named':
-            color = entry.get(value)
+            color = entry.get(value)  # strict: only if the entry defines it
             if color:
                 return color
         elif kind == 'palette':
             if value in entry['palette']:
                 return entry['palette'][value]
+        elif kind == 'hex':
+            return value
         else:  # 'key' -- another Lazarus key, must already be resolved
             if value in resolved:
                 return resolved[value]
-    return entry['foreground']
+    return default
 
 
-def terminal_theme_to_lazarus(entry: dict) -> dict:
+def _value_to_chain(value: str | int) -> tuple[tuple[str, str], ...] | None:
+    """Convert a user-facing override/heuristic value to a chain: hex
+    color, ANSI palette index (0-15, int or digit string), a named
+    terminal color (with a sensible fallback when the entry lacks it),
+    or a Lazarus key. None if it's none of those.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and 0 <= value <= 15:
+        return (('palette', str(value)),)
+    if isinstance(value, str) and value.startswith('#'):
+        return (('hex', value),)
+    if (isinstance(value, str) and value.isdigit()
+            and 0 <= int(value) <= 15):
+        return (('palette', str(int(value))),)
+    if isinstance(value, str) and value in _NAMED_COLOR_CHAINS:
+        return _NAMED_COLOR_CHAINS[value]
+    if isinstance(value, str):
+        return (('key', value),)  # a Lazarus key; validated at resolve time
+    return None
+
+
+# Named terminal colors, as chains with a fallback for entries that
+# omit the optional ones ('named' candidates only match when the entry
+# actually defines the color -- missing optionals fall to a Lazarus key).
+_NAMED_COLOR_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
+    'background': (('named', 'background'),),
+    'foreground': (('named', 'foreground'),),
+    'cursor-color': (('named', 'cursor-color'), ('key', 'fg')),
+    'selection-background': (('named', 'selection-background'), ('key', 'bg')),
+    'selection-foreground': (('named', 'selection-foreground'), ('key', 'fg')),
+}
+
+
+def _effective_terminal_map(user_heuristic: dict | None = None) -> dict:
+    """The heuristic actually used to map pack entries: `DEFAULT_TERMINAL_MAP`
+    merged with the user's `default_heuristic` entries (a user entry
+    replaces the chain for that key; unknown keys and invalid values are
+    logged and keep their default)."""
+    effective = dict(DEFAULT_TERMINAL_MAP)
+    for key, value in (user_heuristic or {}).items():
+        chain = _value_to_chain(value)
+        if chain is None:
+            logger.warning(
+                "theme heuristic: %r -> %r is not a hex color, palette index "
+                "0-15, or named terminal color -- keeping default", key, value)
+            continue
+        if key not in DEFAULT_TERMINAL_MAP:
+            logger.warning(
+                "theme heuristic: unknown Lazarus color key %r -- ignoring", key)
+            continue
+        if chain[0][0] == 'key' and chain[0][1] not in DEFAULT_TERMINAL_MAP:
+            logger.warning(
+                "theme heuristic: %r -> %r: unknown Lazarus color key %r -- "
+                "keeping default", key, value, chain[0][1])
+            continue
+        effective[key] = chain
+    return effective
+
+
+def terminal_theme_to_lazarus(entry: dict,
+                              heuristic: dict | None = None) -> dict:
     """Heuristically map a terminal-style theme entry to a Lazarus theme
     dict. Caller is expected to have validated *entry* already.
 
     This is a best-effort default, not a precise translation -- terminal
     palettes have no notion of e.g. "link color" or "highlight color".
-    Use `settings.theme_overrides[name]` to hand-correct specific keys:
-    values may be a literal hex color, an ANSI palette index (0-15) of
-    *entry*, a named terminal color, or another Lazarus key of the
-    mapped theme (see `_resolve_override_value`). The default heuristic
-    itself lives in `DEFAULT_TERMINAL_MAP` (also rendered into the
-    colormap.py template).
+    The built-in heuristic lives in `DEFAULT_TERMINAL_MAP`; pass
+    *heuristic* (a ``settings.default_heuristic`` dict) to replace
+    individual keys. Per-theme corrections land afterwards via
+    `settings.theme_overrides[name]` -- values may be a literal hex
+    color, an ANSI palette index (0-15) of *entry*, a named terminal
+    color, or another Lazarus key of the mapped theme (see
+    `_resolve_override_value`). The template rendered into colormap.py
+    documents all of it.
     """
+    effective = _effective_terminal_map(heuristic)
     theme: dict[str, str] = {}
-    for key, chain in DEFAULT_TERMINAL_MAP.items():
-        theme[key] = _resolve_chain(chain, entry, theme)
+    for key, chain in effective.items():
+        resolved = _resolve_chain(chain, entry, theme, entry['foreground'])
+        assert resolved is not None  # default is always a str
+        theme[key] = resolved
     bg_c = QColor(theme['bg'])
     is_dark = bg_c.lightness() < 128
     theme['bg_alt'] = bg_c.lighter(125).name() if is_dark else bg_c.darker(106).name()
@@ -622,7 +695,8 @@ def _user_theme_dir() -> Path:
     return Path(base) / 'lazarus' / 'themes'
 
 
-def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str], dict[str, dict]]:
+def load_theme_pack(path: Path | str,
+                     heuristic: dict | None = None) -> tuple[dict[str, dict], list[str], dict[str, dict]]:
     """Load one JSON theme-pack file (a list of terminal-style entries).
 
     Returns (mapped_themes, errors, raw_entries). A malformed individual
@@ -630,7 +704,8 @@ def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str], dict[
     whole file, so one bad theme in a 600-entry pack doesn't take out
     the rest. ``raw_entries`` maps each accepted name back to its
     original pack entry -- `_apply_overrides` needs it to resolve
-    palette-index / named-color references.
+    palette-index / named-color references. *heuristic* is a
+    ``settings.default_heuristic`` dict merged over `DEFAULT_TERMINAL_MAP`.
     """
     path = Path(path)
     themes: dict[str, dict] = {}
@@ -652,18 +727,9 @@ def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str], dict[
         if entry_errors:
             errors.extend(entry_errors)
             continue
-        themes[entry['name']] = terminal_theme_to_lazarus(entry)
+        themes[entry['name']] = terminal_theme_to_lazarus(entry, heuristic)
         raw_entries[entry['name']] = entry
     return themes, errors, raw_entries
-
-
-_NAMED_OVERRIDE_COLORS = {
-    'background': lambda e: e['background'],
-    'foreground': lambda e: e['foreground'],
-    'cursor-color': lambda e: e.get('cursor-color') or e['foreground'],
-    'selection-background': lambda e: e.get('selection-background') or e['background'],
-    'selection-foreground': lambda e: e.get('selection-foreground') or e['foreground'],
-}
 
 
 def _resolve_override_value(value: str | int,
@@ -671,39 +737,20 @@ def _resolve_override_value(value: str | int,
                             theme: dict) -> str | None:
     """Resolve one `theme_overrides` value to a hex color string.
 
-    Supported forms:
-      - a literal hex color (``'#8be9fd'``) -- used as-is;
-      - an ANSI palette index of the source entry (0-15, int or str) --
-        e.g. ``3`` picks the pack's palette color 3;
-      - a named terminal color of the source entry -- ``'background'``,
-        ``'foreground'``, ``'cursor-color'``, ``'selection-background'``,
-        ``'selection-foreground'``;
-      - another Lazarus key of the mapped theme -- e.g. ``'fg_dim'``
-        resolves to whatever the heuristic mapped it to.
-
-    Returns None when the reference can't be resolved (caller logs and
-    skips the key).
+    Supported forms (see `_value_to_chain`): a literal hex color, an
+    ANSI palette index of the source entry (0-15, int or digit string),
+    a named terminal color of the source entry, or another Lazarus key
+    of the mapped theme. Returns None when the reference can't be
+    resolved (caller logs and skips the key).
     """
-    if isinstance(value, str) and value.startswith('#'):
-        return value
-    if isinstance(value, bool):
+    chain = _value_to_chain(value)
+    if chain is None or entry is None:
+        # No source entry (hand-written theme): only hex applies, and
+        # that still needs the chain to survive -- hex is a candidate.
+        if entry is None and isinstance(value, str) and value.startswith('#'):
+            return value
         return None
-    if isinstance(value, int) and 0 <= value <= 15:
-        if entry is None:
-            return None
-        return entry['palette'][str(value)]
-    if (isinstance(value, str) and value.isdigit()
-            and 0 <= int(value) <= 15):
-        if entry is None:
-            return None
-        return entry['palette'][str(int(value))]
-    if isinstance(value, str) and value in _NAMED_OVERRIDE_COLORS:
-        if entry is None:
-            return None
-        return _NAMED_OVERRIDE_COLORS[value](entry)
-    if isinstance(value, str) and value in theme:
-        return theme[value]
-    return None
+    return _resolve_chain(chain, entry, theme, None)
 
 
 def _merge_override(name: str,
@@ -732,46 +779,22 @@ def _merge_override(name: str,
         registry[name] = current
 
 
-# Special theme_overrides key: applied to EVERY pack theme (in place of
-# the built-in heuristic) before the per-theme overrides run. No theme
-# in the bundled library is named '*'. Hand-written Python themes are
-# hand-tuned and deliberately skipped -- palette/named references need a
-# source entry, and '*' targets the terminal-theme heuristic.
-_GLOBAL_OVERRIDE_KEY = '*'
-
-
 def _apply_overrides(registry: dict[str, dict],
                      raw_entries: dict[str, dict] | None = None) -> None:
-    """Apply `settings.theme_overrides` on top of matching REGISTRY
-    entries, in place. Values are resolved via `_resolve_override_value`
-    (hex color, palette index, named terminal color, or another Lazarus
-    key). Two levels:
-
-    * ``'*'`` -- applied to every pack theme (replaces the heuristic);
-    * ``theme_name`` -- applied to that one theme, after ``'*'``.
-
-    Unknown theme names and unresolvable references are logged and
-    skipped -- not a hard error, a typo here shouldn't block startup.
+    """Apply per-theme `settings.theme_overrides` on top of matching
+    REGISTRY entries, in place. Values are resolved via
+    `_resolve_override_value` (hex color, palette index, named terminal
+    color, or another Lazarus key). To replace the heuristic itself for
+    every theme, use `settings.default_heuristic` instead (merged at
+    mapping time). Unknown theme names and unresolvable references are
+    logged and skipped -- not a hard error, a typo here shouldn't block
+    startup.
     """
     overrides = getattr(_settings, 'theme_overrides', None)
     if not overrides:
         return
     overrides = dict(overrides)
     raw_entries = raw_entries or {}
-
-    global_keys = overrides.pop(_GLOBAL_OVERRIDE_KEY, None)
-    if global_keys is not None:
-        if not isinstance(global_keys, dict):
-            logger.warning(
-                "theme_overrides: %r: expected a {key: value} dict -- skipping",
-                _GLOBAL_OVERRIDE_KEY)
-            global_keys = None
-        else:
-            for name in registry:
-                if name not in raw_entries:
-                    continue  # hand-written theme -- already hand-tuned
-                _merge_override(name, global_keys, registry, raw_entries)
-
     for name, keys in overrides.items():
         if name not in registry:
             logger.warning(
@@ -809,10 +832,11 @@ def build_registry() -> dict[str, dict]:
     }
     builtin_names = set(registry)
     raw_entries: dict[str, dict] = {}
+    heuristic = getattr(_settings, 'default_heuristic', None) or {}
 
     builtin_pack = _builtin_pack_path()
     if builtin_pack.exists():
-        mapped, errors, pack_raw = load_theme_pack(builtin_pack)
+        mapped, errors, pack_raw = load_theme_pack(builtin_pack, heuristic)
         for msg in errors:
             logger.warning("theme pack: %s", msg)
         for name, theme in mapped.items():
@@ -826,7 +850,7 @@ def build_registry() -> dict[str, dict]:
     user_dir = _user_theme_dir()
     if user_dir.is_dir():
         for path in sorted(user_dir.glob('*.json')):
-            mapped, errors, pack_raw = load_theme_pack(path)
+            mapped, errors, pack_raw = load_theme_pack(path, heuristic)
             for msg in errors:
                 logger.warning("theme pack: %s", msg)
             for name, theme in mapped.items():
@@ -895,15 +919,17 @@ def render_override_template() -> str:
             lines.append(f'#   {key:<22}{chain_text(key)}')
     lines += [
         '#',
-        '# To override a heuristic for EVERY theme, use the special "*" theme:',
+        '# To replace a heuristic line for EVERY theme, edit',
+        '# default_heuristic below (same value forms as theme_overrides):',
+        '#',
+        '# default_heuristic = {',
+        "#     'fg_subject': 2,               # palette green, every theme",
+        "#     'fg_tags': 'foreground',",
+        '# }',
+        '#',
+        '# Per-theme exceptions run after the heuristic and win:',
         '#',
         '# theme_overrides = {',
-        "#     '*': {",
-        "#         'fg_subject': 2,               # palette green, every theme",
-        "#         'fg_tags': 'foreground',",
-        '#     },',
-        '#',
-        '# Per-theme overrides run after "*" and win:',
         '#     # \'Dracula\': {',
         "#     #     'fg_subject_unread': 3,       # palette yellow",
         '#     # },',
@@ -936,9 +962,9 @@ def write_colormap_template(path: Path | None = None) -> Path:
 
 def load_colormap() -> None:
     """Create colormap.py on first run and exec it, merging any
-    ``theme_overrides`` it defines into ``settings.theme_overrides``
-    (per key; this file wins over config.py). Errors are logged, never
-    fatal -- a typo here must not block startup."""
+    ``default_heuristic`` and ``theme_overrides`` it defines into
+    ``settings`` (per key; this file wins over config.py). Errors are
+    logged, never fatal -- a typo here must not block startup."""
     path = write_colormap_template()
     try:
         code = path.read_text(encoding='utf-8')
@@ -951,6 +977,17 @@ def load_colormap() -> None:
     except Exception as e:
         logger.warning('colormap: error in %s: %s', path, e)
         return
+
+    heuristic = namespace.get('default_heuristic')
+    if heuristic is not None:
+        if not isinstance(heuristic, dict):
+            logger.warning(
+                "colormap: %s: 'default_heuristic' must be a dict -- ignored", path)
+        else:
+            merged_h = dict(getattr(_settings, 'default_heuristic', None) or {})
+            merged_h.update(heuristic)
+            _settings.default_heuristic = merged_h
+
     overrides = namespace.get('theme_overrides')
     if overrides is None:
         return
