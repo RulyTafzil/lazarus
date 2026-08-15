@@ -221,7 +221,6 @@ def test_h_toggles_plaintext_mode(qapp):
     assert 'H' in keymap.compose_keymap
     p = _make_panel(qapp)
     assert not p.editor.plain_mode
-    assert 'Plain' not in p.status_label.text()
 
     # plain h -> 'h' (previous panel), not the toggle
     ev_h = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H,
@@ -230,17 +229,17 @@ def test_h_toggles_plaintext_mode(qapp):
     p.keyPressEvent(ev_h)
     assert not p.editor.plain_mode
 
-    # Shift+H -> 'H' -> plaintext toggle
+    # Shift+H -> 'H' -> plaintext toggle (indicated by the toolbar)
     ev_H = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H,
                      Qt.KeyboardModifier.ShiftModifier)
     assert util.key_string(ev_H) == 'H'
     p.keyPressEvent(ev_H)
     assert p.editor.plain_mode
-    assert 'Plain' in p.status_label.text()
+    assert p.editor._plain_btn.isChecked()
 
     p.keyPressEvent(ev_H)
     assert not p.editor.plain_mode
-    assert 'Plain' not in p.status_label.text()
+    assert p.editor._html_btn.isChecked()
 
 
 def test_plaintext_send_builds_plain_only_message(qapp):

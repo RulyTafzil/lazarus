@@ -339,15 +339,13 @@ class ComposePanel(panel.Panel):
         # fixed at construction and its selection tracks current_account
         # (kept in sync by _cycle_account / the combo signal).
 
-        # Status: PGP toggles, plaintext mode (and transient send/error
-        # text from send()).
+        # Status: PGP toggles (and transient send/error text from
+        # send()).  Plaintext mode is indicated by the toolbar toggle.
         parts = []
         if self.pgp_sign:
             parts.append('PGPSign')
         if self.pgp_encrypt:
             parts.append('PGPEncrypt')
-        if self.editor.plain_mode:
-            parts.append('Plain')
         self.status_label.setText('  '.join(parts))
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg"]}; font-style: italic;')

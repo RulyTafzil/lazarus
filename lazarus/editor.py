@@ -321,52 +321,23 @@ class RichTextEditor(QTextEdit):
             sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
             hlay.addWidget(sep)
 
-        # -- plaintext / HTML segmented toggle (far left) --------------
-        # A two-segment control: the active segment is filled, clicking
-        # either segment switches mode (Shift+H does the same).  Built as
-        # plain QWidgets — a QML Switch would need a QQuickWidget scene
-        # and is the wrong shape (on/off, not two labelled segments).
-        def seg_button(text: str) -> QToolButton:
-            b = QToolButton()
-            b.setText(text)
-            f = QFont(settings.message_font)
-            f.setPixelSize(11)
-            b.setFont(f)
-            b.setToolTip('Plaintext mode (H)' if text == 'Plaintext'
-                         else 'HTML mode (H)')
-            b.setCheckable(True)
-            b.setAutoRaise(True)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.setStyleSheet(
-                f'QToolButton {{ color: {settings.theme["fg"]};'
-                f' border: none; padding: 1px 8px; }}'
-                f'QToolButton:checked {{'
-                f'  color: {settings.theme["fg_bright"]};'
-                f'  background-color: {settings.theme["bg_button"]}; }}'
-                f'QToolButton:hover {{'
-                f'  background-color: {settings.theme["bg_alt"]}; }}')
-            return b
-
-        seg = QWidget()
-        seg.setObjectName('plainseg')
-        seg_lay = QHBoxLayout(seg)
-        seg_lay.setContentsMargins(0, 0, 0, 0)
-        seg_lay.setSpacing(0)
-        self._plain_btn = seg_button('Plaintext')
-        self._html_btn = seg_button('HTML')
-        seg_lay.addWidget(self._plain_btn)
-        seg_lay.addWidget(self._html_btn)
-        seg.setStyleSheet(
-            f'QWidget#plainseg {{ background-color: {settings.theme["bg"]};'
-            f' border: 1px solid {settings.theme["bg_button"]};'
-            f' border-radius: 4px; }}')
+        # -- plaintext / HTML toggle (left) ----------------------------
+        # Two buttons styled exactly like the toolbar buttons beside
+        # them — the active mode gets the darker (checked) background.
+        # Built as plain QWidgets: a QML Switch would need a QQuickWidget
+        # scene and is the wrong shape (on/off, not two labelled options).
+        self._plain_btn = make('Plaintext', 'Plaintext mode (H)',
+                               checkable=True, slot=self._set_plain)
+        self._html_btn = make('HTML', 'HTML mode (H)',
+                              checkable=True, slot=self._set_rich)
+        seg_font = QFont(settings.message_font)
+        seg_font.setPixelSize(11)
+        self._plain_btn.setFont(seg_font)
+        self._html_btn.setFont(seg_font)
         seg_group = QButtonGroup(self)
         seg_group.setExclusive(True)
         seg_group.addButton(self._plain_btn)
         seg_group.addButton(self._html_btn)
-        self._plain_btn.clicked.connect(self._set_plain)
-        self._html_btn.clicked.connect(self._set_rich)
-        hlay.addWidget(seg)
         separator()
 
         # -- character formatting --------------------------------------

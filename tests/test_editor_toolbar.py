@@ -155,12 +155,28 @@ def test_segmented_toggle_switches_mode(qapp):
 
 
 def test_segmented_toggle_is_leftmost(qapp):
-    """The Plaintext/HTML segment sits at the far left of the toolbar."""
+    """Plaintext and HTML sit at the far left of the toolbar, styled
+    like the buttons beside them (no container box)."""
     from PyQt6.QtWidgets import QFrame
     p = _panel(qapp)
     bar_lay = p.format_bar.layout()
     assert bar_lay is not None
     first = bar_lay.itemAt(0).widget()
     second = bar_lay.itemAt(1).widget()
-    assert first is p.editor._plain_btn.parentWidget()  # the segment box
-    assert isinstance(second, QFrame)  # separator after the segment
+    third = bar_lay.itemAt(2).widget()
+    assert first is p.editor._plain_btn
+    assert second is p.editor._html_btn
+    assert isinstance(third, QFrame)  # separator after the toggle
+
+
+def test_segment_buttons_match_toolbar_style(qapp):
+    """Unselected segments are plain text on the background; the active
+    one gets the checked (darker) fill like the other toolbar buttons."""
+    p = _panel(qapp)
+    ed = p.editor
+    assert not ed._plain_btn.isChecked()
+    assert ed._html_btn.isChecked()  # HTML active by default
+    assert ed._plain_btn.styleSheet() == ed._fmt_buttons['bold'].styleSheet()
+    ed._plain_btn.click()
+    assert ed._plain_btn.isChecked()
+    assert not ed._html_btn.isChecked()
