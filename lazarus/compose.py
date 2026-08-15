@@ -156,6 +156,22 @@ class ComposePanel(panel.Panel):
             return
         lay.setSpacing(4)
 
+        # --- From row (top): account picker (dropdown) + PGP/send status ---
+        # One item per smtp_accounts entry; selecting an item switches
+        # account (same path as the [ / ] keys).
+        self.status_label = QLabel()
+        self.from_combo = QComboBox()
+        self.from_combo.setStyleSheet(self._combo_style())
+        for i in range(len(settings.smtp_accounts)):
+            self.from_combo.addItem(self._account_display(i), i)
+        self.from_combo.setCurrentIndex(self.current_account)
+        self.from_combo.currentIndexChanged.connect(self._on_from_combo_changed)
+        from_row = self._make_field_row('From:', self.from_combo)
+        row_lay = from_row.layout()
+        assert row_lay is not None
+        row_lay.addWidget(self.status_label)
+        lay.addWidget(from_row)
+
         # --- To field ---
         self.to_field = QLineEdit()
         self.to_field.setStyleSheet(self._field_style())
@@ -195,22 +211,6 @@ class ComposePanel(panel.Panel):
         self.subject_field = QLineEdit()
         self.subject_field.setStyleSheet(self._field_style())
         lay.addWidget(self._make_field_row('Subject:', self.subject_field))
-
-        # --- From row: account picker (dropdown) + PGP/send status ---
-        # One item per smtp_accounts entry; selecting an item switches
-        # account (same path as the [ / ] keys).
-        self.status_label = QLabel()
-        self.from_combo = QComboBox()
-        self.from_combo.setStyleSheet(self._combo_style())
-        for i in range(len(settings.smtp_accounts)):
-            self.from_combo.addItem(self._account_display(i), i)
-        self.from_combo.setCurrentIndex(self.current_account)
-        self.from_combo.currentIndexChanged.connect(self._on_from_combo_changed)
-        from_row = self._make_field_row('From:', self.from_combo)
-        row_lay = from_row.layout()
-        assert row_lay is not None
-        row_lay.addWidget(self.status_label)
-        lay.addWidget(from_row)
 
         # --- Editor toolbar + editor ---
         self.editor = editor_mod.RichTextEditor(self)
