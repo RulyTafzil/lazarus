@@ -339,14 +339,14 @@ class ComposePanel(panel.Panel):
         # fixed at construction and its selection tracks current_account
         # (kept in sync by _cycle_account / the combo signal).
 
-        # Status: PGP toggles (and transient send/error text from send()).
-        pgp = []
+        # Status: PGP toggles (and transient send/error text from
+        # send()).  Plaintext mode is indicated by the toolbar toggle.
+        parts = []
         if self.pgp_sign:
-            pgp.append('PGPSign')
+            parts.append('PGPSign')
         if self.pgp_encrypt:
-            pgp.append('PGPEncrypt')
-        pgp_str = '  '.join(pgp)
-        self.status_label.setText(pgp_str)
+            parts.append('PGPEncrypt')
+        self.status_label.setText('  '.join(parts))
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg"]}; font-style: italic;')
 
@@ -640,6 +640,16 @@ class ComposePanel(panel.Panel):
 
     def toggle_pgp_encrypt(self) -> None:
         self.pgp_encrypt = not self.pgp_encrypt
+        self.refresh()
+
+    def toggle_plain(self) -> None:
+        """Toggle the editor between rich-text and plaintext compose.
+
+        Mirrors the reading view's ``H`` (HTML ↔ plain) toggle.  Bound to
+        ``H`` in the compose keymap (chrome focus) and the toolbar's
+        plaintext button.
+        """
+        self.editor.toggle_plain()
         self.refresh()
 
     # ── Send ─────────────────────────────────────────────────────────

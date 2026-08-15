@@ -212,6 +212,50 @@ def test_send_bound_only_to_cs(qapp):
     assert 'C-b' not in keymap.compose_keymap
 
 
+def test_h_toggles_plaintext_mode(qapp):
+    """Shift+H (compose chrome focus) mirrors the reading view's HTML
+    toggle — plain ``h`` stays the panel switch."""
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QKeyEvent
+    from lazarus import util
+    assert 'H' in keymap.compose_keymap
+    p = _make_panel(qapp)
+    assert not p.editor.plain_mode
+
+    # plain h -> 'h' (previous panel), not the toggle
+    ev_h = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H,
+                     Qt.KeyboardModifier.NoModifier)
+    assert util.key_string(ev_h) == 'h'
+    p.keyPressEvent(ev_h)
+    assert not p.editor.plain_mode
+
+    # Shift+H -> 'H' -> plaintext toggle (indicated by the toolbar)
+    ev_H = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_H,
+                     Qt.KeyboardModifier.ShiftModifier)
+    assert util.key_string(ev_H) == 'H'
+    p.keyPressEvent(ev_H)
+    assert p.editor.plain_mode
+    assert p.editor._plain_btn.isChecked()
+
+    p.keyPressEvent(ev_H)
+    assert not p.editor.plain_mode
+    assert p.editor._html_btn.isChecked()
+
+
+def test_plaintext_send_builds_plain_only_message(qapp):
+    """In plaintext mode the outgoing message has no HTML part."""
+    from lazarus.mime_builder import build_message
+    p = _make_panel(qapp)
+    p.editor.setPlainText('just text')
+    p.toggle_plain()
+    p._sync_data_from_fields()
+    assert p._data.body_html == ''
+    assert p._data.body_text == 'just text'
+    eml = build_message(p._data)
+    assert 'multipart' not in eml.get_content_type()
+    assert eml.get_content_type() == 'text/plain'
+
+
 def test_account_cycle_wraps_and_updates_from(qapp):
     """[ / ] cycle through smtp_accounts with wrap-around, and the From
     dropdown selection follows the current account."""
