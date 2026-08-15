@@ -45,6 +45,47 @@ class _TagLoader(QtCore.QThread):
         self.loaded.emit(tags)
 
 
+class _TagStore(QtCore.QObject):
+    """Process-wide manager for the tag-loading thread.
+
+    The command bar is constructed at startup and can be destroyed at any
+    time (window close, tests); a ``_TagLoader`` parented to the bar would
+    then be deleted mid-run and abort with "QThread: Destroyed while
+    thread is still running". The store outlives every ``CommandBar`` and
+    owns the loader: a fetch is started at most once per idle period, the
+    result is broadcast to every subscribed bar (connections to destroyed
+    bars are dropped by Qt automatically), and a finished loader is only
+    replaced -- never destroyed while running.
+    """
+
+    loaded = QtCore.pyqtSignal(list)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._loader: Optional[_TagLoader] = None
+
+    def ensure_loaded(self) -> None:
+        """Start a background fetch unless one is already in flight.
+
+        Tags change as mail syncs, so a later ``CommandBar`` re-fetches
+        once the previous loader has finished; the result always lands
+        asynchronously via :attr:`loaded` (never a blocking call).
+        """
+        if self._loader is not None and self._loader.isRunning():
+            return
+        self._loader = _TagLoader()
+        self._loader.loaded.connect(self._on_loaded)
+        self._loader.start()
+
+    def _on_loaded(self, tags: list) -> None:
+        self.loaded.emit(tags)
+
+
+# One store for the process: keeps the loader thread alive across every
+# CommandBar that comes and goes.
+_tag_store = _TagStore()
+
+
 class CommandBar(QPlainTextEdit):
     """A command bar that opens as a centered modal overlay when searching
     or tagging.
@@ -94,9 +135,14 @@ class CommandBar(QPlainTextEdit):
         self.setTextCursor(c)
 
     def _get_completer(self) -> QCompleter:
-        """Prepare the completer for tags (loaded in the background)."""
+        """Prepare the completer for tags (loaded in the background) and
+        theme names (available immediately -- `themes.REGISTRY` is built
+        at startup, before `MainWindow`/`CommandBar` are constructed)."""
         completer = QCompleter(self)
         self._tag_model = QtCore.QStringListModel(completer)
+        self._theme_model = QtCore.QStringListModel(completer)
+        from . import themes
+        self._theme_model.setStringList(sorted(themes.REGISTRY.keys()))
         completer.setModel(self._tag_model)
         completer.setCaseSensitivity(QtCore.Qt.CaseSensitivity.CaseInsensitive)
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
@@ -109,10 +155,11 @@ class CommandBar(QPlainTextEdit):
         self.textChanged.connect(
             lambda: self.handleTextChanged(self.toPlainText()))
 
-        loader = _TagLoader(self)
-        loader.loaded.connect(self._on_tags_loaded)
-        self._tag_loader = loader
-        loader.start()
+        # Tags load asynchronously, managed process-wide (see _TagStore):
+        # subscribe to the shared 'loaded' signal; the model starts empty
+        # and populates when the fetch lands (~150ms).
+        _tag_store.loaded.connect(self._on_tags_loaded)
+        _tag_store.ensure_loaded()
         return completer
 
     def _on_tags_loaded(self, tags: list) -> None:
@@ -120,23 +167,34 @@ class CommandBar(QPlainTextEdit):
         self._tag_model.setStringList(tags)
 
     def handleTextChanged(self, text: str) -> None:
-        """Open suggestion dialog if a matching tag is present."""
-        prefix = text.rsplit(sep=" ", maxsplit=1)[-1]
-        if len(prefix) == 0:
-            return
-        elif prefix[0] in ["+", "-"]:
-            prefix = prefix[1:]
-        elif prefix[:4] == "tag:":
-            prefix = prefix[4:]
+        """Open suggestion dialog if a matching tag or theme name is
+        present. 'theme' mode completes against the whole line (there's
+        no '+'/'tag:' token structure to parse out, unlike tag entry);
+        every other mode completes tag tokens as before."""
+        if self.mode == 'theme':
+            prefix = text
+            model: QtCore.QStringListModel = self._theme_model
         else:
-            prefix = ""
+            prefix = text.rsplit(sep=" ", maxsplit=1)[-1]
+            if len(prefix) == 0:
+                return
+            elif prefix[0] in ["+", "-"]:
+                prefix = prefix[1:]
+            elif prefix[:4] == "tag:":
+                prefix = prefix[4:]
+            else:
+                prefix = ""
+            model = self._tag_model
+
         if len(prefix) > 0:
+            if self.completer.model() is not model:
+                self.completer.setModel(model)
             self.completer.setCompletionPrefix(prefix)
 
             popup = self.completer.popup()
-            model = self.completer.completionModel()
-            if popup is not None and model is not None:
-                popup.setCurrentIndex(model.index(0, 0))
+            cmodel = self.completer.completionModel()
+            if popup is not None and cmodel is not None:
+                popup.setCurrentIndex(cmodel.index(0, 0))
             self.completer.complete()
 
     def handleCompletion(self, text: str) -> None:
