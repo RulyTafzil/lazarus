@@ -373,7 +373,7 @@ class ThreadPanel(panel.Panel):
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'
                     f'Tags:&nbsp;</b></td>'
-                    f'<td><span style="color: {settings.theme["fg_tags"]}; '
+                    f'<td><span style="color: {settings.theme.get("fg_tags", settings.theme["fg"])}; '
                     f'font-family: {settings.tag_font}; '
                     f'font-size: {settings.tag_font_size}">{tags}</span></td>'
                     f'</tr>')
@@ -387,7 +387,7 @@ class ThreadPanel(panel.Panel):
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'
                     f'Attachments:&nbsp;</b></td>'
-                    f'<td><span style="color: {settings.theme["fg_tags"]}">'
+                    f'<td><span style="color: {settings.theme.get("fg_tags", settings.theme["fg"])}">'
                     f'{" ".join(attachments)}</span></td>'
                     f'</tr>')
 

@@ -4,10 +4,10 @@ import json
 import lazarus.settings as settings
 import lazarus.themes as themes
 
-REQUIRED_KEYS = [
-    'bg', 'bg_alt', 'fg', 'fg_dim', 'fg_bright', 'fg_good', 'fg_bad',
-    'bg_button', 'fg_button', 'fg_link', 'bg_highlight', 'fg_highlight',
-]
+# The complete set of keys the app reads from a theme dict. Kept in sync
+# with themes.THEME_KEYS -- the mapping must emit all of them or the app
+# crashes (KeyError 'fg_subject_unread' on opening a thread).
+REQUIRED_KEYS = themes.THEME_KEYS
 
 DRACULA_ENTRY = {
     'name': 'Dracula',
@@ -33,8 +33,9 @@ def _reset():
 
 def test_mapping_produces_all_required_keys():
     mapped = themes.terminal_theme_to_lazarus(DRACULA_ENTRY)
+    assert set(REQUIRED_KEYS) <= set(mapped), (
+        f"missing {sorted(set(REQUIRED_KEYS) - set(mapped))}")
     for key in REQUIRED_KEYS:
-        assert key in mapped, f"missing {key}"
         assert mapped[key]  # non-empty
 
 
@@ -137,6 +138,27 @@ def test_registry_includes_hand_written_and_bundled_themes():
     registry = themes.build_registry()
     assert registry['nord'] is themes.nord          # hand-written, untouched
     assert len(registry) > 500                        # bundled pack is large
+
+
+def test_bundled_pack_entries_map_completely():
+    """Every bundled theme must map to a complete theme dict.
+
+    Regression: the mapping used to emit 12 keys while the app reads
+    more (fg_subject_unread, fg_subject_irrelevant, fg_tags ...) --
+    opening a thread under any imported theme crashed with
+    KeyError 'fg_subject_unread'.
+    """
+    mapped, errors = themes.load_theme_pack(themes._builtin_pack_path())
+    assert not errors, errors[:3]
+    assert len(mapped) >= 600
+    incomplete = {
+        name: sorted(set(REQUIRED_KEYS) - set(theme))
+        for name, theme in mapped.items()
+        if not set(REQUIRED_KEYS) <= set(theme)
+    }
+    assert not incomplete, (
+        f"{len(incomplete)} incomplete mappings, e.g. "
+        f"{list(incomplete.items())[:2]}")
 
 
 def test_registry_hand_written_theme_wins_on_name_collision(tmp_path, monkeypatch):

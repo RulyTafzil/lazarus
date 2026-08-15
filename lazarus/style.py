@@ -85,6 +85,15 @@ def theme_color(name: str) -> QColor:
     return color
 
 
+def theme_color_or(name: str, fallback: str) -> QColor:
+    """Like :func:`theme_color`, but falls back to *fallback* when the
+    current theme dict lacks *name* (user-supplied theme dicts may be
+    minimal, e.g. a hand-rolled palette in config.py)."""
+    if name in settings.theme:
+        return theme_color(name)
+    return theme_color(fallback)
+
+
 def disabled_foreground() -> str:
     """A strongly dimmed foreground colour for disabled controls.
 

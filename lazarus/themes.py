@@ -491,6 +491,19 @@ gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 #     "palette": {"0": "#21222c", "1": "#ff5555", ..., "15": "#ffffff"}
 #   }
 
+# The complete set of keys a theme dict must define. Every hand-written
+# theme and every terminal import satisfies it; ``test_theme_import.py``
+# pins it so an incomplete mapping can't ship again (it crashed the app
+# with ``KeyError: 'fg_subject_unread'`` on opening a thread).
+THEME_KEYS: tuple[str, ...] = (
+    'bg', 'bg_alt', 'bg_button', 'bg_highlight',
+    'fg', 'fg_bad', 'fg_bright', 'fg_button', 'fg_date', 'fg_dim',
+    'fg_from', 'fg_good', 'fg_highlight', 'fg_link', 'fg_subject',
+    'fg_subject_flagged', 'fg_subject_irrelevant', 'fg_subject_unread',
+    'fg_tags',
+)
+
+
 _REQUIRED_TERMINAL_KEYS = ('name', 'background', 'foreground', 'palette')
 _REQUIRED_PALETTE_INDICES = [str(i) for i in range(16)]
 
@@ -549,6 +562,18 @@ def terminal_theme_to_lazarus(entry: dict) -> dict:
     bg_c = QColor(bg)
     theme['bg_alt'] = bg_c.lighter(125).name() if is_dark else bg_c.darker(106).name()
     theme['bg_button'] = bg_c.lighter(150).name() if is_dark else bg_c.darker(112).name()
+
+    # Semantic extras -- parity with the hand-written themes. The app
+    # reads these keys directly (``style.theme_color('fg_subject_unread')``
+    # in thread_model/tag, ``settings.theme['fg_tags']`` in thread.py), so
+    # every registry theme must define them or opening mail crashes.
+    theme['fg_date'] = theme['fg_dim']
+    theme['fg_from'] = fg
+    theme['fg_subject'] = fg
+    theme['fg_subject_unread'] = pick('14', '6', '12', '4', default=fg)
+    theme['fg_subject_irrelevant'] = theme['fg_dim']
+    theme['fg_subject_flagged'] = pick('11', '3', default=fg)
+    theme['fg_tags'] = pick('12', '4', '14', '6', default=fg)
     return theme
 
 

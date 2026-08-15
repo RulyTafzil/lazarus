@@ -93,7 +93,7 @@ class TagModel(QAbstractItemModel):
                 bold=self.d[row][1] != '0')
         elif role == Qt.ItemDataRole.ForegroundRole:
             if self.d[row][1] != '0':
-                return style.theme_color('fg_subject_unread')
+                return style.theme_color_or('fg_subject_unread', 'fg')
             else:
                 return style.theme_color('fg')
 

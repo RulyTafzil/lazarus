@@ -381,9 +381,9 @@ class ThreadModel(QAbstractItemModel):
                 italic=m['id'] not in self.matches)
         elif role == Qt.ItemDataRole.ForegroundRole:
             if m['id'] not in self.matches:
-                return style.theme_color('fg_subject_irrelevant')
+                return style.theme_color_or('fg_subject_irrelevant', 'fg')
             if 'unread' in m.get('tags', []):
-                return style.theme_color('fg_subject_unread')
+                return style.theme_color_or('fg_subject_unread', 'fg')
             return style.theme_color('fg')
         return None
 
