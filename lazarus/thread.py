@@ -56,6 +56,63 @@ from .thread_model import ThreadModel, EmptyThreadError
 logger = logging.getLogger(__name__)
 
 
+class _SwapGuard:
+    """Decides which of the two double-buffered views may be revealed
+    after an asynchronous web load.
+
+    ``ThreadPanel`` loads the message body into the *inactive* view and
+    swaps on ``loadFinished``.  Rapid ``H``/``i`` toggling (or fast
+    message navigation) leaves several loads in flight, and Chromium can
+    finish them out of order — the old code swapped on *every*
+    completion, so a stale load could flip the visible view back to old
+    content, and stacked connections on one view could double-swap.
+
+    Rules enforced here:
+
+    * a completion may swap only when it belongs to the **newest**
+      request (older completions are dropped), and
+    * each request schedules **at most one** swap (a cancelled load's
+      ``loadFinished(false)`` plus the real completion of the same
+      request must not double-flip).
+
+    The guard is view-agnostic (tracks ids) so it is unit-testable
+    without WebEngine.
+    """
+
+    def __init__(self) -> None:
+        self._gen = 0                    # newest request generation
+        self._view_gen: dict[int, int] = {}  # view id → gen of its latest load
+        self._swap_gen = 0               # gen whose swap is already scheduled
+
+    def request(self, view_id: int) -> int:
+        """Register a load request for *view_id*; returns its generation."""
+        self._gen += 1
+        self._view_gen[view_id] = self._gen
+        return self._gen
+
+    def load_finished(self, view_id: int) -> int | None:
+        """Called when *view_id* completes a load.
+
+        Returns the generation whose swap should be scheduled, or None
+        if this completion must not swap (stale request, or the newest
+        request already scheduled its swap).
+        """
+        if self._view_gen.get(view_id) != self._gen:
+            return None
+        if self._swap_gen == self._gen:
+            return None
+        self._swap_gen = self._gen
+        return self._gen
+
+    def swap_may_run(self, gen: int) -> bool:
+        """True if the swap scheduled for *gen* may still execute.
+
+        A newer request may have superseded it between scheduling and
+        execution (the swap runs via a deferred ``QTimer``).
+        """
+        return gen == self._gen
+
+
 class ThreadPanel(panel.Panel):
     """A panel showing an email thread
 
@@ -101,6 +158,10 @@ class ThreadPanel(panel.Panel):
                 self.thread_id,
                 msg_id=self.model.message_at(idx)['id'],
             ))
+
+        # Guards the double-buffer swap against out-of-order / stacked
+        # loadFinished callbacks from rapid H/i toggling.
+        self._swap = _SwapGuard()
 
         self.message_info = QTextBrowser()
 
@@ -369,6 +430,15 @@ class ThreadPanel(panel.Panel):
         self.message_handler.message_json = m
 
         inactive = self._inactive_view()
+        # Register this request with the swap guard: only its completion
+        # (and no stacked callback) may reveal the view.
+        self._swap.request(id(inactive))
+        # One connection per view — drop any previous one before
+        # reconnecting so rapid toggles cannot stack callbacks.
+        try:
+            inactive.loadFinished.disconnect(self._on_load_finished)
+        except TypeError:
+            pass
         inactive.loadFinished.connect(self._on_load_finished)
 
         if self.html_mode:
@@ -388,18 +458,20 @@ class ThreadPanel(panel.Panel):
         loadFinished fires when the DOM is ready, but Chromium hasn't
         composited a frame yet.  Deferring the swap by one event-loop
         cycle lets the renderer paint before we reveal the view.
+
+        Only the newest load request may swap; a completion from an
+        older request (rapid H/i toggling) or a second completion of the
+        same request is dropped by the guard.
         """
         view = self.sender()
         if not isinstance(view, QWebEngineView):
             return
-        try:
-            view.loadFinished.disconnect(self._on_load_finished)
-        except TypeError:
-            pass
-        # Defer swap to let Chromium paint its first frame
-        QTimer.singleShot(0, self._do_swap)
+        gen = self._swap.load_finished(id(view))
+        if gen is None:
+            return  # stale completion, or this request already swaps
+        QTimer.singleShot(0, lambda: self._do_swap(gen))
 
-    def _do_swap(self) -> None:
+    def _do_swap(self, gen: int) -> None:
         """Raise the freshly loaded view after Chromium has painted.
 
         Uses QStackedLayout.StackAll to keep both views compositing at
@@ -407,7 +479,12 @@ class ThreadPanel(panel.Panel):
         Chromium never tears down its render surface.  This avoids the
         white flash that QStackedWidget (which hides the inactive widget)
         produces when swapping between two QWebEngineView instances.
+
+        The swap is skipped if a newer request superseded it while the
+        deferred timer was pending.
         """
+        if not self._swap.swap_may_run(gen):
+            return
         old = self._active_view
         self._active_view = 1 - old
         self._views[old].setAttribute(
