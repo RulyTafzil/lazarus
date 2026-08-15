@@ -297,3 +297,97 @@ def test_build_registry_resolves_palette_overrides(tmp_path, monkeypatch):
 
     registry = themes.build_registry()
     assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['3']
+
+
+# --- colormap.py template + loader --------------------------------------
+
+def test_default_map_covers_theme_keys():
+    """DEFAULT_TERMINAL_MAP + the two computed keys == THEME_KEYS."""
+    assert (set(themes.DEFAULT_TERMINAL_MAP)
+            | {'bg_alt', 'bg_button'}) == set(themes.THEME_KEYS)
+
+
+def test_template_lists_every_key_with_heuristic():
+    tpl = themes.render_override_template()
+    for key in themes.THEME_KEYS:
+        assert f'#   {key}' in tpl, f'key {key} missing from template'
+    # the heuristic chain is rendered, not just the key name
+    assert 'palette 8' in tpl
+    assert "lazarus 'fg'" in tpl
+    assert 'theme_overrides = {' in tpl  # commented block present
+
+
+def test_write_colormap_template_creates_once(tmp_path):
+    path = themes.write_colormap_template(tmp_path / 'colormap.py')
+    assert path.exists()
+    first = path.read_text()
+    assert 'fg_subject_unread' in first
+    # second call must NOT overwrite (user edits survive)
+    path.write_text('# user edit\n')
+    themes.write_colormap_template(path)
+    assert path.read_text() == '# user edit\n'
+
+
+def test_load_colormap_applies_and_resolves(tmp_path, monkeypatch):
+    """colormap.py theme_overrides land in settings and resolve through
+    build_registry end to end."""
+    _reset()
+    (tmp_path / 'colormap.py').write_text(
+        "theme_overrides = {'Dracula': {'fg_subject_unread': 3, "
+        "'fg_tags': 'foreground'}}\n")
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+
+    themes.load_colormap()
+    assert settings.theme_overrides == {
+        'Dracula': {'fg_subject_unread': 3, 'fg_tags': 'foreground'}}
+
+    pack_path = tmp_path / 'pack.json'
+    pack_path.write_text(json.dumps([DRACULA_ENTRY]))
+    registry = themes.build_registry()
+    assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['3']
+    assert registry['Dracula']['fg_tags'] == DRACULA_ENTRY['foreground']
+
+
+def test_load_colormap_merges_per_key_over_config(tmp_path, monkeypatch):
+    _reset()
+    settings.theme_overrides = {'Dracula': {'fg_link': '#ffffff'}}
+    (tmp_path / 'colormap.py').write_text(
+        "theme_overrides = {'Dracula': {'fg_tags': 'foreground'}}\n")
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+
+    themes.load_colormap()
+    # colormap wins per key, config key survives
+    assert settings.theme_overrides['Dracula'] == {
+        'fg_link': '#ffffff', 'fg_tags': 'foreground'}
+
+
+def test_load_colormap_auto_creates_template(tmp_path, monkeypatch):
+    """First run with no colormap.py writes the template and loads it."""
+    _reset()
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+    themes.load_colormap()
+    path = tmp_path / 'colormap.py'
+    assert path.exists()
+    assert 'theme_overrides' in path.read_text()
+    assert settings.theme_overrides == {}  # template defines nothing
+
+
+def test_load_colormap_errors_do_not_block_startup(tmp_path, monkeypatch,
+                                                   caplog):
+    _reset()
+    monkeypatch.setattr(themes, '_user_theme_dir', lambda: tmp_path)
+
+    # syntax error
+    (tmp_path / 'colormap.py').write_text('theme_overrides = {')
+    with caplog.at_level('WARNING', logger='lazarus.themes'):
+        themes.load_colormap()
+    assert settings.theme_overrides == {}
+    assert any('colormap' in r.message for r in caplog.records)
+
+    # non-dict theme_overrides
+    (tmp_path / 'colormap.py').write_text("theme_overrides = 'oops'\n")
+    caplog.clear()
+    with caplog.at_level('WARNING', logger='lazarus.themes'):
+        themes.load_colormap()
+    assert settings.theme_overrides == {}
+    assert any('must be a dict' in r.message for r in caplog.records)

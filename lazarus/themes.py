@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from PyQt6.QtCore import QStandardPaths
 from PyQt6.QtGui import QPalette, QColor
@@ -531,6 +532,62 @@ def _validate_terminal_entry(entry: dict, source: str) -> list[str]:
     return errors
 
 
+# One chain per Lazarus key, tried in order (first match wins). Each
+# candidate is (kind, value):
+#   ('named', ...)   -- a named color of the source entry ('background',
+#                       'foreground', 'cursor-color', 'selection-*')
+#   ('palette', ...) -- an ANSI palette index of the source entry (0-15)
+#   ('key', ...)     -- another Lazarus key of the same mapped theme
+# The final fallback is the source 'foreground'. 'bg_alt'/'bg_button'
+# are derived from 'bg' (lightened/darkened) rather than chained.
+DEFAULT_TERMINAL_MAP: dict[str, tuple[tuple[str, str], ...]] = {
+    'bg':                    (('named', 'background'),),
+    'fg':                    (('named', 'foreground'),),
+    'fg_dim':                (('palette', '8'), ('key', 'fg')),            # bright black
+    'fg_bright':             (('palette', '15'), ('palette', '7'), ('key', 'fg')),
+    'fg_good':               (('palette', '10'), ('palette', '2'), ('key', 'fg')),
+    'fg_bad':                (('palette', '9'), ('palette', '1'), ('key', 'fg')),
+    'fg_link':               (('palette', '12'), ('palette', '4'),
+                              ('palette', '14'), ('palette', '6'), ('key', 'fg')),
+    'fg_button':             (('named', 'foreground'),),
+    'bg_highlight':          (('named', 'selection-background'),
+                              ('palette', '4'), ('key', 'fg')),
+    'fg_highlight':          (('named', 'selection-foreground'), ('key', 'bg')),
+    'fg_date':               (('key', 'fg_dim'),),
+    'fg_from':               (('named', 'foreground'),),
+    'fg_subject':            (('named', 'foreground'),),
+    'fg_subject_unread':     (('palette', '14'), ('palette', '6'),
+                              ('palette', '12'), ('palette', '4'), ('key', 'fg')),
+    'fg_subject_irrelevant': (('key', 'fg_dim'),),
+    'fg_subject_flagged':    (('palette', '11'), ('palette', '3'), ('key', 'fg')),
+    'fg_tags':               (('palette', '12'), ('palette', '4'),
+                              ('palette', '14'), ('palette', '6'), ('key', 'fg')),
+}
+"""Default heuristic mapping terminal-theme entries onto Lazarus color
+keys. Single source of truth: drives `terminal_theme_to_lazarus` AND the
+auto-generated colormap.py template, so the shipped documentation can
+never drift from the actual mapping."""
+
+
+def _resolve_chain(chain: tuple[tuple[str, str], ...],
+                   entry: dict,
+                   resolved: dict[str, str]) -> str:
+    """First candidate that resolves wins; final fallback is the source
+    'foreground'."""
+    for kind, value in chain:
+        if kind == 'named':
+            color = entry.get(value)
+            if color:
+                return color
+        elif kind == 'palette':
+            if value in entry['palette']:
+                return entry['palette'][value]
+        else:  # 'key' -- another Lazarus key, must already be resolved
+            if value in resolved:
+                return resolved[value]
+    return entry['foreground']
+
+
 def terminal_theme_to_lazarus(entry: dict) -> dict:
     """Heuristically map a terminal-style theme entry to a Lazarus theme
     dict. Caller is expected to have validated *entry* already.
@@ -540,46 +597,17 @@ def terminal_theme_to_lazarus(entry: dict) -> dict:
     Use `settings.theme_overrides[name]` to hand-correct specific keys:
     values may be a literal hex color, an ANSI palette index (0-15) of
     *entry*, a named terminal color, or another Lazarus key of the
-    mapped theme (see `_resolve_override_value`).
+    mapped theme (see `_resolve_override_value`). The default heuristic
+    itself lives in `DEFAULT_TERMINAL_MAP` (also rendered into the
+    colormap.py template).
     """
-    pal = entry['palette']
-    bg = entry['background']
-    fg = entry['foreground']
-    is_dark = QColor(bg).lightness() < 128
-
-    def pick(*indices: str, default: str) -> str:
-        for i in indices:
-            if i in pal:
-                return pal[i]
-        return default
-
-    theme = {
-        'bg': bg,
-        'fg': fg,
-        'fg_dim': pick('8', default=fg),                    # bright black
-        'fg_bright': pick('15', '7', default=fg),            # bright/plain white
-        'fg_good': pick('10', '2', default=fg),               # bright/plain green
-        'fg_bad': pick('9', '1', default=fg),                  # bright/plain red
-        'fg_link': pick('12', '4', '14', '6', default=fg),    # blue, else cyan
-        'fg_button': fg,
-        'bg_highlight': entry.get('selection-background') or pick('4', default=fg),
-        'fg_highlight': entry.get('selection-foreground') or bg,
-    }
-    bg_c = QColor(bg)
+    theme: dict[str, str] = {}
+    for key, chain in DEFAULT_TERMINAL_MAP.items():
+        theme[key] = _resolve_chain(chain, entry, theme)
+    bg_c = QColor(theme['bg'])
+    is_dark = bg_c.lightness() < 128
     theme['bg_alt'] = bg_c.lighter(125).name() if is_dark else bg_c.darker(106).name()
     theme['bg_button'] = bg_c.lighter(150).name() if is_dark else bg_c.darker(112).name()
-
-    # Semantic extras -- parity with the hand-written themes. The app
-    # reads these keys directly (``style.theme_color('fg_subject_unread')``
-    # in thread_model/tag, ``settings.theme['fg_tags']`` in thread.py), so
-    # every registry theme must define them or opening mail crashes.
-    theme['fg_date'] = theme['fg_dim']
-    theme['fg_from'] = fg
-    theme['fg_subject'] = fg
-    theme['fg_subject_unread'] = pick('14', '6', '12', '4', default=fg)
-    theme['fg_subject_irrelevant'] = theme['fg_dim']
-    theme['fg_subject_flagged'] = pick('11', '3', default=fg)
-    theme['fg_tags'] = pick('12', '4', '14', '6', default=fg)
     return theme
 
 
@@ -765,6 +793,129 @@ def build_registry() -> dict[str, dict]:
 
     _apply_overrides(registry, raw_entries)
     return registry
+
+
+# ---------------------------------------------------------------------------
+# colormap.py -- user-editable mapping template
+# ---------------------------------------------------------------------------
+#
+# On first run we write ~/.config/lazarus/themes/colormap.py: a documented
+# template listing every Lazarus color key with the built-in heuristic for
+# it, and a commented `theme_overrides` block. The file is exec'd at
+# startup (never overwritten once created) and merged per-key over
+# config.py's theme_overrides -- a single obvious place to remap how
+# terminal-theme palettes feed Lazarus's semantic colors.
+
+def render_override_template() -> str:
+    """Render the starter colormap.py: every Lazarus color key with its
+    built-in heuristic chain, plus a commented `theme_overrides` block.
+    Generated from `DEFAULT_TERMINAL_MAP`/`THEME_KEYS`, so it always
+    matches the code."""
+
+    def chain_text(key: str) -> str:
+        parts = []
+        for kind, value in DEFAULT_TERMINAL_MAP[key]:
+            if kind == 'named':
+                parts.append(value)
+            elif kind == 'palette':
+                parts.append(f'palette {value}')
+            else:
+                parts.append(f"lazarus '{value}'")
+        return ' <- ' + ', else '.join(parts)
+
+    lines = [
+        '# Lazarus theme color map',
+        '# =======================',
+        '# Auto-created on first run in ~/.config/lazarus/themes/. Terminal-style',
+        '# theme packs (the bundled 602-theme library, or your own *.json packs in',
+        '# this directory) are mapped onto Lazarus\'s semantic color keys by the',
+        '# built-in heuristic below. Uncomment a theme and override any key; the',
+        '# result is merged over settings.theme_overrides from config.py (per key,',
+        '# this file wins).',
+        '#',
+        '# Each value can be:',
+        "#   - a hex color:            'fg_link': '#8be9fd'",
+        "#   - an ANSI palette index:  'fg_subject_unread': 3   (0-15 of that theme)",
+        "#   - a named terminal color: 'fg_tags': 'foreground'  (background / foreground /",
+        '#                                cursor-color / selection-background /',
+        '#                                selection-foreground)',
+        "#   - another Lazarus key:    'fg_date': 'fg_dim'",
+        '#',
+        '# Built-in heuristic per key (first match wins):',
+    ]
+    for key in THEME_KEYS:
+        if key in ('bg_alt', 'bg_button'):
+            lines.append(
+                f'#   {key:<22} <- background, computed (lightened/darkened)')
+        else:
+            lines.append(f'#   {key:<22}{chain_text(key)}')
+    lines += [
+        '#',
+        '# theme_overrides = {',
+        '#     # \'Dracula\': {',
+        "#     #     'fg_subject_unread': 3,       # palette yellow",
+        "#     #     'fg_tags': 'foreground',",
+        '#     # },',
+        '# }',
+        '',
+    ]
+    return '\n'.join(lines)
+
+
+def colormap_path() -> Path:
+    """Path of the user-editable color map:
+    ``~/.config/lazarus/themes/colormap.py``."""
+    return _user_theme_dir() / 'colormap.py'
+
+
+def write_colormap_template(path: Path | None = None) -> Path:
+    """Write the starter colormap.py if it doesn't exist yet (first run
+    after install). Existing files -- i.e. user edits -- are never
+    overwritten. Returns the path."""
+    path = Path(path) if path is not None else colormap_path()
+    if path.exists():
+        return path
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(render_override_template(), encoding='utf-8')
+    except OSError as e:
+        logger.warning('colormap: could not write %s: %s', path, e)
+    return path
+
+
+def load_colormap() -> None:
+    """Create colormap.py on first run and exec it, merging any
+    ``theme_overrides`` it defines into ``settings.theme_overrides``
+    (per key; this file wins over config.py). Errors are logged, never
+    fatal -- a typo here must not block startup."""
+    path = write_colormap_template()
+    try:
+        code = path.read_text(encoding='utf-8')
+    except OSError as e:
+        logger.warning('colormap: could not read %s: %s', path, e)
+        return
+    namespace: dict[str, Any] = {'__name__': 'lazarus_colormap'}
+    try:
+        exec(code, namespace)
+    except Exception as e:
+        logger.warning('colormap: error in %s: %s', path, e)
+        return
+    overrides = namespace.get('theme_overrides')
+    if overrides is None:
+        return
+    if not isinstance(overrides, dict):
+        logger.warning(
+            "colormap: %s: 'theme_overrides' must be a dict -- ignored", path)
+        return
+    merged = dict(getattr(_settings, 'theme_overrides', None) or {})
+    for name, keys in overrides.items():
+        if not isinstance(name, str) or not isinstance(keys, dict):
+            logger.warning(
+                'colormap: %s: theme %r: expected a {key: value} dict -- skipping',
+                path, name)
+            continue
+        merged.setdefault(name, {}).update(keys)
+    _settings.theme_overrides = merged
 
 
 REGISTRY: dict[str, dict] = {}

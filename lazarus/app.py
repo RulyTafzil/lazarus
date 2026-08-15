@@ -95,6 +95,10 @@ class Dodo(QApplication):
         # construct help window
         self.help_window = helpwindow.HelpWindow()
 
+        # Theme color map: auto-create ~/.config/lazarus/themes/colormap.py
+        # on first run, then apply any per-theme overrides it defines.
+        themes.load_colormap()
+
         # Build the theme registry (hand-written + bundled pack + user
         # packs + settings.theme_overrides) now that config.py has run,
         # then prefer a remembered live-switched theme over config.py's
