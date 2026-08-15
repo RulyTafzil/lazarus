@@ -321,6 +321,54 @@ class RichTextEditor(QTextEdit):
             sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
             hlay.addWidget(sep)
 
+        # -- plaintext / HTML segmented toggle (far left) --------------
+        # A two-segment control: the active segment is filled, clicking
+        # either segment switches mode (Shift+H does the same).  Built as
+        # plain QWidgets — a QML Switch would need a QQuickWidget scene
+        # and is the wrong shape (on/off, not two labelled segments).
+        def seg_button(text: str) -> QToolButton:
+            b = QToolButton()
+            b.setText(text)
+            f = QFont(settings.message_font)
+            f.setPixelSize(11)
+            b.setFont(f)
+            b.setToolTip('Plaintext mode (H)' if text == 'Plaintext'
+                         else 'HTML mode (H)')
+            b.setCheckable(True)
+            b.setAutoRaise(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setStyleSheet(
+                f'QToolButton {{ color: {settings.theme["fg"]};'
+                f' border: none; padding: 1px 8px; }}'
+                f'QToolButton:checked {{'
+                f'  color: {settings.theme["fg_bright"]};'
+                f'  background-color: {settings.theme["bg_button"]}; }}'
+                f'QToolButton:hover {{'
+                f'  background-color: {settings.theme["bg_alt"]}; }}')
+            return b
+
+        seg = QWidget()
+        seg.setObjectName('plainseg')
+        seg_lay = QHBoxLayout(seg)
+        seg_lay.setContentsMargins(0, 0, 0, 0)
+        seg_lay.setSpacing(0)
+        self._plain_btn = seg_button('Plaintext')
+        self._html_btn = seg_button('HTML')
+        seg_lay.addWidget(self._plain_btn)
+        seg_lay.addWidget(self._html_btn)
+        seg.setStyleSheet(
+            f'QWidget#plainseg {{ background-color: {settings.theme["bg"]};'
+            f' border: 1px solid {settings.theme["bg_button"]};'
+            f' border-radius: 4px; }}')
+        seg_group = QButtonGroup(self)
+        seg_group.setExclusive(True)
+        seg_group.addButton(self._plain_btn)
+        seg_group.addButton(self._html_btn)
+        self._plain_btn.clicked.connect(self._set_plain)
+        self._html_btn.clicked.connect(self._set_rich)
+        hlay.addWidget(seg)
+        separator()
+
         # -- character formatting --------------------------------------
         bold = make('\uf032', 'Bold (Ctrl+B)', checkable=True,
                     slot=self.toggle_bold)
@@ -361,11 +409,6 @@ class RichTextEditor(QTextEdit):
         self._image_btn = make('\uf03e', 'Insert image',
                                slot=self._choose_image)
 
-        # -- plaintext mode ---------------------------------------------
-        separator()
-        plain = make('\uf15c', 'Plaintext mode (H)', checkable=True,
-                     slot=self.toggle_plain)
-
         # Formatting buttons are disabled while composing in plaintext.
         self._format_buttons = [
             bold, italic, underline, bullet, numbered,
@@ -377,13 +420,25 @@ class RichTextEditor(QTextEdit):
             'bold': bold, 'italic': italic, 'underline': underline,
             'bullet': bullet, 'numbered': numbered,
         }
-        self._plain_btn = plain
         self._align_buttons = align_buttons
 
         self.currentCharFormatChanged.connect(
             lambda _fmt: self._sync_format_buttons())
         self.cursorPositionChanged.connect(self._sync_format_buttons)
+        # Reflect the initial state immediately (HTML segment checked on
+        # open, formatting buttons enabled) — no cursor event needed.
+        self._sync_format_buttons()
         return bar
+
+    def _set_plain(self) -> None:
+        """Switch to plaintext compose (Plaintext segment click)."""
+        if not self._plain_mode:
+            self.toggle_plain()
+
+    def _set_rich(self) -> None:
+        """Switch to rich-text compose (HTML segment click)."""
+        if self._plain_mode:
+            self.toggle_plain()
 
     def _set_alignment(self, flag: Qt.AlignmentFlag) -> None:
         """Align the current paragraph and restore editor focus."""
@@ -441,9 +496,10 @@ class RichTextEditor(QTextEdit):
             f'QToolButton {{ color: {fmt.foreground().color().name()};'
             f' border-radius: 3px; padding: 1px 5px; }}')
 
-        # Plaintext mode: show the toggle checked and grey out the
-        # formatting buttons (they are meaningless without rich text).
+        # Plaintext mode: highlight the matching segment and grey out
+        # the formatting buttons (they are meaningless without rich text).
         self._plain_btn.setChecked(self._plain_mode)
+        self._html_btn.setChecked(not self._plain_mode)
         for b in self._format_buttons:
             b.setEnabled(not self._plain_mode)
 

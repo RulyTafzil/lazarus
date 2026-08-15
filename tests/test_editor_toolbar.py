@@ -118,3 +118,49 @@ def test_plain_mode_disables_format_buttons_and_swallows_ctrl_b(qapp):
     ed.toggle_plain()
     assert all(b.isEnabled() for b in ed._format_buttons)
     assert not ed._plain_btn.isChecked()
+
+
+def test_segmented_toggle_switches_mode(qapp):
+    """Clicking the Plaintext/HTML segments switches compose mode and
+    the segments follow the actual state (incl. the H key path)."""
+    p = _panel(qapp)
+    ed = p.editor
+    assert not ed.plain_mode
+    assert ed._html_btn.isChecked()
+    assert not ed._plain_btn.isChecked()
+
+    # click the Plaintext segment
+    ed._plain_btn.click()
+    assert ed.plain_mode
+    assert ed._plain_btn.isChecked()
+    assert not ed._html_btn.isChecked()
+    assert all(not b.isEnabled() for b in ed._format_buttons)
+
+    # toggle via the H-key path — the segments must follow
+    ed.toggle_plain()
+    assert not ed.plain_mode
+    assert ed._html_btn.isChecked()
+    assert not ed._plain_btn.isChecked()
+    assert all(b.isEnabled() for b in ed._format_buttons)
+
+    # click the HTML segment (already rich: no-op)
+    ed._html_btn.click()
+    assert not ed.plain_mode
+
+    # back to plain via segment
+    ed._plain_btn.click()
+    assert ed.plain_mode
+    ed._html_btn.click()
+    assert not ed.plain_mode
+
+
+def test_segmented_toggle_is_leftmost(qapp):
+    """The Plaintext/HTML segment sits at the far left of the toolbar."""
+    from PyQt6.QtWidgets import QFrame
+    p = _panel(qapp)
+    bar_lay = p.format_bar.layout()
+    assert bar_lay is not None
+    first = bar_lay.itemAt(0).widget()
+    second = bar_lay.itemAt(1).widget()
+    assert first is p.editor._plain_btn.parentWidget()  # the segment box
+    assert isinstance(second, QFrame)  # separator after the segment
