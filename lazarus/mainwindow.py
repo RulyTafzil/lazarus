@@ -17,14 +17,15 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from PyQt6.QtCore import QByteArray, QRect, QSettings, QTimer, Qt
+from PyQt6.QtCore import QByteArray, QPointF, QRect, QSettings, QTimer, Qt
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
     QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout,
-    QWidget, QTabBar,
+    QWidget,
 )
-from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent, QPainter, QPixmap
+from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QLinearGradient, QMouseEvent, QPalette, QPolygonF, QResizeEvent, QShowEvent, QPainter, QPixmap
 import logging
+import random
 import math
 import os
 from typing import Callable, Optional, cast
@@ -104,20 +105,95 @@ class _BarBox(QFrame):
             e.accept()
 
 class WatermarkTabWidget(QTabWidget):
-    """QTabWidget that paints a right-aligned watermark to the right of
-    the tab bar.
+    """QTabWidget that paints a low-poly mesh + right-aligned watermark
+    in the space to the right of the tab bar.
 
     QTabBar sizes itself to its tabs (its sizeHint), not to the full
     width of the QTabWidget — the "empty" space to the right of the
     tabs belongs to the QTabWidget itself, not the tab bar. So this
     paints on the tab widget, clipped to the strip right of
     ``tabBar().geometry()``. As tabs accumulate and the bar widens,
-    that strip shrinks and the watermark is naturally covered.
+    that strip shrinks and the mesh/watermark are naturally covered.
+
+    The mesh is cached (keyed on the empty region's size) since
+    ``paintEvent`` fires far more often than the region actually
+    changes shape — regenerating dozens of triangles every paint would
+    be wasteful and, without a fixed seed, would shimmer on repaint.
+    Call :func:`invalidate_mesh` after a theme change so it re-samples
+    the new palette.
     """
+
+    # Curated subset of theme colors for the mesh — deliberately
+    # excludes tag/unread/flagged accent colors, which read as too
+    # loud for a background texture.
+    _MESH_KEYS = ['bg', 'bg_alt', 'fg_dim', 'fg', 'fg_link']
+    _MESH_CELL = 22
+    _MESH_JITTER = 0.5
+    _MESH_SEED = 7
+    _MESH_ALPHA = 40
+    _FADE_WIDTH = 50
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._text = "Lazarus"
+        self._mesh_cache: list[tuple[QPolygonF, QColor]] | None = None
+        self._mesh_cache_size: tuple[int, int] | None = None
+
+    def invalidate_mesh(self) -> None:
+        """Drop the cached mesh so it's regenerated (with fresh theme
+        colors) on the next paint. Call this after a theme change."""
+        self._mesh_cache = None
+        self.update()
+
+    def _mesh_palette(self) -> list[str]:
+        return [settings.theme[k] for k in self._MESH_KEYS
+                if k in settings.theme and isinstance(settings.theme[k], str)]
+
+    def _gen_mesh(self, rect: QRect) -> list[list[QPointF]]:
+        rng = random.Random(self._MESH_SEED)
+        cell = self._MESH_CELL
+        cols = rect.width() // cell + 2
+        rows = rect.height() // cell + 2
+        pts: dict[tuple[int, int], QPointF] = {}
+        for gy in range(rows + 1):
+            for gx in range(cols + 1):
+                jx = (rng.random() - 0.5) * cell * self._MESH_JITTER
+                jy = (rng.random() - 0.5) * cell * self._MESH_JITTER
+                pts[(gx, gy)] = QPointF(rect.left() + gx * cell + jx,
+                                         rect.top() + gy * cell + jy)
+        tris: list[list[QPointF]] = []
+        for gy in range(rows):
+            for gx in range(cols):
+                p00, p10 = pts[(gx, gy)], pts[(gx + 1, gy)]
+                p01, p11 = pts[(gx, gy + 1)], pts[(gx + 1, gy + 1)]
+                if (gx + gy) % 2 == 0:
+                    tris.append([p00, p10, p11])
+                    tris.append([p00, p11, p01])
+                else:
+                    tris.append([p00, p10, p01])
+                    tris.append([p10, p11, p01])
+        return tris
+
+    def _get_mesh(self, full_row_rect: QRect) -> list[tuple[QPolygonF, QColor]]:
+        """Mesh geometry for the *entire* tab-bar row (x=0 to full width),
+        not just the region currently exposed past the last tab.
+
+        Cached on the row's size, which only changes on a real resize —
+        adding/removing tabs changes how much of the mesh is *visible*
+        (via the paintEvent clip), not the mesh itself, so the pattern
+        holds still as tabs come and go instead of shifting/regenerating.
+        """
+        size = (full_row_rect.width(), full_row_rect.height())
+        if self._mesh_cache is None or self._mesh_cache_size != size:
+            cols = self._mesh_palette()
+            rng = random.Random(self._MESH_SEED)
+            self._mesh_cache = [
+                (QPolygonF(tri),
+                 QColor(rng.choice(cols)).lighter(rng.randint(90, 112)))
+                for tri in self._gen_mesh(full_row_rect)
+            ]
+            self._mesh_cache_size = size
+        return self._mesh_cache
 
     def paintEvent(self, e) -> None:
         super().paintEvent(e)          # tabs + base background paint first
@@ -126,14 +202,45 @@ class WatermarkTabWidget(QTabWidget):
         if bar is None:
             return
         bar_geo = bar.geometry()
+        # The tab-to-pane connecting border is a 1px line painted by the
+        # base QTabWidget across the *full* widget width, at the very
+        # last row of the tab bar's geometry. Stop our clip 1px short of
+        # the bottom so we never paint over it — otherwise it visibly
+        # fades out wherever our mesh/gradient/text covers that row.
+        border_h = 1
+        row_height = bar_geo.height() - border_h
         empty_rect = QRect(bar_geo.right(), bar_geo.top(),
-                            self.width() - bar_geo.right(), bar_geo.height())
+                            self.width() - bar_geo.right(), row_height)
         if empty_rect.width() <= 0:
             return                      # tab bar already fills the row
 
+        full_row_rect = QRect(0, bar_geo.top(), self.width(), row_height)
+
         painter = QPainter(self)
         painter.setClipRect(empty_rect)   # never touch the tab pixels
-        painter.setOpacity(0.22)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Low-poly mesh texture, built from theme colors. Generated for
+        # the whole row and clipped to the exposed strip, so it's the
+        # same static pattern underneath regardless of tab count.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for poly, color in self._get_mesh(full_row_rect):
+            color.setAlpha(self._MESH_ALPHA)
+            painter.setBrush(color)
+            painter.drawPolygon(poly)
+
+        # Fade the mesh into solid bg near the tab seam so the texture
+        # doesn't visually collide with the last tab's edge.
+        fade = QLinearGradient(QPointF(empty_rect.left(), 0),
+                                QPointF(empty_rect.left() + self._FADE_WIDTH, 0))
+        fade.setColorAt(0.0, QColor(settings.theme['bg']))
+        fade.setColorAt(1.0, QColor(0, 0, 0, 0))
+        painter.setBrush(fade)
+        painter.drawRect(QRect(empty_rect.left(), empty_rect.top(),
+                                self._FADE_WIDTH, empty_rect.height()))
+
+        # Right-aligned watermark text on top.
+        painter.setOpacity(0.75)
         painter.setPen(QColor(settings.theme['fg_dim']))
         font = painter.font()
         font.setPointSize(font.pointSize() + 6)
