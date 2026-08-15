@@ -75,3 +75,46 @@ def test_list_toggle_on_and_off(qapp):
     ed._sync_format_buttons()
     assert ed.textCursor().currentList() is None
     assert not ed._fmt_buttons['bullet'].isChecked()
+
+
+def test_plain_toggle_strips_formatting_and_kills_html(qapp):
+    p = _panel(qapp)
+    ed = p.editor
+    ed.setPlainText('hello')
+    cursor = ed.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    ed.setTextCursor(cursor)
+    ed.toggle_bold()
+    assert ed.fontWeight() >= 700
+    assert ed.body_html()  # rich mode produces HTML
+
+    assert ed.toggle_plain() is True
+    assert ed.plain_mode
+    assert ed.body_html() == ''
+    assert ed.toPlainText() == 'hello'  # text preserved
+    assert ed.fontWeight() < 700  # formatting stripped
+    assert ed.collect_inline_images() == {}  # no-op, no HTML rewrite
+
+    assert ed.toggle_plain() is False
+    assert ed.body_html()  # back to rich
+
+
+def test_plain_mode_disables_format_buttons_and_swallows_ctrl_b(qapp):
+    from PyQt6.QtCore import QEvent, Qt
+    from PyQt6.QtGui import QKeyEvent
+    p = _panel(qapp)
+    ed = p.editor
+    ed.toggle_plain()
+    assert ed._plain_btn.isChecked()
+    assert all(not b.isEnabled() for b in ed._format_buttons)
+
+    # Ctrl+B is swallowed while plain (no formatting to apply)
+    ed.setPlainText('x')
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B,
+                   Qt.KeyboardModifier.ControlModifier)
+    ed.keyPressEvent(ev)
+    assert ed.fontWeight() < 700
+
+    ed.toggle_plain()
+    assert all(b.isEnabled() for b in ed._format_buttons)
+    assert not ed._plain_btn.isChecked()

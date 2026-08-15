@@ -34,8 +34,8 @@ from typing import Callable, Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import (
-    QColor, QFont, QImage, QKeyEvent, QTextBlockFormat, QTextImageFormat,
-    QTextListFormat, QDragEnterEvent, QDropEvent,
+    QColor, QFont, QImage, QKeyEvent, QTextBlockFormat, QTextCharFormat,
+    QTextImageFormat, QTextListFormat, QDragEnterEvent, QDropEvent,
 )
 from PyQt6.QtWidgets import (
     QButtonGroup, QColorDialog, QFileDialog, QFrame, QHBoxLayout, QTextEdit,
@@ -84,6 +84,7 @@ class RichTextEditor(QTextEdit):
         self._temp_dir = tempfile.TemporaryDirectory(prefix='lazarus-edit-')
         self._images: Dict[str, str] = {}  # cid → filepath (populated on collect)
         self._image_counter = 0
+        self._plain_mode = False
 
         # Appearance
         self.setStyleSheet(
@@ -138,7 +139,12 @@ class RichTextEditor(QTextEdit):
         The returned HTML still contains ``file://`` references for inline
         images.  Call :func:`collect_inline_images` first to build the
         ``cid`` map and rewrite the HTML.
+
+        Returns ``''`` in plaintext mode, so :func:`build_message` takes
+        its plaintext-only path.
         """
+        if self._plain_mode:
+            return ''
         html = self.toHtml()
         # Qt wraps the body in an <html><head>...</head><body>...</body></html>
         # structure.  For email, we only want the body contents.
@@ -151,12 +157,13 @@ class RichTextEditor(QTextEdit):
     def body_text(self) -> str:
         """Return a plaintext rendering of the editor content.
 
-        Inline images become ``[Image: filename]`` placeholders.
+        Inline images become ``[Image: filename]`` placeholders; the
+        object-replacement character Qt embeds for images is stripped.
         """
         doc = self.document()
         if doc is None:
             return ''
-        plain = doc.toPlainText()
+        plain = doc.toPlainText().replace('\ufffc', '')
 
         # Append image placeholders
         for cid, path in self._images.items():
@@ -173,7 +180,10 @@ class RichTextEditor(QTextEdit):
 
         **Side effect**: the editor's internal HTML is rewritten so that
         ``file://...`` src attributes become ``cid:...`` references.
+        (No-op in plaintext mode — nothing is rewritten there.)
         """
+        if self._plain_mode:
+            return {}
         self._images = {}
         self._image_counter = 0
 
@@ -206,20 +216,58 @@ class RichTextEditor(QTextEdit):
     # ------------------------------------------------------------------
 
     def toggle_bold(self) -> None:
+        if self._plain_mode:
+            return
         fmt = self.currentCharFormat()
         fmt.setFontWeight(
             700 if self.fontWeight() < 700 else 400)
         self.mergeCurrentCharFormat(fmt)
 
     def toggle_italic(self) -> None:
+        if self._plain_mode:
+            return
         fmt = self.currentCharFormat()
         fmt.setFontItalic(not self.fontItalic())
         self.mergeCurrentCharFormat(fmt)
 
     def toggle_underline(self) -> None:
+        if self._plain_mode:
+            return
         fmt = self.currentCharFormat()
         fmt.setFontUnderline(not self.fontUnderline())
         self.mergeCurrentCharFormat(fmt)
+
+    # ------------------------------------------------------------------
+    # Plaintext mode
+    # ------------------------------------------------------------------
+
+    @property
+    def plain_mode(self) -> bool:
+        """True when composing in plaintext mode (no HTML part on send)."""
+        return self._plain_mode
+
+    def toggle_plain(self) -> bool:
+        """Toggle between rich-text and plaintext composing.
+
+        Enabling strips all formatting in place (the text is preserved
+        losslessly); the toolbar formatting buttons are disabled while
+        plain, and :meth:`body_html` / :meth:`collect_inline_images`
+        no-op so the outgoing message has no HTML part.
+
+        :returns: the new plaintext mode.
+        """
+        self._plain_mode = not self._plain_mode
+        if self._plain_mode:
+            # Strip formatting in place; drop Qt's object-replacement
+            # chars for any embedded images (their filenames still
+            # surface as [Image: …] placeholders via body_text()).
+            self.setPlainText(self.toPlainText().replace('\ufffc', ''))
+            # Fresh char format so newly typed text is not bold/italic
+            # from the previous rich mode.
+            self.setCurrentCharFormat(QTextCharFormat())
+        if hasattr(self, '_fmt_buttons'):
+            self._sync_format_buttons()
+        return self._plain_mode
 
     # ------------------------------------------------------------------
     # Formatting toolbar
@@ -313,10 +361,23 @@ class RichTextEditor(QTextEdit):
         self._image_btn = make('\uf03e', 'Insert image',
                                slot=self._choose_image)
 
+        # -- plaintext mode ---------------------------------------------
+        separator()
+        plain = make('\uf15c', 'Plaintext mode (H)', checkable=True,
+                     slot=self.toggle_plain)
+
+        # Formatting buttons are disabled while composing in plaintext.
+        self._format_buttons = [
+            bold, italic, underline, bullet, numbered,
+            *[b for b, _ in align_buttons],
+            self._color_btn, self._image_btn,
+        ]
+
         self._fmt_buttons = {
             'bold': bold, 'italic': italic, 'underline': underline,
             'bullet': bullet, 'numbered': numbered,
         }
+        self._plain_btn = plain
         self._align_buttons = align_buttons
 
         self.currentCharFormatChanged.connect(
@@ -379,6 +440,12 @@ class RichTextEditor(QTextEdit):
         self._color_btn.setStyleSheet(
             f'QToolButton {{ color: {fmt.foreground().color().name()};'
             f' border-radius: 3px; padding: 1px 5px; }}')
+
+        # Plaintext mode: show the toggle checked and grey out the
+        # formatting buttons (they are meaningless without rich text).
+        self._plain_btn.setChecked(self._plain_mode)
+        for b in self._format_buttons:
+            b.setEnabled(not self._plain_mode)
 
     # ------------------------------------------------------------------
     # Qt event overrides

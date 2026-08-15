@@ -82,6 +82,7 @@ File moves for these actions happen asynchronously in the background, batched so
 Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-trip required). It supports:
 
 * a formatting toolbar above the body (bold / italic / underline, alignment, bullet & numbered lists, text colour, insert image — NerdFont icon glyphs) — or the Ctrl+B / Ctrl+I / Ctrl+U shortcuts
+* plaintext mode via Shift+H (or the toolbar's plaintext button): strips formatting and sends a message with **no HTML part** — plain `text/plain`, mutt-style; handy for replies to plaintext mail
 * inline image paste and drag-and-drop
 * address autocomplete drawn from your notmuch mail history
 * attachments via `a`
