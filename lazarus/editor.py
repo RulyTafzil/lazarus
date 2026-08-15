@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import settings
+from . import style
 
 logger = logging.getLogger(__name__)
 
@@ -240,10 +241,16 @@ class RichTextEditor(QTextEdit):
         hlay.setContentsMargins(2, 2, 2, 2)
         hlay.setSpacing(2)
 
+        # NerdFont glyphs for the buttons (Font Awesome codepoints —
+        # present in every NerdFont), so the strip reads as icons.
+        nerd = QFont(style.nerd_font_family())
+        nerd.setPixelSize(13)
+
         def make(text: str, tip: str, *, checkable: bool = False,
                  slot: Callable[..., Any] | None = None) -> QToolButton:
             b = QToolButton()
             b.setText(text)
+            b.setFont(nerd)
             b.setToolTip(tip)
             b.setCheckable(checkable)
             b.setAutoRaise(True)
@@ -267,21 +274,12 @@ class RichTextEditor(QTextEdit):
             hlay.addWidget(sep)
 
         # -- character formatting --------------------------------------
-        bold = make('B', 'Bold (Ctrl+B)', checkable=True,
+        bold = make('\uf032', 'Bold (Ctrl+B)', checkable=True,
                     slot=self.toggle_bold)
-        f = bold.font()
-        f.setBold(True)
-        bold.setFont(f)
-        italic = make('I', 'Italic (Ctrl+I)', checkable=True,
+        italic = make('\uf033', 'Italic (Ctrl+I)', checkable=True,
                       slot=self.toggle_italic)
-        f = italic.font()
-        f.setItalic(True)
-        italic.setFont(f)
-        underline = make('U', 'Underline (Ctrl+U)', checkable=True,
+        underline = make('\uf0cd', 'Underline (Ctrl+U)', checkable=True,
                          slot=self.toggle_underline)
-        f = underline.font()
-        f.setUnderline(True)
-        underline.setFont(f)
 
         # -- alignment (exclusive group) -------------------------------
         separator()
@@ -289,9 +287,9 @@ class RichTextEditor(QTextEdit):
         align_group.setExclusive(True)
         align_buttons: list[tuple[QToolButton, Qt.AlignmentFlag]] = []
         for glyph, tip, flag in (
-                ('L', 'Align left', Qt.AlignmentFlag.AlignLeft),
-                ('C', 'Align center', Qt.AlignmentFlag.AlignHCenter),
-                ('R', 'Align right', Qt.AlignmentFlag.AlignRight),
+                ('\uf036', 'Align left', Qt.AlignmentFlag.AlignLeft),
+                ('\uf037', 'Align center', Qt.AlignmentFlag.AlignHCenter),
+                ('\uf038', 'Align right', Qt.AlignmentFlag.AlignRight),
         ):
             b = make(glyph, tip, checkable=True)
             b.clicked.connect(
@@ -301,17 +299,19 @@ class RichTextEditor(QTextEdit):
 
         # -- lists -----------------------------------------------------
         separator()
-        bullet = make('•', 'Bulleted list', checkable=True,
+        bullet = make('\uf0ca', 'Bulleted list', checkable=True,
                       slot=lambda: self._toggle_list(
                           QTextListFormat.Style.ListDisc))
-        numbered = make('1.', 'Numbered list', checkable=True,
+        numbered = make('\uf0cb', 'Numbered list', checkable=True,
                         slot=lambda: self._toggle_list(
                             QTextListFormat.Style.ListDecimal))
 
         # -- colour / image --------------------------------------------
         separator()
-        self._color_btn = make('A', 'Text colour', slot=self._choose_text_color)
-        self._image_btn = make('🖼', 'Insert image', slot=self._choose_image)
+        self._color_btn = make('\uf1fc', 'Text colour',
+                               slot=self._choose_text_color)
+        self._image_btn = make('\uf03e', 'Insert image',
+                               slot=self._choose_image)
 
         self._fmt_buttons = {
             'bold': bold, 'italic': italic, 'underline': underline,

@@ -54,9 +54,9 @@ def test_alignment_exclusive_group(qapp):
     ed = p.editor
     ed._set_alignment(Qt.AlignmentFlag.AlignHCenter)
     assert ed.alignment() & Qt.AlignmentFlag.AlignHCenter
-    checked = [b for b, _ in ed._align_buttons if b.isChecked()]
+    checked = [flag for _b, flag in ed._align_buttons if _b.isChecked()]
     assert len(checked) == 1
-    assert checked[0].text() == 'C'
+    assert checked[0] == Qt.AlignmentFlag.AlignHCenter
 
 
 def test_list_toggle_on_and_off(qapp):

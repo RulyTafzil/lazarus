@@ -1,4 +1,6 @@
 """style.py — memoised cell fonts and theme colors."""
+import os
+
 import lazarus.settings as settings
 from lazarus import style
 
@@ -39,3 +41,37 @@ def test_theme_color_missing_key_raises():
         pass
     else:
         raise AssertionError('expected KeyError for missing theme color')
+
+
+def test_nerd_font_family_resolves(qapp):
+    fam = style.nerd_font_family()
+    assert isinstance(fam, str) and fam
+    assert style.nerd_font_family() == fam  # cached
+
+
+def test_nerd_font_family_setting_wins(qapp, monkeypatch):
+    monkeypatch.setattr(settings, 'nerd_font', 'My Custom Nerd Font')
+    assert style.nerd_font_family() == 'My Custom Nerd Font'
+    # restoring the setting re-resolves (cache keyed on the setting)
+    monkeypatch.setattr(settings, 'nerd_font', '')
+    assert style.nerd_font_family() != 'My Custom Nerd Font'
+
+
+def test_glyph_image_writes_png_once(qapp):
+    path1 = style.glyph_image('\uf078', 12, '#4c566a')
+    path2 = style.glyph_image('\uf078', 12, '#4c566a')
+    assert path1 == path2  # cached
+    assert os.path.isfile(path1)
+    with open(path1, 'rb') as f:
+        assert f.read(8) == b'\x89PNG\r\n\x1a\n'  # PNG magic
+
+
+def test_glyph_image_renders_nonblank(qapp):
+    path = style.glyph_image('\uf032', 16, '#ffffff')
+    from PyQt6.QtGui import QPixmap
+    pm = QPixmap(path)
+    assert not pm.isNull()
+    img = pm.toImage()
+    n = sum(1 for y in range(img.height()) for x in range(img.width())
+            if img.pixelColor(x, y).alpha() > 0)
+    assert n > 8  # the glyph actually painted, not blank

@@ -180,7 +180,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `search.py` | 485 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `columns` |
 | `thread_model.py` | 408 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree, message access, tagging, conversation/thread modes |
 | `panel.py` | 358 | `Panel(QWidget)` base — keychord handling (`PanelApp`/controller), dirty tracking, 150 ms debounce, `has_refreshed`, `HeaderInsetTreeView` |
-| `editor.py` | 504 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images`, paste/drag-drop, `formatting_toolbar()` (B/I/U + align + lists + colour + image, synced to cursor format) |
+| `editor.py` | 504 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images`, paste/drag-drop, `formatting_toolbar()` (NerdFont glyphs: B/I/U + align + lists + colour + image, synced to cursor format) |
 | `commandbar.py` | 268 | `CommandBar(QPlainTextEdit)` — centered modal overlay (dim + click-away), grow-to-content width/wrap, tag autocomplete, per-mode history |
 | `address_completer.py` | 250 | `AddressCompleter(QCompleter)` + `_AddressLoader(QThread)` — `notmuch address --output=recipients --deduplicate=address --format=json -- *` preload, `MatchContains`, `_MIN_CHARS=2` |
 | `webengine.py` | 232 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor`, `LOCAL_PROTOCOLS=[cid,message]` |
@@ -196,7 +196,7 @@ Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → 
 | `mail_utils.py` | 167 | Mail-content helpers — `message_parts`, `body_text/html`, `quote`, `write_attachments` (via `notmuch.show_part`) |
 | `pgp_util.py` | 165 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
 | `protocols.py` | 155 | `PanelApp`/`ThreadList`/`ThreadView` structural protocols + `LIST_METHODS`/`THREAD_METHODS` fail-fast sets |
-| `style.py` | 71 | Memoised `cell_font()`/`theme_color()` for list/tree cell rendering (used by search/thread/tag models) |
+| `style.py` | 71 | Memoised `cell_font()`/`theme_color()` for list/tree cell rendering (used by search/thread/tag models); `nerd_font_family()` resolver + `glyph_image()` (glyph → temp PNG for QSS arrows) |
 | `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, enqueues moves to `_BulkMoveWorker`, warns on 0-file matches |
 | `helpwindow.py` | 133 | `HelpWindow(QWidget)` — keybinding HTML (`_render_keymap`/`_split_dict`; `_GLOBAL_GROUPS` render-time display grouping; Navigation section removed) |
 | `html_utils.py` | 107 | Rendering helpers — `linkify`, `colorize_text`, `w3m_html2text`, `html2html` |
@@ -337,6 +337,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `filter_scope_query` | `'tag:inbox and tag:unread'` | Scopes rules as `(scope) and (rule.query)` |
 | `tag_hotkeys` | `{}` | `{'1':'Urgent',...}` → `1-9` toggles |
 | `tag_icons` | `{inbox,unread,attachment,sent,replied,flagged,marked,signed}` | NerdFont icons |
+| `nerd_font` | `''` | NerdFont family for toolbar/dropdown-arrow glyphs; empty = auto-pick installed `* Nerd Font`, else `tag_font` |
 | `tag_order` | `['marked','Urgent',...]` | Tag display priority |
 | `hide_tags` | `['unread','sent']` | Hidden in search tag column |
 | `log_level` | `'WARNING'` | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |
@@ -378,5 +379,5 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Aug 2026 cleanup (pr/refactor-cleanup)**: dead code + unused imports removed (incl. all `from . import app` runtime imports — app.py no longer imports panel modules), Dodo shim layer deleted (AppController is the sole `PanelApp` implementer), duplication consolidated (`notmuch.show_part`, `util.sort_tags`, `_cycle_account`, single `_parse_address_list`), Qt star imports → explicit. Net −149 LOC, 158 tests, mypy 0. 
 - **Aug 2026 (pr/cleanup-style-editor)**: shared `style.cell_font`/`theme_color` (memoised, used by all three list/tree models), `ThreadItem.row_in_parent` → O(1) `ThreadModel.parent`, file-browser fallback in argv form (no shell), `sanitize_filename` comment; **external-editor flow removed** — `EditorThread`, `editor_command`, compose `E` key, and the raw-message round-trip all deleted (built-in `RichTextEditor` is the only compose editor).
 - **Aug 2026 (pr/compose-labels-toolbar)**: compose fields get real left labels (To/Cc/Bcc/Subject, right-aligned, fixed width so boxes align; placeholders dropped); `RichTextEditor.formatting_toolbar()` — compact strip (B/I/U checkables synced to cursor format, exclusive align group, bullet/numbered lists, text-colour dialog, insert-image dialog); all buttons NoFocus so keyboard focus stays in the editor.
-- **Aug 2026 (pr/compose-labels-toolbar follow-ups)**: polish — 2px right margins on field rows, toolbar left-aligned/content-sized with reduced vertical padding, header font one point smaller than body; **From row** — old account/from header bar replaced by a labeled `From:` dropdown (one item per `smtp_accounts`, address text, account-name prefix when addresses collide, CSS-triangle arrow), PGP/send status moved into the row's right side, `[`/`]` still cycle and keep the combo selection in sync via a single guarded `_set_account(idx)`.
+- **Aug 2026 (pr/compose-labels-toolbar follow-ups)**: polish — 2px right margins on field rows, toolbar left-aligned/content-sized with reduced vertical padding, header font one point smaller than body; **From row** — old account/from header bar replaced by a labeled `From:` dropdown (one item per `smtp_accounts`, address text, account-name prefix when addresses collide, CSS-triangle arrow), PGP/send status moved into the row's right side, `[`/`]` still cycle and keep the combo selection in sync via a single guarded `_set_account(idx)`; From moved to the top of the field stack; **NerdFont icons** — toolbar buttons and the dropdown arrow use NerdFont glyphs (Font Awesome codepoints, auto-picked family via `settings.nerd_font`, arrow rendered to a temp PNG for QSS `image:` since Qt QSS can't use font glyphs).
 - **Linter**: `pyflakes lazarus` (pipx venv) should stay clean apart from the intentional re-exports in `lazarus/__init__.py` and `lazarus/util.py`.

@@ -373,6 +373,16 @@ This is a dictionary of substitutions used to abbreviate common tag names as uni
 icons in the search and thread panels.
 """
 
+nerd_font = ''
+"""NerdFont family used for icon glyphs (toolbar buttons, dropdown arrow).
+
+Empty (default) auto-picks the first installed family whose name
+contains ``'Nerd Font'``; if none is installed, falls back to
+:func:`~lazarus.settings.tag_font` (whose private-use-area glyphs still
+render via Qt font fallback).  Set explicitly to pin a family, e.g.
+``'CaskaydiaMono Nerd Font'``.
+"""
+
 tag_order: list[str] = ['marked', 'Urgent', 'ToDo', 'Waiting', 'Reference', 'inbox', 'sent']
 """Tag display order in the tags column.
 

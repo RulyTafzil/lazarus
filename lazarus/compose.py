@@ -39,6 +39,7 @@ from . import panel
 from . import keymap
 from . import settings
 from . import util
+from . import style
 from . import signature
 from . import editor as editor_mod
 from . import address_completer
@@ -259,8 +260,10 @@ class ComposePanel(panel.Panel):
         return addr or compose_model.account_name(idx)
 
     def _combo_style(self) -> str:
-        """Field-matching stylesheet for the From account dropdown,
-        with a CSS-triangle arrow (no image assets needed)."""
+        """Field-matching stylesheet for the From account dropdown, with
+        a NerdFont chevron rendered to a temp PNG as the arrow (Qt QSS
+        cannot reference font glyphs directly)."""
+        arrow = style.glyph_image('\uf078', 12, settings.theme['fg_dim'])
         return (
             f'QComboBox {{'
             f' background-color: {settings.theme["bg"]};'
@@ -272,10 +275,8 @@ class ComposePanel(panel.Panel):
             f' font-size: {self._field_font_size}pt; }}'
             f'QComboBox::drop-down {{ border: none; width: 20px; }}'
             f'QComboBox::down-arrow {{'
-            f'  image: none;'
-            f'  border-left: 4px solid transparent;'
-            f'  border-right: 4px solid transparent;'
-            f'  border-top: 5px solid {settings.theme["fg_dim"]}; }}'
+            f'  image: url({arrow});'
+            f'  width: 12px; height: 12px; }}'
             f'QComboBox QAbstractItemView {{'
             f'  background-color: {settings.theme["bg"]};'
             f'  color: {settings.theme["fg"]};'
