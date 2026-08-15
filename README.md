@@ -81,11 +81,12 @@ File moves for these actions happen asynchronously in the background, batched so
 
 Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-trip required). It supports:
 
+* a formatting toolbar above the body (bold / italic / underline, alignment, bullet & numbered lists, text colour, insert image — NerdFont icon glyphs) — or the Ctrl+B / Ctrl+I / Ctrl+U shortcuts
 * inline image paste and drag-and-drop
 * address autocomplete drawn from your notmuch mail history
 * attachments via `a`
 * per-account signatures, auto-inserted based on which account you're sending from (`~/.config/dodo/<account>/signature[.html]`)
-* switching between configured SMTP accounts with `[` / `]`
+* switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)
 
 `C-s` sends. `<escape>` toggles focus between the editor and the rest of the compose panel's chrome (subject, to/cc/from fields, etc).
