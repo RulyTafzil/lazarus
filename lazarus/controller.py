@@ -639,9 +639,19 @@ class AppController(QObject):
         self.set_theme(names[idx])
 
     def theme_bar(self) -> None:
-        """Open the command bar in 'theme' mode: type a name, Enter to
-        apply. Autocompletes against `themes.REGISTRY` (commandbar.py)."""
-        self.command_bar.open('theme', lambda text: self.set_theme(text.strip()))
+        """Open the command bar in 'theme' mode: 'theme:' is prefilled,
+        type a name (autocompleted against `themes.REGISTRY`) and Enter
+        to apply. A bare name also works."""
+        def callback(text: str) -> None:
+            name = text.strip()
+            if name.startswith('theme:'):
+                name = name[len('theme:'):].strip()
+            if name:
+                self.set_theme(name)
+
+        self.command_bar.open('theme', callback)
+        # Prefill the 'theme:' prefix so the user just types the name.
+        self.command_bar.setPlainText('theme:')
 
     def update_single_thread(self, thread_id: str, msg_id: str | None = None) -> None:
         from . import panel as panel_mod

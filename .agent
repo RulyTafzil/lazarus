@@ -249,7 +249,7 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 | `u` / `f` | Toggle `unread`/`flagged` (`toggle_thread_tag`) |
 | `t t` | Tag current thread (`tag_bar`) |
 | `t m` | Tag all marked threads (`tag_bar mode='tag marked'`) |
-| `t h` | Theme picker (`theme_bar` — command bar in `theme` mode, name autocomplete) |
+| `t h` | Theme picker (`theme_bar` — command bar in `theme` mode, `theme:` prefilled; type a name, autocomplete like `tag:`, Enter applies; bare names also work) |
 | `1`–`9` | Toggle `tag_hotkeys` tag |
 
 ### Global / Views

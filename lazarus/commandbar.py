@@ -168,11 +168,14 @@ class CommandBar(QPlainTextEdit):
 
     def handleTextChanged(self, text: str) -> None:
         """Open suggestion dialog if a matching tag or theme name is
-        present. 'theme' mode completes against the whole line (there's
-        no '+'/'tag:' token structure to parse out, unlike tag entry);
-        every other mode completes tag tokens as before."""
+        present. 'theme' mode completes the name after a 'theme:'
+        prefix (or the whole line for the bare-name form); every other
+        mode completes tag tokens as before."""
         if self.mode == 'theme':
-            prefix = text
+            if text.startswith('theme:'):
+                prefix = text[len('theme:'):]
+            else:
+                prefix = text  # bare-name form (no 'theme:' prefix)
             model: QtCore.QStringListModel = self._theme_model
         else:
             prefix = text.rsplit(sep=" ", maxsplit=1)[-1]
@@ -198,9 +201,13 @@ class CommandBar(QPlainTextEdit):
             self.completer.complete()
 
     def handleCompletion(self, text: str) -> None:
-        """Use the choosen tag."""
+        """Use the chosen tag or theme."""
         prefix = self.completer.completionPrefix()
-        self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
+        if self.mode == 'theme':
+            # Single value, no trailing term separator (unlike tags).
+            self.setPlainText(self.toPlainText()[:-len(prefix)] + text)
+        else:
+            self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
         # setPlainText resets the cursor to the start; place it at the end
         # so the user can keep typing another term (e.g. ' and …').
         self._cursor_to_end()

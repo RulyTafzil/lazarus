@@ -335,6 +335,23 @@ def test_cycle_theme_wraps_around(theme_ctl, qapp):
 def test_theme_bar_opens_with_theme_mode(theme_ctl, qapp):
     theme_ctl.theme_bar()
     assert theme_ctl.command_bar.label.text() == 'theme'
+    # 'theme:' is prefilled so the user just types the name
+    assert theme_ctl.command_bar.toPlainText() == 'theme:'
+
+
+def test_theme_bar_accepts_theme_colon_syntax(theme_ctl, qapp):
+    """theme:Name form — the canonical 'theme:[themename]' input."""
+    from lazarus import themes as themes_mod
+    theme_ctl.theme_bar()
+    callback = theme_ctl.command_bar.callback
+    assert callback is not None
+    callback('theme:Dracula')
+    assert themes_mod.current_name() == 'Dracula'
+    callback('theme:  nord  ')
+    assert themes_mod.current_name() == 'nord'
+    callback('theme:')
+    # empty name is a no-op, not an error
+    assert themes_mod.current_name() == 'nord'
 
 
 def test_theme_bar_strips_whitespace_and_applies(theme_ctl, qapp):
@@ -349,6 +366,29 @@ def test_theme_bar_strips_whitespace_and_applies(theme_ctl, qapp):
     assert callback is not None
     callback('  Dracula  ')
     assert themes_mod.current_name() == 'Dracula'
+
+
+def test_theme_completion_strips_theme_colon_prefix(theme_ctl, qapp):
+    """Autocomplete on 'theme:dra' suggests theme names, like 'tag:'
+    suggests tags: the prefix after 'theme:' drives the completer."""
+    bar = theme_ctl.command_bar
+    bar.open('theme', lambda t: None)
+    bar.setPlainText('theme:dra')
+    assert bar.completer.completionPrefix() == 'dra'
+    assert bar.completer.model() is bar._theme_model
+    # bare-name form still completes the whole line
+    bar.setPlainText('nor')
+    assert bar.completer.completionPrefix() == 'nor'
+
+
+def test_theme_completion_has_no_trailing_space(theme_ctl, qapp):
+    """Completing a theme replaces the name, no trailing separator."""
+    bar = theme_ctl.command_bar
+    bar.open('theme', lambda t: None)
+    bar.setPlainText('theme:dra')
+    bar.completer.setCompletionPrefix('dra')
+    bar.handleCompletion('Dracula')
+    assert bar.toPlainText() == 'theme:Dracula'
 
 
 def test_theme_bar_completer_lists_registry_names(theme_ctl, qapp):
