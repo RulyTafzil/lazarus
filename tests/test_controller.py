@@ -2,6 +2,7 @@
 import pytest
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QLabel
 
 from lazarus import mainwindow
 from lazarus.controller import AppController
@@ -202,3 +203,226 @@ def test_tag_message_bar_without_thread_noop(ctl, mw, qapp):
     ctl.tag_message_bar()
     assert not mw.command_area.isVisible()  # bar never opened
     assert ctl.command_bar.callback is None
+
+
+# --- theme switching -----------------------------------------------------
+#
+# These deliberately do NOT use the `mw`/`ctl` fixtures (a full
+# MainWindow, which always embeds a QWebEngineView-backed preview pane).
+# Constructing that repeatedly, on top of everything else the suite
+# already does, has been observed to destabilize the offscreen Qt/
+# WebEngine session when run as part of the full suite. set_theme /
+# cycle_theme / theme_bar only ever touch `self.tabs` (a QTabWidget) and
+# `self.command_bar` (a QPlainTextEdit) -- neither needs real window
+# chrome, so build those directly instead.
+
+@pytest.fixture
+def theme_ctl(qapp, monkeypatch):
+    """A real AppController wired to a standalone tab widget + command
+    bar (no MainWindow/QWebEngineView), plus an isolated fake theme
+    registry so tests don't depend on -- or mutate -- the real one."""
+    from lazarus import mainwindow, commandbar, themes as themes_mod
+    import lazarus.settings as settings
+
+    fake_registry = {
+        'nord': themes_mod.nord,
+        'gruvbox_dark': themes_mod.gruvbox_dark,
+        'Dracula': themes_mod.terminal_theme_to_lazarus({
+            'name': 'Dracula', 'background': '#282a36', 'foreground': '#f8f8f2',
+            'palette': {str(i): '#000000' for i in range(16)},
+        }),
+    }
+    monkeypatch.setattr(themes_mod, 'REGISTRY', fake_registry)
+    monkeypatch.setattr(themes_mod, '_current_name', 'nord')
+    monkeypatch.setattr(themes_mod, '_save_last_theme_name', lambda name: None)
+    monkeypatch.setattr(themes_mod, 'load_last_theme_name', lambda: None)
+    monkeypatch.setattr(settings, 'theme', themes_mod.nord)
+
+    # apply_theme() mutates the *real*, process-wide QApplication's
+    # palette/stylesheet -- side effects that outlive this test and
+    # pollute every later test in the same session (already verified
+    # visually elsewhere in this project's history). These tests only
+    # care about set_theme's bookkeeping (settings.theme rebind,
+    # current_name, persistence call), so stub it out.
+    monkeypatch.setattr(themes_mod, 'apply_theme', lambda theme: None)
+
+    tabs = mainwindow.WatermarkTabWidget()
+    label = QLabel()
+    bar = commandbar.CommandBar(None, label, tabs)  # type: ignore[arg-type]
+
+    class FakeMainWindow:
+        def __init__(self):
+            self.tabs = tabs
+            self.command_bar = bar
+        def active_thread(self):
+            return None
+
+    main_window = FakeMainWindow()
+    bar.app = main_window  # CommandBar.close_bar() reads self.app.tabs
+
+    class FakeApp:
+        panel_history: list = []
+
+    ctl = AppController.__new__(AppController)
+    from PyQt6.QtCore import QObject
+    QObject.__init__(ctl, None)
+    ctl.app = FakeApp()
+    ctl.main_window = main_window  # type: ignore[assignment]
+    ctl.tabs = tabs
+    ctl.command_bar = bar
+    ctl.panel_history = []
+    ctl.num_panels = lambda: 0
+
+    statuses: list[tuple[str, str]] = []
+    ctl.status_message = lambda msg, kind='info', duration=3000: statuses.append((msg, kind))  # type: ignore[method-assign]
+    ctl._statuses = statuses  # type: ignore[attr-defined]
+
+    return ctl
+
+
+def test_set_theme_applies_and_updates_settings(theme_ctl, qapp):
+    import lazarus.settings as settings
+    from lazarus import themes as themes_mod
+    theme_ctl.set_theme('Dracula')
+    assert settings.theme is themes_mod.REGISTRY['Dracula']
+    assert themes_mod.current_name() == 'Dracula'
+
+
+def test_set_theme_invalidates_tab_mesh(theme_ctl, qapp):
+    theme_ctl.tabs.resize(400, 30)
+    theme_ctl.tabs.show()
+    qapp.processEvents()
+    theme_ctl.tabs._get_mesh(theme_ctl.tabs.rect())  # force the cache to populate
+    assert theme_ctl.tabs._mesh_cache is not None
+    theme_ctl.set_theme('Dracula')
+    assert theme_ctl.tabs._mesh_cache is None
+
+
+def test_set_theme_unknown_name_shows_error_status(theme_ctl, qapp):
+    import lazarus.settings as settings
+    before = settings.theme
+    theme_ctl.set_theme('Not A Real Theme')
+    assert settings.theme is before  # unchanged
+    assert theme_ctl._statuses[-1][1] == 'error'
+
+
+def test_set_theme_empty_name_is_noop(theme_ctl, qapp):
+    import lazarus.settings as settings
+    before = settings.theme
+    theme_ctl.set_theme('')
+    assert settings.theme is before
+    assert theme_ctl._statuses == []
+
+
+def test_cycle_theme_next_and_previous(theme_ctl, qapp):
+    from lazarus import themes as themes_mod
+    names = themes_mod.ordered_names()
+    theme_ctl.set_theme(names[0])
+    theme_ctl.cycle_theme(1)
+    assert themes_mod.current_name() == names[1]
+    theme_ctl.cycle_theme(-1)
+    assert themes_mod.current_name() == names[0]
+
+
+def test_cycle_theme_wraps_around(theme_ctl, qapp):
+    from lazarus import themes as themes_mod
+    names = themes_mod.ordered_names()
+    theme_ctl.set_theme(names[-1])
+    theme_ctl.cycle_theme(1)
+    assert themes_mod.current_name() == names[0]
+
+
+def test_theme_bar_opens_with_theme_mode(theme_ctl, qapp):
+    theme_ctl.theme_bar()
+    assert theme_ctl.command_bar.label.text() == 'theme'
+
+
+def test_theme_bar_strips_whitespace_and_applies(theme_ctl, qapp):
+    """Exercises exactly what theme_bar() wires up (a callback that
+    strips whitespace and calls set_theme) directly, rather than going
+    through CommandBar.accept()'s full completer-popup/focus machinery
+    -- which assumes the normal MainWindow-driven construction path
+    this lightweight fixture deliberately skips."""
+    from lazarus import themes as themes_mod
+    theme_ctl.theme_bar()
+    callback = theme_ctl.command_bar.callback
+    assert callback is not None
+    callback('  Dracula  ')
+    assert themes_mod.current_name() == 'Dracula'
+
+
+def test_theme_bar_completer_lists_registry_names(theme_ctl, qapp):
+    names = theme_ctl.command_bar._theme_model.stringList()
+    assert 'Dracula' in names
+    assert 'nord' in names
+# --- real keypress dispatch (keymap.py -> panel.Panel.keyPressEvent) -----
+#
+# Phase 2 added the handler methods and confirmed them by calling them
+# directly. These confirm the actual keybindings are *reachable*: a real
+# QKeyEvent, through Panel's real keymap dispatch, ends up calling them
+# -- not just that the methods work in isolation.
+
+@pytest.fixture
+def theme_panel(theme_ctl, qapp):
+    """A real Panel wired to theme_ctl, with the prefix cache populated
+    from the real global_keymap (needed for the 't h' chord)."""
+    p = DummyPanel(theme_ctl, 'test panel')
+    p.set_keymap({})  # empty local keymap; prefixes still scan global_keymap
+    return p
+
+
+def _key_event(key, modifiers=Qt.KeyboardModifier.NoModifier):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent
+    return QKeyEvent(QEvent.Type.KeyPress, key, modifiers)
+
+
+def test_keypress_alt_less_cycles_theme_previous(theme_panel, theme_ctl, qapp):
+    """Ctrl+< was the original choice, but 'C-<' collides as a literal
+    string-prefix of the existing 'C-<enter>' binding (this codebase
+    wraps named keys like <enter>/<tab> in angle brackets) -- the
+    dispatcher can't tell "complete press of literal <" from "still
+    typing toward <enter>", so it would wait out the full chord-timeout
+    before firing instead of dispatching immediately. Alt avoids the
+    collision entirely (verified: no other 'M-<...>' binding exists)."""
+    from lazarus import themes as themes_mod
+    names = themes_mod.ordered_names()
+    theme_ctl.set_theme(names[1])
+    theme_panel.keyPressEvent(
+        _key_event(Qt.Key.Key_Less, Qt.KeyboardModifier.AltModifier))
+    assert themes_mod.current_name() == names[0]
+
+
+def test_keypress_alt_greater_cycles_theme_next(theme_panel, theme_ctl, qapp):
+    from lazarus import themes as themes_mod
+    names = themes_mod.ordered_names()
+    theme_ctl.set_theme(names[0])
+    theme_panel.keyPressEvent(
+        _key_event(Qt.Key.Key_Greater, Qt.KeyboardModifier.AltModifier))
+    assert themes_mod.current_name() == names[1]
+
+
+def test_keypress_ctrl_less_does_not_cycle_theme(theme_panel, theme_ctl, qapp):
+    """Guards the collision itself: Ctrl+< must NOT fire the theme
+    binding immediately (it's swallowed into the 'C-<enter>' chord
+    prefix instead) -- this is exactly why the binding uses Alt."""
+    from lazarus import themes as themes_mod
+    names = themes_mod.ordered_names()
+    theme_ctl.set_theme(names[1])
+    theme_panel.keyPressEvent(
+        _key_event(Qt.Key.Key_Less, Qt.KeyboardModifier.ControlModifier))
+    assert themes_mod.current_name() == names[1]  # unchanged -- still buffered
+    assert theme_panel._prefix == 'C-<'
+
+
+def test_keypress_t_h_chord_opens_theme_bar(theme_panel, theme_ctl, qapp):
+    # 't' alone is a registered prefix (t t / t m / t h all start with
+    # it) -- the first press should be swallowed into _prefix, not
+    # dispatched, then 'h' completes the chord to 't h'.
+    theme_panel.keyPressEvent(_key_event(Qt.Key.Key_T))
+    assert theme_panel._prefix == 't'
+    assert theme_ctl.command_bar.mode != 'theme'  # not yet
+
+    theme_panel.keyPressEvent(_key_event(Qt.Key.Key_H))
+    assert theme_ctl.command_bar.mode == 'theme'
+    assert theme_panel._prefix == ''  # consumed

@@ -17,10 +17,17 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
+import json
+import logging
+from pathlib import Path
+
+from PyQt6.QtCore import QStandardPaths
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
 from . import settings as _settings  # for hover blend toward theme fg
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -461,13 +468,221 @@ gruvbox_dark_hard['bg'] = gruvbox_p['dark0_hard']
 gruvbox_dark_soft['bg'] = gruvbox_p['dark0_soft']
 
 
+# ---------------------------------------------------------------------------
+# Terminal-style theme import (Ghostty / iTerm2-Color-Schemes and similar)
+# ---------------------------------------------------------------------------
+#
+# A "terminal-style" theme entry has 16 numbered ANSI colors plus a handful
+# of named colors (background/foreground/cursor/selection) -- the shape
+# used by Ghostty, Alacritty, iTerm2, Windows Terminal, etc. It has no
+# concept of Lazarus's semantic keys (fg_link, bg_highlight, ...), so
+# importing one is a best-effort heuristic mapping, not a lossless
+# translation. `settings.theme_overrides` lets a user hand-correct specific
+# keys per theme name without editing the source pack.
+#
+# Expected shape of one entry (extra/missing optional keys are tolerated):
+#   {
+#     "name": "Dracula",
+#     "background": "#282a36",
+#     "foreground": "#f8f8f2",
+#     "cursor-color": "#f8f8f2",           # optional
+#     "selection-background": "#44475a",   # optional
+#     "selection-foreground": "#ffffff",   # optional
+#     "palette": {"0": "#21222c", "1": "#ff5555", ..., "15": "#ffffff"}
+#   }
+
+_REQUIRED_TERMINAL_KEYS = ('name', 'background', 'foreground', 'palette')
+_REQUIRED_PALETTE_INDICES = [str(i) for i in range(16)]
+
+
+def _validate_terminal_entry(entry: dict, source: str) -> list[str]:
+    """Return a list of human-readable problems with *entry*, or []."""
+    errors = []
+    for key in _REQUIRED_TERMINAL_KEYS:
+        if key not in entry:
+            errors.append(f"{source}: missing required key '{key}'")
+    palette = entry.get('palette')
+    if isinstance(palette, dict):
+        missing_idx = [i for i in _REQUIRED_PALETTE_INDICES if i not in palette]
+        if missing_idx:
+            name = entry.get('name', '?')
+            errors.append(
+                f"{source}: theme '{name}' palette missing indices "
+                f"{', '.join(missing_idx)}")
+    elif 'palette' in entry:
+        name = entry.get('name', '?')
+        errors.append(f"{source}: theme '{name}' 'palette' must be an object")
+    return errors
+
+
+def terminal_theme_to_lazarus(entry: dict) -> dict:
+    """Heuristically map a terminal-style theme entry to a Lazarus theme
+    dict. Caller is expected to have validated *entry* already.
+
+    This is a best-effort default, not a precise translation -- terminal
+    palettes have no notion of e.g. "link color" or "highlight color".
+    Use `settings.theme_overrides[name]` to hand-correct specific keys.
+    """
+    pal = entry['palette']
+    bg = entry['background']
+    fg = entry['foreground']
+    is_dark = QColor(bg).lightness() < 128
+
+    def pick(*indices: str, default: str) -> str:
+        for i in indices:
+            if i in pal:
+                return pal[i]
+        return default
+
+    theme = {
+        'bg': bg,
+        'fg': fg,
+        'fg_dim': pick('8', default=fg),                    # bright black
+        'fg_bright': pick('15', '7', default=fg),            # bright/plain white
+        'fg_good': pick('10', '2', default=fg),               # bright/plain green
+        'fg_bad': pick('9', '1', default=fg),                  # bright/plain red
+        'fg_link': pick('12', '4', '14', '6', default=fg),    # blue, else cyan
+        'fg_button': fg,
+        'bg_highlight': entry.get('selection-background') or pick('4', default=fg),
+        'fg_highlight': entry.get('selection-foreground') or bg,
+    }
+    bg_c = QColor(bg)
+    theme['bg_alt'] = bg_c.lighter(125).name() if is_dark else bg_c.darker(106).name()
+    theme['bg_button'] = bg_c.lighter(150).name() if is_dark else bg_c.darker(112).name()
+    return theme
+
+
+def _builtin_pack_path() -> Path:
+    return Path(__file__).parent / 'theme_packs' / 'builtin.json'
+
+
+def _user_theme_dir() -> Path:
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+    return Path(base) / 'lazarus' / 'themes'
+
+
+def load_theme_pack(path: Path | str) -> tuple[dict[str, dict], list[str]]:
+    """Load one JSON theme-pack file (a list of terminal-style entries).
+
+    Returns (mapped_themes, errors). A malformed individual entry is
+    skipped (with an error recorded) rather than failing the whole file,
+    so one bad theme in a 600-entry pack doesn't take out the rest.
+    """
+    path = Path(path)
+    themes: dict[str, dict] = {}
+    errors: list[str] = []
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as e:
+        return {}, [f"{path}: could not read/parse JSON ({e})"]
+
+    if not isinstance(raw, list):
+        return {}, [f"{path}: expected a JSON list of theme objects"]
+
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            errors.append(f"{path}[{i}]: expected an object")
+            continue
+        entry_errors = _validate_terminal_entry(entry, f"{path}[{i}]")
+        if entry_errors:
+            errors.extend(entry_errors)
+            continue
+        themes[entry['name']] = terminal_theme_to_lazarus(entry)
+    return themes, errors
+
+
+def _apply_overrides(registry: dict[str, dict]) -> None:
+    """Apply `settings.theme_overrides[name]` on top of matching REGISTRY
+    entries, in place. Unknown theme names are logged and skipped (not a
+    hard error -- a typo here shouldn't block startup)."""
+    overrides = getattr(_settings, 'theme_overrides', None)
+    if not overrides:
+        return
+    for name, keys in overrides.items():
+        if name not in registry:
+            logger.warning(
+                "theme_overrides: no theme named %r in registry -- skipping", name)
+            continue
+        registry[name] = {**registry[name], **keys}
+
+
+def build_registry() -> dict[str, dict]:
+    """Assemble the full set of selectable themes:
+
+    1. Hand-written Python themes (this module) -- always win on a name
+       collision, since they're specifically tuned rather than heuristically
+       mapped.
+    2. The bundled JSON pack (`theme_packs/builtin.json`).
+    3. User packs (`~/.config/lazarus/themes/*.json`) -- override same-named
+       bundled entries, so a user can drop in a corrected copy of a theme.
+    4. `settings.theme_overrides`, applied last, per-key, on top of whatever
+       won above.
+
+    Problems (malformed files/entries) are logged as warnings; they never
+    prevent startup -- worst case, some themes are simply unavailable.
+    """
+    registry: dict[str, dict] = {
+        'nord': nord,
+        'solarized_dark': solarized_dark,
+        'solarized_light': solarized_light,
+        'catppuccin_macchiato': catppuccin_macchiato,
+        'gruvbox_light': gruvbox_light,
+        'gruvbox_light_hard': gruvbox_light_hard,
+        'gruvbox_light_soft': gruvbox_light_soft,
+        'gruvbox_dark': gruvbox_dark,
+        'gruvbox_dark_hard': gruvbox_dark_hard,
+        'gruvbox_dark_soft': gruvbox_dark_soft,
+    }
+    builtin_names = set(registry)
+
+    builtin_pack = _builtin_pack_path()
+    if builtin_pack.exists():
+        mapped, errors = load_theme_pack(builtin_pack)
+        for msg in errors:
+            logger.warning("theme pack: %s", msg)
+        for name, theme in mapped.items():
+            if name in builtin_names:
+                continue  # hand-tuned Python theme wins
+            registry[name] = theme
+    else:
+        logger.warning("bundled theme pack not found at %s", builtin_pack)
+
+    user_dir = _user_theme_dir()
+    if user_dir.is_dir():
+        for path in sorted(user_dir.glob('*.json')):
+            mapped, errors = load_theme_pack(path)
+            for msg in errors:
+                logger.warning("theme pack: %s", msg)
+            for name, theme in mapped.items():
+                if name in builtin_names:
+                    continue  # hand-tuned Python theme still wins
+                registry[name] = theme
+
+    _apply_overrides(registry)
+    return registry
+
+
+REGISTRY: dict[str, dict] = {}
+"""Every selectable theme, by name: hand-written + bundled pack + user
+packs + overrides. Populated by `build_registry()` -- call that once
+config.py has run (so `settings.theme_overrides` is available), and again
+if the user's theme directory changes."""
+
+
 def apply_theme(theme: dict) -> None:
     """"Apply the given theme to GUI components
 
-    This is called when :class:`~lazarus.app.Dodo` is initialised."""
+    This is called when :class:`~lazarus.app.Dodo` is initialised, and
+    again on every live theme switch (`set_theme`)."""
 
-    # Force the style to be the same on all OSs:
-    QApplication.setStyle("Fusion")
+    # Force the style to be the same on all OSs -- but only the first
+    # time. Re-invoking QApplication.setStyle() on every live switch is
+    # both pointless (the style name itself never changes, only the
+    # palette/stylesheet do) and has been observed to be unstable once
+    # QWebEngineView-bearing windows already exist.
+    style = QApplication.style()
+    if style is not None and style.objectName().lower() != "fusion":
+        QApplication.setStyle("Fusion")
     # Now use a palette to switch to theme colors:
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor(theme['bg']))
@@ -491,3 +706,116 @@ def apply_theme(theme: dict) -> None:
     inst = QApplication.instance()
     if isinstance(inst, QApplication):
         inst.setStyleSheet(build_global_stylesheet(theme))
+
+
+# ---------------------------------------------------------------------------
+# Live theme switching + persistence
+# ---------------------------------------------------------------------------
+
+_BUILTIN_ORDER = [
+    'nord', 'solarized_dark', 'solarized_light', 'catppuccin_macchiato',
+    'gruvbox_light', 'gruvbox_light_hard', 'gruvbox_light_soft',
+    'gruvbox_dark', 'gruvbox_dark_hard', 'gruvbox_dark_soft',
+]
+
+_QSETTINGS_ORG = 'lazarus'
+_QSETTINGS_APP = 'lazarus'
+_QSETTINGS_KEY = 'last_theme_name'
+
+_current_name: str | None = None
+"""Name of the currently-applied theme, if it came from REGISTRY (i.e.
+was set via `set_theme`). None if `settings.theme` was set some other
+way (e.g. directly assigned a raw dict in config.py)."""
+
+
+class ThemeError(Exception):
+    """Raised by `set_theme` when asked for a name not in REGISTRY."""
+
+
+def ordered_names(registry: dict[str, dict] | None = None) -> list[str]:
+    """Stable cycling order: hand-written Python themes first (in the
+    order above), then everything else alphabetically."""
+    reg = REGISTRY if registry is None else registry
+    hand_written = [n for n in _BUILTIN_ORDER if n in reg]
+    rest = sorted(n for n in reg if n not in _BUILTIN_ORDER)
+    return hand_written + rest
+
+
+def current_name() -> str | None:
+    return _current_name
+
+
+def _find_name_for(theme: dict, registry: dict[str, dict]) -> str | None:
+    """Best-effort reverse lookup: find a REGISTRY name whose dict *is*
+    (identity, not equality -- cheap and avoids false positives between
+    accidentally-identical themes) the given theme dict."""
+    for name, t in registry.items():
+        if t is theme:
+            return name
+    return None
+
+
+def _save_last_theme_name(name: str) -> None:
+    from PyQt6.QtCore import QSettings
+    QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).setValue(_QSETTINGS_KEY, name)
+
+
+def load_last_theme_name() -> str | None:
+    from PyQt6.QtCore import QSettings
+    val = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP).value(_QSETTINGS_KEY)
+    return val if isinstance(val, str) and val else None
+
+
+def resolve_initial_theme() -> dict:
+    """Called once at startup, after `build_registry()` has populated
+    REGISTRY and config.py has run (so `settings.theme` reflects
+    whatever the user's config.py set).
+
+    Prefers a remembered theme name (from a previous live switch) over
+    config.py's default, if that name still resolves in the current
+    REGISTRY -- e.g. it survives a Lazarus upgrade unless the theme was
+    actually removed/renamed.
+    """
+    global _current_name
+    remembered = load_last_theme_name()
+    if remembered is not None and remembered in REGISTRY:
+        _current_name = remembered
+        _settings.theme = REGISTRY[remembered]
+        return _settings.theme
+
+    # No usable remembered name -- fall back to whatever config.py set,
+    # and try to identify its name (for cycling to start from the right
+    # place) via identity lookup.
+    _current_name = _find_name_for(_settings.theme, REGISTRY)
+    return _settings.theme
+
+
+def set_theme(theme: str | dict) -> dict:
+    """Look up *theme* (by name in REGISTRY, or use directly if already
+    a dict), apply it live, and persist the choice for next launch.
+
+    Rebinds `settings.theme` to a *new* dict object rather than mutating
+    the existing one in place -- `style.py`'s color/glyph caches are
+    keyed on `id(settings.theme)` / the actual color values, so a
+    rebind is what makes them self-invalidate without an explicit hook.
+
+    :raises ThemeError: if *theme* is a string not found in REGISTRY.
+    :returns: the resolved theme dict that was applied.
+    """
+    global _current_name
+    if isinstance(theme, str):
+        if theme not in REGISTRY:
+            raise ThemeError(f"no such theme: {theme!r}")
+        resolved = REGISTRY[theme]
+        name: str | None = theme
+    else:
+        resolved = theme
+        name = _find_name_for(theme, REGISTRY)
+
+    _settings.theme = resolved
+    apply_theme(resolved)
+    _current_name = name
+    if name is not None:
+        _save_last_theme_name(name)
+    return resolved
+

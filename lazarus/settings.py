@@ -313,7 +313,28 @@ theme = themes.nord
 
 A theme is a dictionary mapping a dozen or so named colors to HEX values.
 Several themes are defined in `lazarus.themes`, based on the popular Nord,
-Solarized and Gruvbox color palettes.
+Solarized and Gruvbox color palettes. Hundreds more are available by name
+(e.g. ``themes.REGISTRY['Dracula']``) via the bundled terminal-theme
+library and any packs found in ``~/.config/lazarus/themes/*.json`` -- see
+`lazarus.themes.build_registry`.
+"""
+
+theme_overrides: Dict[str, Dict[str, str]] = {}
+"""Per-theme color corrections, keyed by theme name.
+
+Terminal-style themes (the bundled library and any user JSON packs) are
+mapped to Lazarus's color keys by a best-effort heuristic -- it won't
+always pick the color you'd choose by hand. Use this to override specific
+keys for a specific theme by name, without editing the source pack::
+
+    theme_overrides = {
+        'Dracula': {
+            'fg_link': '#8be9fd',
+            'bg_alt': '#21222c',
+        },
+    }
+
+Only the listed keys are overridden; everything else stays as mapped.
 """
 
 search_font = 'DejaVu Sans Mono'

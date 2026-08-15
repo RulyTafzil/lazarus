@@ -88,7 +88,7 @@ global_keymap: Keymap = {
 
   # ── Global ───────────────────────────────────────────────────────
   '?':           ('show help', lambda a: a.show_help()),
-  'C-q':           ('quit', lambda a: a.prompt_quit()),
+  'Q':           ('quit', lambda a: a.prompt_quit()),
   '`':           ('sync mail', lambda a: a.sync_mail(quiet=False)),
   'C-r':         ('apply filter rules', lambda a: a.apply_filter_rules()),
   'l':           ('next panel', lambda a: a.next_panel()),
@@ -104,6 +104,9 @@ global_keymap: Keymap = {
   'C-/':         ('edit search query', lambda a: a.edit_search_query()),
   't t':         ('tag', lambda a: a.tag_bar()),
   't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
+  't h':         ('theme', lambda a: a.theme_bar()),
+  'M-<':         ('previous theme', lambda a: a.cycle_theme(-1)),
+  'M->':         ('next theme', lambda a: a.cycle_theme(1)),
 }
 """The global keymap
 
