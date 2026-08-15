@@ -307,14 +307,16 @@ def test_default_map_covers_theme_keys():
             | {'bg_alt', 'bg_button'}) == set(themes.THEME_KEYS)
 
 
-def test_template_lists_every_key_with_heuristic():
+def test_template_lists_every_key_in_commented_heuristic():
     tpl = themes.render_override_template()
+    assert '# default_heuristic = {' in tpl
     for key in themes.THEME_KEYS:
-        assert f'#   {key}' in tpl, f'key {key} missing from template'
-    # the heuristic chain is rendered, not just the key name
-    assert 'palette 8' in tpl
-    assert "lazarus 'fg'" in tpl
-    assert 'theme_overrides = {' in tpl  # commented block present
+        assert f"#     '{key}': " in tpl, f'key {key} missing from template'
+    # defaults are rendered in the value vocabulary, not just names
+    assert "palette 8" in tpl                       # fg_dim default
+    assert "'bg_alt': background, computed," in tpl  # computed key
+    assert "else fg," in tpl                         # chain fallback shown
+    assert 'theme_overrides = {' in tpl  # per-theme block present
 
 
 def test_write_colormap_template_creates_once(tmp_path):
@@ -465,6 +467,16 @@ def test_default_heuristic_flows_through_build_registry(tmp_path, monkeypatch):
     assert registry['Dracula']['fg_subject'] == DRACULA_ENTRY['palette']['2']
     assert registry['Dracula']['fg_link'] == themes.terminal_theme_to_lazarus(
         DRACULA_ENTRY)['fg_link']  # default for other keys
+
+
+def test_default_heuristic_can_override_computed_keys():
+    """bg_alt/bg_button are computed from bg, but default_heuristic can
+    still replace them (every key in the template is functional)."""
+    dracula, _mono = _two_theme_entries()
+    d = themes.terminal_theme_to_lazarus(
+        dracula, {'bg_alt': 8, 'bg_button': 'selection-background'})
+    assert d['bg_alt'] == DRACULA_ENTRY['palette']['8']
+    assert d['bg_button'] == DRACULA_ENTRY['selection-background']
 
 
 def test_default_heuristic_bad_value_warns(caplog):

@@ -635,7 +635,9 @@ def _effective_terminal_map(user_heuristic: dict | None = None) -> dict:
     """The heuristic actually used to map pack entries: `DEFAULT_TERMINAL_MAP`
     merged with the user's `default_heuristic` entries (a user entry
     replaces the chain for that key; unknown keys and invalid values are
-    logged and keep their default)."""
+    logged and keep their default). 'bg_alt'/'bg_button' are not chained
+    (they are computed from 'bg') but accept a user entry that is
+    applied after the computation."""
     effective = dict(DEFAULT_TERMINAL_MAP)
     for key, value in (user_heuristic or {}).items():
         chain = _value_to_chain(value)
@@ -644,7 +646,7 @@ def _effective_terminal_map(user_heuristic: dict | None = None) -> dict:
                 "theme heuristic: %r -> %r is not a hex color, palette index "
                 "0-15, or named terminal color -- keeping default", key, value)
             continue
-        if key not in DEFAULT_TERMINAL_MAP:
+        if key not in DEFAULT_TERMINAL_MAP and key not in _COMPUTED_THEME_KEYS:
             logger.warning(
                 "theme heuristic: unknown Lazarus color key %r -- ignoring", key)
             continue
@@ -655,6 +657,11 @@ def _effective_terminal_map(user_heuristic: dict | None = None) -> dict:
             continue
         effective[key] = chain
     return effective
+
+
+# Keys derived from 'bg' after the chain mapping (lightened/darkened);
+# overridable via default_heuristic / theme_overrides.
+_COMPUTED_THEME_KEYS = ('bg_alt', 'bg_button')
 
 
 def terminal_theme_to_lazarus(entry: dict,
@@ -676,6 +683,8 @@ def terminal_theme_to_lazarus(entry: dict,
     effective = _effective_terminal_map(heuristic)
     theme: dict[str, str] = {}
     for key, chain in effective.items():
+        if key in _COMPUTED_THEME_KEYS:
+            continue  # computed from 'bg' below
         resolved = _resolve_chain(chain, entry, theme, entry['foreground'])
         assert resolved is not None  # default is always a str
         theme[key] = resolved
@@ -683,6 +692,11 @@ def terminal_theme_to_lazarus(entry: dict,
     is_dark = bg_c.lightness() < 128
     theme['bg_alt'] = bg_c.lighter(125).name() if is_dark else bg_c.darker(106).name()
     theme['bg_button'] = bg_c.lighter(150).name() if is_dark else bg_c.darker(112).name()
+    for key in _COMPUTED_THEME_KEYS:
+        if key in effective:  # user heuristic overrides the computation
+            resolved = _resolve_chain(effective[key], entry, theme, theme[key])
+            assert resolved is not None
+            theme[key] = resolved
     return theme
 
 
@@ -875,31 +889,35 @@ def build_registry() -> dict[str, dict]:
 # terminal-theme palettes feed Lazarus's semantic colors.
 
 def render_override_template() -> str:
-    """Render the starter colormap.py: every Lazarus color key with its
-    built-in heuristic chain, plus a commented `theme_overrides` block.
-    Generated from `DEFAULT_TERMINAL_MAP`/`THEME_KEYS`, so it always
-    matches the code."""
+    """Render the starter colormap.py: a commented-out
+    `default_heuristic` block listing every Lazarus color key with its
+    built-in default, plus a commented `theme_overrides` block for
+    per-theme exceptions. Generated from `DEFAULT_TERMINAL_MAP` /
+    `THEME_KEYS`, so it always matches the code."""
 
-    def chain_text(key: str) -> str:
+    def default_text(key: str) -> str:
+        """Human-readable built-in default for one key, in the same
+        value vocabulary users type (bare named colors / lazarus keys,
+        'palette N' for indices)."""
+        if key in ('bg_alt', 'bg_button'):
+            return 'background, computed'
         parts = []
         for kind, value in DEFAULT_TERMINAL_MAP[key]:
             if kind == 'named':
                 parts.append(value)
             elif kind == 'palette':
                 parts.append(f'palette {value}')
-            else:
-                parts.append(f"lazarus '{value}'")
-        return ' <- ' + ', else '.join(parts)
+            else:  # 'key' -- another Lazarus key, shown bare
+                parts.append(value)
+        return ', else '.join(parts)
 
     lines = [
         '# Lazarus theme color map',
         '# =======================',
         '# Auto-created on first run in ~/.config/lazarus/themes/. Terminal-style',
         '# theme packs (the bundled 602-theme library, or your own *.json packs in',
-        '# this directory) are mapped onto Lazarus\'s semantic color keys by the',
-        '# built-in heuristic below. Uncomment a theme and override any key; the',
-        '# result is merged over settings.theme_overrides from config.py (per key,',
-        '# this file wins).',
+        '# this directory) are mapped onto Lazarus\'s 19 semantic color keys by the',
+        '# heuristic below. Uncomment the block, change any value, restart.',
         '#',
         '# Each value can be:',
         "#   - a hex color:            'fg_link': '#8be9fd'",
@@ -909,28 +927,19 @@ def render_override_template() -> str:
         '#                                selection-foreground)',
         "#   - another Lazarus key:    'fg_date': 'fg_dim'",
         '#',
-        '# Built-in heuristic per key (first match wins):',
-    ]
-    for key in THEME_KEYS:
-        if key in ('bg_alt', 'bg_button'):
-            lines.append(
-                f'#   {key:<22} <- background, computed (lightened/darkened)')
-        else:
-            lines.append(f'#   {key:<22}{chain_text(key)}')
-    lines += [
-        '#',
-        '# To replace a heuristic line for EVERY theme, edit',
-        '# default_heuristic below (same value forms as theme_overrides):',
+        '# Built-in default per key (first match wins):',
         '#',
         '# default_heuristic = {',
-        "#     'fg_subject': 2,               # palette green, every theme",
-        "#     'fg_tags': 'foreground',",
+    ]
+    for key in THEME_KEYS:
+        lines.append(f"#     '{key}': {default_text(key)},")
+    lines += [
         '# }',
         '#',
         '# Per-theme exceptions run after the heuristic and win:',
         '#',
         '# theme_overrides = {',
-        '#     # \'Dracula\': {',
+        "#     # 'Dracula': {",
         "#     #     'fg_subject_unread': 3,       # palette yellow",
         '#     # },',
         '# }',
