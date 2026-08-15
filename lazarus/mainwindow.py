@@ -17,13 +17,13 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from PyQt6.QtCore import QByteArray, QSettings, QTimer, Qt
+from PyQt6.QtCore import QByteArray, QRect, QSettings, QTimer, Qt
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMainWindow,
     QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout,
-    QWidget,
+    QWidget, QTabBar,
 )
-from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent
+from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QMouseEvent, QPalette, QResizeEvent, QShowEvent, QPainter, QPixmap
 import logging
 import math
 import os
@@ -103,6 +103,47 @@ class _BarBox(QFrame):
         if e is not None:
             e.accept()
 
+class WatermarkTabWidget(QTabWidget):
+    """QTabWidget that paints a right-aligned watermark to the right of
+    the tab bar.
+
+    QTabBar sizes itself to its tabs (its sizeHint), not to the full
+    width of the QTabWidget — the "empty" space to the right of the
+    tabs belongs to the QTabWidget itself, not the tab bar. So this
+    paints on the tab widget, clipped to the strip right of
+    ``tabBar().geometry()``. As tabs accumulate and the bar widens,
+    that strip shrinks and the watermark is naturally covered.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._text = "Lazarus"
+
+    def paintEvent(self, e) -> None:
+        super().paintEvent(e)          # tabs + base background paint first
+
+        bar = self.tabBar()
+        if bar is None:
+            return
+        bar_geo = bar.geometry()
+        empty_rect = QRect(bar_geo.right(), bar_geo.top(),
+                            self.width() - bar_geo.right(), bar_geo.height())
+        if empty_rect.width() <= 0:
+            return                      # tab bar already fills the row
+
+        painter = QPainter(self)
+        painter.setClipRect(empty_rect)   # never touch the tab pixels
+        painter.setOpacity(0.12)
+        painter.setPen(QColor(settings.theme['fg_dim']))
+        font = painter.font()
+        font.setPointSize(font.pointSize() + 6)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            empty_rect.adjusted(0, 0, -12, 0),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            self._text)
+        painter.end()
 
 class MainWindow(QMainWindow):
     def __init__(self, a: "Dodo | AppController"):
@@ -146,7 +187,7 @@ class MainWindow(QMainWindow):
         w_layout.addWidget(self.main_splitter, stretch=1)
 
         # List side: tabs (searches, compose, tags)
-        self.tabs = QTabWidget()
+        self.tabs = WatermarkTabWidget()
         self.tabs.setMinimumWidth(220)
         self.tabs.setMinimumHeight(220)
         self.tabs.setFocusPolicy(Qt.FocusPolicy.NoFocus)
