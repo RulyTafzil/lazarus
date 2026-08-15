@@ -337,6 +337,8 @@ def test_theme_bar_opens_with_theme_mode(theme_ctl, qapp):
     assert theme_ctl.command_bar.label.text() == 'theme'
     # 'theme:' is prefilled so the user just types the name
     assert theme_ctl.command_bar.toPlainText() == 'theme:'
+    # cursor sits after the prefill, ready to type the name
+    assert theme_ctl.command_bar.textCursor().position() == len('theme:')
 
 
 def test_theme_bar_accepts_theme_colon_syntax(theme_ctl, qapp):

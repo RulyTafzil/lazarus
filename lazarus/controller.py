@@ -650,8 +650,10 @@ class AppController(QObject):
                 self.set_theme(name)
 
         self.command_bar.open('theme', callback)
-        # Prefill the 'theme:' prefix so the user just types the name.
+        # Prefill the 'theme:' prefix so the user just types the name,
+        # with the cursor after it (setPlainText resets to the start).
         self.command_bar.setPlainText('theme:')
+        self.command_bar._cursor_to_end()
 
     def update_single_thread(self, thread_id: str, msg_id: str | None = None) -> None:
         from . import panel as panel_mod
