@@ -14,6 +14,18 @@ def _make_panel(qapp, mode='', msg=None, **kw):
     return p
 
 
+def _make_panel_with_address(qapp, email_address):
+    """ComposePanel with a pre-set email_address (combo items are fixed
+    at construction, so the address must be set before building)."""
+    from unittest.mock import MagicMock
+    settings.email_address = email_address
+    p = ComposePanel(MagicMock())
+    p.resize(600, 500)
+    p.show()
+    qapp.processEvents()
+    return p
+
+
 def test_cc_and_bcc_rows_hidden_by_default(qapp):
     p = _make_panel(qapp)
     assert not p.cc_row.isVisible()
@@ -35,12 +47,13 @@ def _row_label(field) -> str:
 
 
 def test_fields_have_left_labels(qapp):
-    """To/Cc/Bcc/Subject show real labels left of the input fields."""
+    """To/Cc/Bcc/Subject/From show real labels left of the inputs."""
     p = _make_panel(qapp)
     assert _row_label(p.to_field) == 'To:'
     assert _row_label(p.subject_field) == 'Subject:'
     assert _row_label(p.cc_field) == 'Cc:'
     assert _row_label(p.bcc_field) == 'Bcc:'
+    assert _row_label(p.from_combo) == 'From:'
     # Placeholders are redundant now that labels exist.
     assert p.to_field.placeholderText() == ''
     assert p.subject_field.placeholderText() == ''
@@ -182,31 +195,67 @@ def test_send_bound_only_to_cs(qapp):
 
 
 def test_account_cycle_wraps_and_updates_from(qapp):
-    """next/previous_account cycle through smtp_accounts with wrap-around
-    and update the From address (exercises _cycle_account)."""
+    """[ / ] cycle through smtp_accounts with wrap-around, and the From
+    dropdown selection follows the current account."""
     settings.smtp_accounts = ['a', 'b', 'c']
     settings.use_signature = False
-    p = _make_panel(qapp)
-    # _make_panel sets a plain string address; switch to a per-account
-    # dict and re-render the From label before cycling.
+    # Set the per-account dict BEFORE building the panel: the combo's
+    # items are fixed at construction time.
     settings.email_address = {
         'a': 'A <a@example.com>',
         'b': 'B <b@example.com>',
         'c': 'C <c@example.com>',
     }
-    p.refresh()
+    p = _make_panel_with_address(qapp, settings.email_address)
     assert p.current_account == 0
-    assert 'a@example.com' in p.from_label.text()
+    assert p.from_combo.currentIndex() == 0
+    assert 'a@example.com' in p.from_combo.currentText()
 
     p.next_account()
     assert p.current_account == 1
-    assert 'b@example.com' in p.from_label.text()
+    assert p.from_combo.currentIndex() == 1
+    assert 'b@example.com' in p.from_combo.currentText()
     p.next_account()
     assert p.current_account == 2
-    assert 'c@example.com' in p.from_label.text()
+    assert p.from_combo.currentIndex() == 2
     p.next_account()  # wraps to 0
     assert p.current_account == 0
-    assert 'a@example.com' in p.from_label.text()
+    assert p.from_combo.currentIndex() == 0
     p.previous_account()  # wraps to 2
     assert p.current_account == 2
-    assert 'c@example.com' in p.from_label.text()
+    assert p.from_combo.currentIndex() == 2
+
+
+def test_from_combo_switches_account(qapp):
+    """Picking an item in the From dropdown switches account (the mouse
+    path, mirroring [ / ])."""
+    settings.smtp_accounts = ['a', 'b']
+    settings.use_signature = False
+    settings.email_address = {
+        'a': 'A <a@example.com>',
+        'b': 'B <b@example.com>',
+    }
+    p = _make_panel_with_address(qapp, settings.email_address)
+    assert p.from_combo.currentText() == 'A <a@example.com>'
+
+    p.from_combo.setCurrentIndex(1)
+    assert p.current_account == 1
+    assert p.from_combo.currentText() == 'B <b@example.com>'
+    assert 'b@example.com' in p._data.from_addr
+
+    p.from_combo.setCurrentIndex(0)
+    assert p.current_account == 0
+    assert 'a@example.com' in p._data.from_addr
+
+
+def test_from_combo_prefixes_duplicate_addresses(qapp):
+    """When accounts share one address (plain-string config), the account
+    name prefixes the dropdown text so choices stay distinguishable."""
+    settings.smtp_accounts = ['gmail', 'work']
+    settings.use_signature = False
+    p = _make_panel_with_address(
+        qapp, 'Same <s@example.com>')  # same for every account
+    items = [p.from_combo.itemText(i)
+             for i in range(p.from_combo.count())]
+    assert items[0].startswith('gmail ·')
+    assert items[1].startswith('work ·')

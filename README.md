@@ -86,7 +86,7 @@ Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-tri
 * address autocomplete drawn from your notmuch mail history
 * attachments via `a`
 * per-account signatures, auto-inserted based on which account you're sending from (`~/.config/dodo/<account>/signature[.html]`)
-* switching between configured SMTP accounts with `[` / `]`
+* switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)
 
 `C-s` sends. `<escape>` toggles focus between the editor and the rest of the compose panel's chrome (subject, to/cc/from fields, etc).

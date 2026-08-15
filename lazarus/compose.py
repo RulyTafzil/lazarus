@@ -22,8 +22,8 @@ from typing import Optional, List
 from PyQt6.QtCore import QEvent, QObject, QTimer, Qt
 from PyQt6.QtGui import QFont, QFontMetrics, QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
-    QVBoxLayout, QWidget,
+    QComboBox, QFileDialog, QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QPushButton, QVBoxLayout, QWidget,
 )
 import subprocess
 import tempfile
@@ -77,7 +77,7 @@ class ComposePanel(panel.Panel):
         fm = QFontMetrics(QFont(settings.message_font, self._field_font_size))
         self._label_width = max(
             fm.horizontalAdvance(t)
-            for t in ('To:', 'Cc:', 'Bcc:', 'Subject:')) + 8
+            for t in ('To:', 'Cc:', 'Bcc:', 'Subject:', 'From:')) + 8
 
         # ── Structured compose data ──────────────────────────────────
         self._data = mime_builder.ComposeData()
@@ -156,18 +156,6 @@ class ComposePanel(panel.Panel):
             return
         lay.setSpacing(4)
 
-        # --- Account + From header row (header visual: bg_alt, inset 4px left) ---
-        self.account_label = QLabel()
-        self.account_label.setStyleSheet(
-            f'color: {settings.theme["fg_good"]}; font-weight: bold;')
-        self.status_label = QLabel()
-        self.from_label = QLabel()
-        # From reads like header text — fg_dim on header bg, same padding as QHeaderView::section
-        self.from_label.setStyleSheet(
-            f'color: {settings.theme["fg_dim"]}; padding: 2px 4px;')
-        # Single row: account | From | status, with left inset matching QTreeView::item (4px)
-        lay.addWidget(self._make_header_bar())
-
         # --- To field ---
         self.to_field = QLineEdit()
         self.to_field.setStyleSheet(self._field_style())
@@ -208,6 +196,22 @@ class ComposePanel(panel.Panel):
         self.subject_field.setStyleSheet(self._field_style())
         lay.addWidget(self._make_field_row('Subject:', self.subject_field))
 
+        # --- From row: account picker (dropdown) + PGP/send status ---
+        # One item per smtp_accounts entry; selecting an item switches
+        # account (same path as the [ / ] keys).
+        self.status_label = QLabel()
+        self.from_combo = QComboBox()
+        self.from_combo.setStyleSheet(self._combo_style())
+        for i in range(len(settings.smtp_accounts)):
+            self.from_combo.addItem(self._account_display(i), i)
+        self.from_combo.setCurrentIndex(self.current_account)
+        self.from_combo.currentIndexChanged.connect(self._on_from_combo_changed)
+        from_row = self._make_field_row('From:', self.from_combo)
+        row_lay = from_row.layout()
+        assert row_lay is not None
+        row_lay.addWidget(self.status_label)
+        lay.addWidget(from_row)
+
         # --- Editor toolbar + editor ---
         self.editor = editor_mod.RichTextEditor(self)
         self.format_bar = self.editor.formatting_toolbar()
@@ -227,26 +231,6 @@ class ComposePanel(panel.Panel):
         # Intercept compose command keys before QTextEdit can eat them
         self.editor.installEventFilter(self)
 
-    def _make_header_bar(self) -> QWidget:
-        """Build the top header row: Account | From | PGP status.
-
-        Keeps the panel's normal bg (no header_bg override). Layout:
-        4px left inset (matches QTreeView::item / QHeaderView::section),
-        Account | From | stretch | PGP status.
-        """
-        bar = QWidget()
-        hlay = QHBoxLayout()
-        hlay.setContentsMargins(4, 2, 4, 2)
-        bar.setLayout(hlay)
-        hlay.addWidget(self.account_label)
-        self._from_sep = QLabel(' · ')
-        self._from_sep.setStyleSheet(f'color: {settings.theme["fg_dim"]};')
-        hlay.addWidget(self._from_sep)
-        hlay.addWidget(self.from_label)
-        hlay.addStretch()
-        hlay.addWidget(self.status_label)
-        return bar
-
     def _make_label(self, text: str) -> QLabel:
         """A right-aligned field label (fixed width so all input boxes
         share a left edge)."""
@@ -261,7 +245,47 @@ class ComposePanel(panel.Panel):
         )
         return lbl
 
-    def _make_field_row(self, label: str, field: QLineEdit) -> QWidget:
+    def _account_display(self, idx: int) -> str:
+        """Dropdown text for account *idx*: its address (which already
+        carries the display name), with the account name prefixed when
+        several accounts share the same address so the choices stay
+        distinguishable."""
+        addr = compose_model.email_for_account(idx)
+        others = [compose_model.email_for_account(j)
+                  for j in range(len(settings.smtp_accounts)) if j != idx]
+        if addr in others:
+            name = compose_model.account_name(idx)
+            return f'{name} · {addr}' if addr else name
+        return addr or compose_model.account_name(idx)
+
+    def _combo_style(self) -> str:
+        """Field-matching stylesheet for the From account dropdown,
+        with a CSS-triangle arrow (no image assets needed)."""
+        return (
+            f'QComboBox {{'
+            f' background-color: {settings.theme["bg"]};'
+            f' color: {settings.theme["fg_bright"]};'
+            f' border: 1px solid {settings.theme["bg_button"]};'
+            f' border-radius: 3px;'
+            f' padding: 3px 6px;'
+            f' font-family: {settings.message_font};'
+            f' font-size: {self._field_font_size}pt; }}'
+            f'QComboBox::drop-down {{ border: none; width: 20px; }}'
+            f'QComboBox::down-arrow {{'
+            f'  image: none;'
+            f'  border-left: 4px solid transparent;'
+            f'  border-right: 4px solid transparent;'
+            f'  border-top: 5px solid {settings.theme["fg_dim"]}; }}'
+            f'QComboBox QAbstractItemView {{'
+            f'  background-color: {settings.theme["bg"]};'
+            f'  color: {settings.theme["fg"]};'
+            f'  border: 1px solid {settings.theme["bg_button"]};'
+            f'  selection-background-color:'
+            f'    {settings.theme["bg_button"]};'
+            f'  selection-color: {settings.theme["fg_bright"]}; }}'
+        )
+
+    def _make_field_row(self, label: str, field: QWidget) -> QWidget:
         """A labeled input row: right-aligned label + field."""
         row = QWidget()
         hlay = QHBoxLayout(row)
@@ -294,23 +318,11 @@ class ComposePanel(panel.Panel):
 
     def refresh(self) -> None:
         """Refresh the compose panel display."""
-        # Account label
-        if len(settings.smtp_accounts) > 1:
-            parts = []
-            for i, acct in enumerate(settings.smtp_accounts):
-                if i == self.current_account:
-                    parts.append(f'[{acct}]')
-                else:
-                    parts.append(f' {acct} ')
-            self.account_label.setText(
-                f'Account: {"".join(parts)}')
-        else:
-            self.account_label.setText('')
+        # From / account picker needs no rebuild: the combo's items are
+        # fixed at construction and its selection tracks current_account
+        # (kept in sync by _cycle_account / the combo signal).
 
-        # From label
-        self.from_label.setText(f'From: {self.email_address()}')
-
-        # Status
+        # Status: PGP toggles (and transient send/error text from send()).
         pgp = []
         if self.pgp_sign:
             pgp.append('PGPSign')
@@ -561,18 +573,37 @@ class ComposePanel(panel.Panel):
         """Get the GPG key id for the current SMTP account."""
         return compose_model.gnupg_keyid_for_account(self.current_account)
 
-    def _cycle_account(self, delta: int) -> None:
-        """Cycle the SMTP account by *delta* (±1) and re-sync the
-        From/PGP/signature state for the new account."""
+    def _set_account(self, idx: int) -> None:
+        """Switch to SMTP account *idx* (dropdown selection or [ / ]).
+
+        Updates From/PGP/signature state.  No-ops when *idx* is already
+        current so the combo's ``currentIndexChanged`` (fired when the
+        selection is set programmatically) never double-switches.
+        """
+        if idx == self.current_account:
+            return
         old_email = self.email_address()
-        self.current_account = (self.current_account + delta) % len(
-            settings.smtp_accounts)
+        self.current_account = idx
         if self.email_address() != old_email:
             self._data.from_addr = self.email_address()
         self.pgp_sign = self.gnupg_keyid() is not None
         self._reload_signature()
         self._insert_signature()
         self.refresh()
+
+    def _on_from_combo_changed(self, idx: int) -> None:
+        """Account picked from the From dropdown."""
+        self._set_account(idx)
+
+    def _cycle_account(self, delta: int) -> None:
+        """Cycle the SMTP account by *delta* (±1) and keep the dropdown
+        selection in sync with the new account."""
+        idx = (self.current_account + delta) % len(settings.smtp_accounts)
+        self._set_account(idx)
+        if hasattr(self, 'from_combo'):
+            # Fires currentIndexChanged → _on_from_combo_changed →
+            # _set_account, which no-ops (account already current).
+            self.from_combo.setCurrentIndex(idx)
 
     def next_account(self) -> None:
         """Cycle to the next SMTP account."""
