@@ -468,3 +468,30 @@ def test_keypress_t_h_chord_opens_theme_bar(theme_panel, theme_ctl, qapp):
     theme_panel.keyPressEvent(_key_event(Qt.Key.Key_H))
     assert theme_ctl.command_bar.mode == 'theme'
     assert theme_panel._prefix == ''  # consumed
+
+
+def test_theme_completion_closes_popup_and_enter_applies(theme_ctl, qapp):
+    """Regression: after completing a theme the popup must be gone so
+    Enter issues the command -- accept() bails while the popup is
+    visible, which forced Esc+Enter before."""
+    from lazarus import themes as themes_mod
+    theme_ctl.main_window.tabs.show()  # popup visibility needs a shown parent
+    theme_ctl.theme_bar()
+    bar = theme_ctl.command_bar
+    bar.setPlainText('theme:dra')           # popup appears
+    assert bar.completer.popup().isVisible()
+    bar.completer.setCompletionPrefix('dra')
+    bar.handleCompletion('Dracula')         # fill in + close popup
+    assert not bar.completer.popup().isVisible()
+    assert bar.toPlainText() == 'theme:Dracula'
+    bar.accept()                            # issues the command, no Esc needed
+    assert themes_mod.current_name() == 'Dracula'
+
+
+def test_theme_exact_name_typing_does_not_open_popup(theme_ctl, qapp):
+    """Typing a full theme name manually doesn't pop the completer."""
+    bar = theme_ctl.command_bar
+    bar.open('theme', lambda t: None)
+    bar.setPlainText('theme:Dracula')       # exact match -> no popup
+    popup = bar.completer.popup()
+    assert popup is None or not popup.isVisible()

@@ -62,7 +62,11 @@ class _TagStore(QtCore.QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._loader: Optional[_TagLoader] = None
+        # Completed loaders are kept, never deleted mid-session: a QThread
+        # must not be destroyed while run() may still be winding down, and
+        # releasing the reference early invites a wrapper/delete race. They
+        # are tiny and there is at most one per CommandBar construction.
+        self._loaders: list[_TagLoader] = []
 
     def ensure_loaded(self) -> None:
         """Start a background fetch unless one is already in flight.
@@ -71,11 +75,12 @@ class _TagStore(QtCore.QObject):
         once the previous loader has finished; the result always lands
         asynchronously via :attr:`loaded` (never a blocking call).
         """
-        if self._loader is not None and self._loader.isRunning():
+        if self._loaders and self._loaders[-1].isRunning():
             return
-        self._loader = _TagLoader()
-        self._loader.loaded.connect(self._on_loaded)
-        self._loader.start()
+        loader = _TagLoader()
+        loader.loaded.connect(self._on_loaded)
+        self._loaders.append(loader)
+        loader.start()
 
     def _on_loaded(self, tags: list) -> None:
         self.loaded.emit(tags)
@@ -163,8 +168,18 @@ class CommandBar(QPlainTextEdit):
         return completer
 
     def _on_tags_loaded(self, tags: list) -> None:
-        """Populate the completer once the background tag fetch lands."""
-        self._tag_model.setStringList(tags)
+        """Populate the completer once the background tag fetch lands.
+
+        The bar can be destroyed while the fetch is in flight. Its
+        connection to the store is dropped automatically, but a queued
+        delivery can still land on a bar whose completer/model is
+        already gone -- PyQt then raises RuntimeError for the deleted
+        C++ object, which, unhandled inside a slot during event
+        delivery, aborts the process."""
+        try:
+            self._tag_model.setStringList(tags)
+        except RuntimeError:
+            pass  # bar was destroyed while the fetch was in flight
 
     def handleTextChanged(self, text: str) -> None:
         """Open suggestion dialog if a matching tag or theme name is
@@ -190,6 +205,15 @@ class CommandBar(QPlainTextEdit):
             model = self._tag_model
 
         if len(prefix) > 0:
+            # A complete, exact theme name (typed or just completed)
+            # needs no popup -- otherwise Enter re-activates the
+            # completion instead of issuing the command (accept() bails
+            # while the popup is visible). Tags don't hit this: their
+            # completion ends in a space, leaving an empty prefix.
+            if self.mode == 'theme' and any(
+                    n.casefold() == prefix.casefold()
+                    for n in self._theme_model.stringList()):
+                return
             if self.completer.model() is not model:
                 self.completer.setModel(model)
             self.completer.setCompletionPrefix(prefix)
@@ -206,6 +230,12 @@ class CommandBar(QPlainTextEdit):
         if self.mode == 'theme':
             # Single value, no trailing term separator (unlike tags).
             self.setPlainText(self.toPlainText()[:-len(prefix)] + text)
+            # The re-entrant handleTextChanged runs during setPlainText;
+            # the exact-match guard keeps the popup closed, and hiding it
+            # here covers every activation path (Enter/Tab/direct).
+            popup = self.completer.popup()
+            if popup is not None:
+                popup.hide()
         else:
             self.setPlainText(self.toPlainText()[:-len(prefix)] + text + " ")
         # setPlainText resets the cursor to the start; place it at the end
