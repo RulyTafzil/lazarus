@@ -48,6 +48,11 @@ from . import compose_model
 from . import compose_threads
 from .protocols import PanelApp
 
+# To/Cc/Bcc/Subject rows get this much extra right padding so their boxes
+# end at the same x as the From dropdown, which reserves trailing space
+# for the PGP/send status label (8px row spacing + ~7px empty-label width).
+_FIELD_RIGHT_PAD = 17
+
 
 class ComposePanel(panel.Panel):
     """A panel for composing messages
@@ -156,6 +161,9 @@ class ComposePanel(panel.Panel):
         if not isinstance(lay, QVBoxLayout):
             return
         lay.setSpacing(4)
+        # 4px breathing room above the From row, matching the inter-field
+        # spacing (the From row is the first widget in the layout).
+        lay.setContentsMargins(0, 4, 0, 0)
 
         # --- From row (top): account picker (dropdown) + PGP/send status ---
         # One item per smtp_accounts entry; selecting an item switches
@@ -178,12 +186,13 @@ class ComposePanel(panel.Panel):
         self.to_field.setStyleSheet(self._field_style())
         self._to_completer = address_completer.AddressCompleter(self)
         self._to_completer.set_line_edit(self.to_field)
-        lay.addWidget(self._make_field_row('To:', self.to_field))
+        lay.addWidget(self._make_field_row(
+            'To:', self.to_field, right_pad=_FIELD_RIGHT_PAD))
 
         # --- Cc row (hidden by default; M-c reveals) ---
         self.cc_row = QWidget(self)
         cc_layout = QHBoxLayout(self.cc_row)
-        cc_layout.setContentsMargins(0, 0, 2, 0)  # match To/Subject rows
+        cc_layout.setContentsMargins(0, 0, _FIELD_RIGHT_PAD, 0)
         cc_layout.setSpacing(8)
         self.cc_field = QLineEdit()
         self.cc_field.setStyleSheet(self._field_style())
@@ -197,7 +206,7 @@ class ComposePanel(panel.Panel):
         # --- Bcc row (hidden by default; M-b reveals) ---
         self.bcc_row = QWidget(self)
         bcc_layout = QHBoxLayout(self.bcc_row)
-        bcc_layout.setContentsMargins(0, 0, 2, 0)  # match To/Subject rows
+        bcc_layout.setContentsMargins(0, 0, _FIELD_RIGHT_PAD, 0)
         bcc_layout.setSpacing(8)
         self.bcc_field = QLineEdit()
         self.bcc_field.setStyleSheet(self._field_style())
@@ -211,7 +220,8 @@ class ComposePanel(panel.Panel):
         # --- Subject field ---
         self.subject_field = QLineEdit()
         self.subject_field.setStyleSheet(self._field_style())
-        lay.addWidget(self._make_field_row('Subject:', self.subject_field))
+        lay.addWidget(self._make_field_row(
+            'Subject:', self.subject_field, right_pad=_FIELD_RIGHT_PAD))
 
         # --- Editor toolbar + editor ---
         self.editor = editor_mod.RichTextEditor(self)
@@ -286,11 +296,17 @@ class ComposePanel(panel.Panel):
             f'  selection-color: {settings.theme["fg_bright"]}; }}'
         )
 
-    def _make_field_row(self, label: str, field: QWidget) -> QWidget:
-        """A labeled input row: right-aligned label + field."""
+    def _make_field_row(self, label: str, field: QWidget,
+                        right_pad: int = 2) -> QWidget:
+        """A labeled input row: right-aligned label + field.
+
+        *right_pad* is the row's right margin (2px default breathing
+        room; text rows pass :data:`_FIELD_RIGHT_PAD` to align with the
+        From dropdown's reserved status space).
+        """
         row = QWidget()
         hlay = QHBoxLayout(row)
-        hlay.setContentsMargins(0, 0, 2, 0)  # 2px breathing room at the right edge
+        hlay.setContentsMargins(0, 0, right_pad, 0)
         hlay.setSpacing(8)
         hlay.addWidget(self._make_label(label))
         hlay.addWidget(field, stretch=1)

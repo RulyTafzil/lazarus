@@ -59,12 +59,30 @@ def test_fields_have_left_labels(qapp):
     assert p.subject_field.placeholderText() == ''
 
 
-def test_field_rows_have_right_margin(qapp):
-    """2px breathing room so fields don't touch the panel's right edge."""
+def test_field_right_edges_align_with_from(qapp):
+    """To/Cc/Bcc/Subject boxes end at the same x as the From dropdown,
+    which reserves trailing space for the PGP/send status label."""
     p = _make_panel(qapp)
+    p.resize(900, 600)
+    p.show()
+    p.cc_row.show()
+    p.bcc_row.show()
+    qapp.processEvents()
+    from_right = p.from_combo.geometry().right()
     for field in (p.to_field, p.subject_field, p.cc_field, p.bcc_field):
-        row = field.parentWidget()
-        assert row.layout().contentsMargins().right() == 2
+        assert field.geometry().right() == from_right, field
+
+
+def test_from_row_has_top_padding(qapp):
+    """The From row (first in the layout) sits ~4px below the panel top,
+    matching the inter-field spacing."""
+    from PyQt6.QtCore import QPoint
+    p = _make_panel(qapp)
+    p.resize(900, 600)
+    p.show()
+    qapp.processEvents()
+    pos = p.from_combo.mapTo(p, QPoint(0, 0))
+    assert pos.y() >= 4
 
 
 def test_field_font_smaller_than_body(qapp):
