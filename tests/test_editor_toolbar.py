@@ -77,6 +77,22 @@ def test_list_toggle_on_and_off(qapp):
     assert not ed._fmt_buttons['bullet'].isChecked()
 
 
+def _doc_bold_flags(editor) -> list:
+    """Bold flag of every text fragment in the document — the real
+    rendered state, unlike editor.currentCharFormat()."""
+    flags = []
+    block = editor.document().begin()
+    while block.isValid():
+        it = block.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            if frag.isValid():
+                flags.append(frag.charFormat().fontWeight() >= 700)
+            it += 1
+        block = block.next()
+    return flags
+
+
 def test_plain_toggle_strips_formatting_and_kills_html(qapp):
     p = _panel(qapp)
     ed = p.editor
@@ -87,12 +103,18 @@ def test_plain_toggle_strips_formatting_and_kills_html(qapp):
     ed.toggle_bold()
     assert ed.fontWeight() >= 700
     assert ed.body_html()  # rich mode produces HTML
+    # leave the cursor inside the bold text, as a real user would
+    c2 = ed.textCursor()
+    c2.setPosition(3)
+    ed.setTextCursor(c2)
 
     assert ed.toggle_plain() is True
     assert ed.plain_mode
     assert ed.body_html() == ''
     assert ed.toPlainText() == 'hello'  # text preserved
-    assert ed.fontWeight() < 700  # formatting stripped
+    # the document itself must be plain — setPlainText inserts with the
+    # current char format, so a bold cursor used to re-bold the body
+    assert not any(_doc_bold_flags(ed))
     assert ed.collect_inline_images() == {}  # no-op, no HTML rewrite
 
     assert ed.toggle_plain() is False
