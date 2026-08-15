@@ -133,7 +133,7 @@ class WatermarkTabWidget(QTabWidget):
 
         painter = QPainter(self)
         painter.setClipRect(empty_rect)   # never touch the tab pixels
-        painter.setOpacity(0.12)
+        painter.setOpacity(0.22)
         painter.setPen(QColor(settings.theme['fg_dim']))
         font = painter.font()
         font.setPointSize(font.pointSize() + 6)
