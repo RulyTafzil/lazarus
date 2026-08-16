@@ -1,24 +1,21 @@
 # Lazarus
 
-Lazarus is a graphical, keyboard-driven email client written in Python/PyQt6, built on the command-line email swiss-army-knife [notmuch](https://notmuchmail.org/).
-
-Lazarus is a fork of [Dodo](https://github.com/akissinger/dodo), created by Aleks Kissinger, and still shares a substantial amount of code and design with it — see [Relationship to Dodo](#relationship-to-dodo) below for the full attribution and licensing details. This README describes Lazarus as it exists today, which has diverged from upstream Dodo in several ways such as a persistent split-pane thread preview, a built-in rich-text compose editor, mail filter rules, signatures, and more.
+Lazarus is a modern frontend for the amazing CLI based [notmuch](https://notmuchmail.org/) email system. Lazarus began as a fork of [Dodo](https://github.com/akissinger/dodo), created by Aleks Kissinger, and still shares some foundational code with that project. See [Relationship to Dodo](#relationship-to-dodo) below for the full attribution and licensing details. This README describes Lazarus as it exists today, which has diverged from upstream Dodo in several ways such as a persistent split-pane thread preview, a built-in rich-text compose editor, mail filter rules, signatures, an updated theme system, and more.
 
 As an email client, Lazarus is feature-complete for daily use but not exhaustively tested. Since it's built on notmuch, all operations work through tags and file moves rather than deleting anything outright, so you're very unlikely to lose mail to a bug — but as with any hackable tool you maintain yourself, use your own judgment.
 
 
 ## Main goals
 
-* efficient, keyboard-oriented mail reading, sorting, and composing — no mouse required
-* a persistent thread preview pane so reading mail doesn't mean juggling tabs
-* a mostly text-based email experience by default, with HTML support a few keystrokes away
-* offload as much work as possible onto existing, excellent command-line tools (notmuch, mbsync/offlineimap, msmtp, w3m — UNIX-philosophy style)
-* be simple enough to customise and hack on yourself
+* SPEED - fast email reading, tagging, sorting, and composing. No mouse required.
+* FEATURE COMPLETE - email filters, per-account signatures, built-in compose editor with address autocomplete and in-line images. I love nvim, but not for composing emails.
+* HTML Native - I don't like html emails either, but so many emails are and sometimes w3m isn't enough.
+* HACKABLE - be simple enough to customise and hack on yourself!
 
 
 ## Prerequisites
 
-Lazarus depends on a variety of tools to handle it's functions. 
+Lazarus is just a frontend for other tools. You'll need: 
 
 * something to sync IMAP mail to a local Maildir — [mbsync](https://isync.sourceforge.io/) or [offlineimap](http://www.offlineimap.org/) both work; `mbsync` is what the default settings assume
 * a sendmail-compatible SMTP client to send mail — [msmtp](https://marlam.de/msmtp/) is the default
@@ -50,7 +47,7 @@ lazarus
 
 Before running Lazarus for the first time, set at least `email_address` and `sent_dir` in `~/.config/lazarus/config.py` (see [Configuration](#configuration)).
 
-Nearly everything is driven by keyboard shortcuts. Press `?` at any time for the full key-binding reference.
+In-app, everything can be driven by keyboard shortcuts. Press `?` at any time for the full key-binding reference.
 
 ### Layout
 
@@ -79,14 +76,14 @@ File moves for these actions happen asynchronously in the background, batched so
 
 ### Composing
 
-Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-trip required). It supports:
+Lazarus has a built-in rich-text compose editor. It supports:
 
 * a formatting toolbar above the body (bold / italic / underline, alignment, bullet & numbered lists, text colour, insert image — NerdFont icon glyphs) — or the Ctrl+B / Ctrl+I / Ctrl+U shortcuts
 * plaintext mode — the toolbar's `[Plaintext | HTML]` toggle (far left, clickable, reflects state) or Shift+H: strips formatting and sends a message with **no HTML part** — plain `text/plain`, mutt-style; handy for replies to plaintext mail. In plaintext mode the formatting buttons grey out
 * inline image paste and drag-and-drop
 * address autocomplete drawn from your notmuch mail history
 * attachments via `a`
-* per-account signatures, auto-inserted based on which account you're sending from (`~/.config/dodo/<account>/signature[.html]`)
+* per-account signatures, auto-inserted based on which account you're sending from (`~/config/lazarus/<account>/signature[.html]`)
 * switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)
 
@@ -96,10 +93,9 @@ Lazarus has a built-in rich-text compose editor (no external `$EDITOR` round-tri
 
 You can define rules in `config.py` that tag and/or move mail automatically — see [Mail filters](#mail-filters) below. They run after every sync, and can be re-applied by hand at any time with `C-r`.
 
-### Themes
+### Themes 
 
-Built-in themes: `nord`, `solarized_dark`, `solarized_light`, `catppuccin_macchiato`, and several Gruvbox variants (`gruvbox_light`, `gruvbox_light_hard`, `gruvbox_light_soft`, `gruvbox_dark`, `gruvbox_dark_hard`, `gruvbox_dark_soft`). A theme is just a dict of color names to hex codes, so rolling your own is straightforward — see `dodo/themes.py`.
-
+600+ themes pulled from the [iTerm2-Color-Schemes repo](https://github.com/mbadolato/iTerm2-Color-Schemes). You can cycle through themes in-app with M+< and M+>. Alternatively, the hotkey t h will bring up a theme picker. You can add custom themes in your ~/.config/lazarus/themes/ folder, and customize the colormapping in ~/.config/lazarus/themes/colormap.py
 
 ## Configuration
 
@@ -116,12 +112,11 @@ lazarus.settings.email_address = 'First Last <me@domain.com>'
 lazarus.settings.sent_dir = '/home/user/Mail/default/Sent'
 
 # optional, some commonly-changed ones
-lazarus.settings.theme = lazarus.themes.nord
 lazarus.settings.file_browser_command = "fman '{dir}' /home/user/Documents"
 lazarus.settings.sync_mail_command = 'mbsync -a'
 lazarus.settings.mail_root = '~/Mail'
 lazarus.settings.archive_dir = '~/Mail/Archive'
-lazarus.settings.thread_pane_position = 'right'
+lazarus.settings.thread_pane_position = 'bottom'
 ```
 
 `email_address` and `sent_dir` can also be dictionaries keyed by account name, for multi-account setups (see [Multiple accounts](#multiple-accounts)).
