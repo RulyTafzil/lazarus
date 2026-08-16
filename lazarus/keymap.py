@@ -40,6 +40,9 @@ Keymap = Dict[str, KeyBinding]
 
 global_keymap: Keymap = {
   # ── Thread list ──────────────────────────────────────────────────
+  'C-q':         ('quit', lambda a: a.prompt_quit()),
+  '`':           ('sync mail', lambda a: a.sync_mail(quiet=False)),
+  '?':           ('show help', lambda a: a.show_help()),
   'j':           ('next thread', lambda a: a.navigate_list('next')),
   'k':           ('previous thread', lambda a: a.navigate_list('previous')),
   '<down>':      ('next thread', lambda a: a.navigate_list('next')),
@@ -70,8 +73,9 @@ global_keymap: Keymap = {
   '-':           ('page up (message)', lambda a: a.delegate_to_thread('scroll_message', pages=-1)),
   'H':           ('toggle HTML', lambda a: a.delegate_to_thread('toggle_html')),
   'i':           ('toggle remote images', lambda a: a.delegate_to_thread('toggle_remote_content')),
-  'r':           ('reply to all', lambda a: a.reply(to_all=True)),
+  'c':           ('compose', lambda a: a.open_compose()),
   'R':           ('reply', lambda a: a.reply(to_all=False)),
+  'r':           ('reply to all', lambda a: a.reply(to_all=True)),
   'C-y':         ('forward', lambda a: a.forward()),
   'O':           ('open attachments', lambda a: a.delegate_to_thread('open_attachments')),
   '<escape>':    ('focus list', lambda a: a.main_window.focus_list()),
@@ -87,15 +91,11 @@ global_keymap: Keymap = {
   'C-t':         ('tag (message)', lambda a: a.tag_message_bar()),
 
   # ── Global ───────────────────────────────────────────────────────
-  '?':           ('show help', lambda a: a.show_help()),
-  'Q':           ('quit', lambda a: a.prompt_quit()),
-  '`':           ('sync mail', lambda a: a.sync_mail(quiet=False)),
   'C-r':         ('apply filter rules', lambda a: a.apply_filter_rules()),
   'l':           ('next panel', lambda a: a.next_panel()),
   'h':           ('previous panel', lambda a: a.previous_panel()),
   'x':           ('close panel', lambda a: a.close_panel()),
   'X':           ('close all', lambda a: [a.close_panel(i) for i in reversed(range(a.num_panels()))]),
-  'c':           ('compose', lambda a: a.open_compose()),
   'I':           ('show inbox', lambda a: a.open_search('tag:inbox')),
   'U':           ('show unread', lambda a: a.open_search('tag:inbox and tag:unread')),
   'F':           ('show flagged', lambda a: a.open_search('tag:flagged')),
