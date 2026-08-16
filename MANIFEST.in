@@ -1,1 +1,2 @@
 recursive-include lazarus/icons *.png
+recursive-include lazarus/theme_packs *.json

@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout,
     QWidget,
 )
-from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QLinearGradient, QMouseEvent, QPalette, QPolygonF, QResizeEvent, QShowEvent, QPainter, QPixmap
+from PyQt6.QtGui import QIcon, QCloseEvent, QColor, QLinearGradient, QMouseEvent, QPaintEvent, QPalette, QPolygonF, QResizeEvent, QShowEvent, QPainter, QPixmap
 import logging
 import random
 import math
@@ -195,7 +195,7 @@ class WatermarkTabWidget(QTabWidget):
             self._mesh_cache_size = size
         return self._mesh_cache
 
-    def paintEvent(self, e) -> None:
+    def paintEvent(self, e: QPaintEvent | None) -> None:
         super().paintEvent(e)          # tabs + base background paint first
 
         bar = self.tabBar()

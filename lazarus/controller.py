@@ -595,6 +595,66 @@ class AppController(QObject):
             tp.dirty = True  # type: ignore[attr-defined]
             tp.refresh()
 
+    def set_theme(self, name: str) -> None:
+        """Switch the active theme live.
+
+        `themes.set_theme` handles applying the palette/stylesheet and
+        persisting the choice; `style.py`'s caches self-invalidate (keyed
+        on the new theme dict's id / actual color values), and open
+        panels already read `settings.theme` live at render time -- so
+        what's left here is nudging the things that *don't*: the tab
+        widget's cached mesh, and forcing a repaint of open panels.
+        """
+        from . import themes
+        from . import mainwindow
+        if not name:
+            return
+        try:
+            themes.set_theme(name)
+        except themes.ThemeError as e:
+            self.status_message(str(e), kind='error')
+            return
+        if isinstance(self.tabs, mainwindow.WatermarkTabWidget):
+            self.tabs.invalidate_mesh()
+        self.refresh_panels()
+        self.status_message(f"Theme: {name}", kind='info')
+
+    def cycle_theme(self, direction: int) -> None:
+        """Switch to the next/previous theme in `themes.ordered_names()`.
+
+        :param direction: +1 for next, -1 for previous.
+        """
+        from . import themes
+        names = themes.ordered_names()
+        if not names:
+            return
+        current = themes.current_name()
+        if current in names:
+            idx = (names.index(current) + direction) % len(names)
+        else:
+            # Unknown current theme (e.g. a raw dict set directly in
+            # config.py with no matching REGISTRY entry) -- start from
+            # one end rather than guessing.
+            idx = 0 if direction > 0 else -1
+        self.set_theme(names[idx])
+
+    def theme_bar(self) -> None:
+        """Open the command bar in 'theme' mode: 'theme:' is prefilled,
+        type a name (autocompleted against `themes.REGISTRY`) and Enter
+        to apply. A bare name also works."""
+        def callback(text: str) -> None:
+            name = text.strip()
+            if name.startswith('theme:'):
+                name = name[len('theme:'):].strip()
+            if name:
+                self.set_theme(name)
+
+        self.command_bar.open('theme', callback)
+        # Prefill the 'theme:' prefix so the user just types the name,
+        # with the cursor after it (setPlainText resets to the start).
+        self.command_bar.setPlainText('theme:')
+        self.command_bar._cursor_to_end()
+
     def update_single_thread(self, thread_id: str, msg_id: str | None = None) -> None:
         from . import panel as panel_mod
         from . import thread as thread_mod
