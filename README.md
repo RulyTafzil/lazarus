@@ -75,6 +75,8 @@ File moves for these actions happen asynchronously in the background, batched so
 
 ### Composing
 
+<img src=images/compose.webp>
+
 Lazarus has a built-in rich-text compose editor. It supports:
 
 * a formatting toolbar above the body (bold / italic / underline, alignment, bullet & numbered lists, text colour, insert image — NerdFont icon glyphs) — or the Ctrl+B / Ctrl+I / Ctrl+U shortcuts
