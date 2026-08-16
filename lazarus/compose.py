@@ -133,7 +133,12 @@ class ComposePanel(panel.Panel):
             self.editor.setPlainText(seed.body)
             self._sig_block = seed.sig_block
         else:
-            self.to_field.setFocus()
+            def _focus_to() -> None:
+                try:
+                    self.to_field.setFocus()
+                except RuntimeError:
+                    pass  # panel destroyed before the timer fired
+            QTimer.singleShot(0, _focus_to)
             self._insert_signature()
 
         # Always start the cursor at the very first line, regardless of
@@ -146,6 +151,15 @@ class ComposePanel(panel.Panel):
             sb = self.editor.verticalScrollBar()
             if sb is not None:
                 sb.setValue(0)
+            # Reply/forward/forward: panel (chrome) focused so the
+            # compose keymap is active ([ ] account switch, etc.),
+            # not the To field's address completer. Deferred so it
+            # runs after add_panel's setFocus().
+            if msg is not None and mode in ('reply', 'replyall', 'forward'):
+                try:
+                    self.setFocus()
+                except RuntimeError:
+                    pass  # panel destroyed before the timer fired
         QTimer.singleShot(0, _reset_cursor_to_top)
 
         self._sync_data_from_fields()
