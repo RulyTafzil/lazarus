@@ -3,6 +3,7 @@
 Lazarus is a modern frontend for the amazing CLI based [notmuch](https://notmuchmail.org/) email system. Lazarus began as a fork of [Dodo](https://github.com/akissinger/dodo), created by Aleks Kissinger, and still shares some foundational code with that project. See [Relationship to Dodo](#relationship-to-dodo) below for the full attribution and licensing details. This README describes Lazarus as it exists today, which has diverged from upstream Dodo in several ways such as a persistent split-pane thread preview, a built-in rich-text compose editor, mail filter rules, signatures, an updated theme system, and more.
 
 As an email client, Lazarus is feature-complete for daily use but not exhaustively tested. Since it's built on notmuch, all operations work through tags and file moves rather than deleting anything outright, so you're very unlikely to lose mail to a bug — but as with any hackable tool you maintain yourself, use your own judgment.
+
 <img src=images/main.webp>
 
 ## Main goals
@@ -95,6 +96,7 @@ Lazarus has a built-in rich-text compose editor. It supports:
 You can define rules in `config.py` that tag and/or move mail automatically — see [Mail filters](#mail-filters) below. They run after every sync, and can be re-applied by hand at any time with `C-r`.
 
 ### Themes 
+
 <img src=images/catppucin.webp>
 <img src=images/gruvbox.webp>
 <img src=images/nord.webp>
