@@ -4,8 +4,6 @@ Lazarus is a modern frontend for the amazing CLI based [notmuch](https://notmuch
 
 As an email client, Lazarus is feature-complete for daily use but not exhaustively tested. Since it's built on notmuch, all operations work through tags and file moves rather than deleting anything outright, so you're very unlikely to lose mail to a bug — but as with any hackable tool you maintain yourself, use your own judgment.
 
-<img src=images/main.webp>
-
 ## Main goals
 
 * SPEED - fast email reading, tagging, sorting, and composing. No mouse required.
@@ -76,7 +74,6 @@ Everything — read/unread, flags, custom tags, delete, archive — works by add
 File moves for these actions happen asynchronously in the background, batched so a flurry of `a`/`d` keypresses doesn't stall the UI, with `notmuch new` re-run automatically once each batch lands on disk.
 
 ### Composing
-<img src=images/compose.webp>
 
 Lazarus has a built-in rich-text compose editor. It supports:
 
