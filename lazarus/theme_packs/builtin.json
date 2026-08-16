@@ -5256,8 +5256,8 @@
     "background": "#1d2021",
     "foreground": "#ebdbb2",
     "cursor-color": "#ebdbb2",
-    "selection-background": "#665c54",
-    "selection-foreground": "#ebdbb2",
+    "selection-background": "#282828",
+    "selection-foreground": "#d79921",
     "palette": {
       "0": "#1d2021",
       "1": "#cc241d",
