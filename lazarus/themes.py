@@ -895,21 +895,19 @@ def render_override_template() -> str:
     per-theme exceptions. Generated from `DEFAULT_TERMINAL_MAP` /
     `THEME_KEYS`, so it always matches the code."""
 
-    def default_text(key: str) -> str:
-        """Human-readable built-in default for one key, in the same
-        value vocabulary users type (bare named colors / lazarus keys,
-        'palette N' for indices)."""
+    def default_text(key: str) -> tuple[str, str]:
+        """(valid quoted value, trailing chain comment) for one key."""
         if key in ('bg_alt', 'bg_button'):
-            return 'background, computed'
-        parts = []
-        for kind, value in DEFAULT_TERMINAL_MAP[key]:
-            if kind == 'named':
-                parts.append(value)
-            elif kind == 'palette':
-                parts.append(f'palette {value}')
-            else:  # 'key' -- another Lazarus key, shown bare
-                parts.append(value)
-        return ', else '.join(parts)
+            return ("'bg'",
+                    '  # computed from bg (lightened/darkened) -- set a hex/palette/... to override')
+        chain = DEFAULT_TERMINAL_MAP[key]
+        valid = repr(chain[0][1])
+        if len(chain) > 1:
+            full = ', else '.join(
+                f"palette {v}" if k == 'palette' else v
+                for k, v in chain)
+            return (valid, f"  # {full}")
+        return (valid, "")
 
     lines = [
         '# Lazarus theme color map',
@@ -917,22 +915,27 @@ def render_override_template() -> str:
         '# Auto-created on first run in ~/.config/lazarus/themes/. Terminal-style',
         '# theme packs (the bundled 602-theme library, or your own *.json packs in',
         '# this directory) are mapped onto Lazarus\'s 19 semantic color keys by the',
-        '# heuristic below. Uncomment the block, change any value, restart.',
+        '# heuristic below (bg_alt/bg_button are computed from bg and documented',
+        '# below; override them per theme via theme_overrides). Uncomment the',
+        '# block, change any value, restart. The block is valid Python --',
+        "# uncommenting verbatim is a no-op; each value is the built-in's first",
+        '# choice (the trailing comment shows the full chain).',
         '#',
         '# Each value can be:',
         "#   - a hex color:            'fg_link': '#8be9fd'",
-        "#   - an ANSI palette index:  'fg_subject_unread': 3   (0-15 of that theme)",
-        "#   - a named terminal color: 'fg_tags': 'foreground'  (background / foreground /",
+        "#   - an ANSI palette index:  'fg_subject_unread': '3'   (0-15 of that theme)",
+        "#   - a named terminal color: 'fg_tags': 'foreground'    (background / foreground /",
         '#                                cursor-color / selection-background /',
         '#                                selection-foreground)',
         "#   - another Lazarus key:    'fg_date': 'fg_dim'",
         '#',
-        '# Built-in default per key (first match wins):',
+        '# Built-in default per key:',
         '#',
         '# default_heuristic = {',
     ]
     for key in THEME_KEYS:
-        lines.append(f"#     '{key}': {default_text(key)},")
+        valid, cmt = default_text(key)
+        lines.append(f"#     '{key}': {valid},{cmt}")
     lines += [
         '# }',
         '#',

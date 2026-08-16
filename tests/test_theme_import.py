@@ -312,10 +312,10 @@ def test_template_lists_every_key_in_commented_heuristic():
     assert '# default_heuristic = {' in tpl
     for key in themes.THEME_KEYS:
         assert f"#     '{key}': " in tpl, f'key {key} missing from template'
-    # defaults are rendered in the value vocabulary, not just names
-    assert "palette 8" in tpl                       # fg_dim default
-    assert "'bg_alt': background, computed," in tpl  # computed key
-    assert "else fg," in tpl                         # chain fallback shown
+    # defaults are rendered as valid Python values, not a human legend
+    assert "'fg_dim': '8'," in tpl
+    assert "'bg_alt': 'bg'," in tpl and 'computed from bg' in tpl
+    assert 'else fg' in tpl                         # chain fallback shown
     assert 'theme_overrides = {' in tpl  # per-theme block present
 
 
