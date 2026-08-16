@@ -83,7 +83,8 @@ Lazarus has a built-in rich-text compose editor. It supports:
 * plaintext mode — the toolbar's `[Plaintext | HTML]` toggle (far left, clickable, reflects state) or Shift+H: strips formatting and sends a message with **no HTML part** — plain `text/plain`, mutt-style; handy for replies to plaintext mail. In plaintext mode the formatting buttons grey out
 * inline image paste and drag-and-drop
 * address autocomplete drawn from your notmuch mail history
-* attachments via `a`
+* reveal / dismiss cc and bcc fields with `M+c` and `M+b`
+* add attachments via `a`
 * per-account signatures, auto-inserted based on which account you're sending from (`~/config/lazarus/<account>/signature[.html]`)
 * switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)
