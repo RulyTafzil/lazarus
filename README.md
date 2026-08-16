@@ -75,7 +75,7 @@ Everything — read/unread, flags, custom tags, delete, archive — works by add
 File moves for these actions happen asynchronously in the background, batched so a flurry of `a`/`d` keypresses doesn't stall the UI, with `notmuch new` re-run automatically once each batch lands on disk.
 
 ### Composing
-
+<img src=images/compose.webp>
 Lazarus has a built-in rich-text compose editor. It supports:
 
 * a formatting toolbar above the body (bold / italic / underline, alignment, bullet & numbered lists, text colour, insert image — NerdFont icon glyphs) — or the Ctrl+B / Ctrl+I / Ctrl+U shortcuts
@@ -94,8 +94,36 @@ Lazarus has a built-in rich-text compose editor. It supports:
 You can define rules in `config.py` that tag and/or move mail automatically — see [Mail filters](#mail-filters) below. They run after every sync, and can be re-applied by hand at any time with `C-r`.
 
 ### Themes 
+<img src=images/catppucin.webp>
+<img src=images/gruvbox.webp>
+<img src=images/nord.webp>
 
-600+ themes pulled from the [iTerm2-Color-Schemes repo](https://github.com/mbadolato/iTerm2-Color-Schemes). You can cycle through themes in-app with M+< and M+>. Alternatively, the hotkey t h will bring up a theme picker. You can add custom themes in your ~/.config/lazarus/themes/ folder, and customize the colormapping in ~/.config/lazarus/themes/colormap.py
+600+ themes pulled from the [iTerm2-Color-Schemes repo](https://github.com/mbadolato/iTerm2-Color-Schemes). You can cycle through themes in-app with M+< and M+>. Alternatively, the hotkey t h will bring up a theme picker. Each theme has 16 colors (0-15) specified, along with five named colors (background, foreground, cursor-color, selection-background, and selection-foreground). You can add custom themes in your ~/.config/lazarus/themes/ folder, and customize the colormapping in ~/.config/lazarus/themes/colormap.py
+
+sample colormap.py:
+```
+default_heuristic = {
+    'bg': 'background',
+    'bg_alt': 'bg',
+    'bg_button': 'bg',  
+    'bg_highlight': 'selection-background',  
+    'fg': 'foreground',
+    'fg_bad': '9',  
+    'fg_bright': '15', 
+    'fg_button': 'foreground',
+    'fg_date': '6',
+    'fg_dim': '8',  
+    'fg_from': '4',
+    'fg_good': '10',  
+    'fg_highlight': 'selection-foreground',  
+    'fg_link': '12',  
+    'fg_subject': 'foreground',
+    'fg_subject_flagged': '11',  
+    'fg_subject_irrelevant': 'fg_dim',
+    'fg_subject_unread': '2',  
+    'fg_tags': '13',  
+}
+```
 
 ## Configuration
 
