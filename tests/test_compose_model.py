@@ -2,7 +2,7 @@
 import lazarus.settings as settings
 from lazarus.compose_model import (
     build_mailto_seed, build_reply_seed, build_forward_seed,
-    build_blank_seed, account_for_message, sig_block_text,
+    account_for_message, sig_block_text,
 )
 from tests.conftest import make_message
 
@@ -55,11 +55,6 @@ def test_mailto_seed(tmp_path):
     msg = _msg({'To': 'Bob <bob@example.com>'})
     seed = build_mailto_seed(msg, None)
     assert seed.to_text
-
-
-def test_blank_seed_no_crash():
-    seed = build_blank_seed(None)
-    assert seed.to_text == ''
 
 
 def test_account_for_message_prefers_from():

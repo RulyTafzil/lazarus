@@ -196,8 +196,3 @@ def build_forward_seed(msg: dict, sig_text: Optional[str]) -> ComposeSeed:
     return seed
 
 
-def build_blank_seed(_sig_text: Optional[str]) -> ComposeSeed:
-    # blank compose: just focus To, no body prefill
-    return ComposeSeed()
-
-

@@ -28,14 +28,7 @@ import re
 import subprocess
 import email.header
 
-from bleach.sanitizer import Cleaner  # type: ignore[import-untyped]
 from bleach.linkifier import Linker  # type: ignore[import-untyped]
-
-
-def clean_html2html(s: str) -> str:
-    """Sanitize the given HTML string via bleach."""
-    c = Cleaner()
-    return c.clean(s)
 
 
 def w3m_html2text(s: str) -> str:
