@@ -97,6 +97,52 @@ def sig_block_text(signature_text: Optional[str]) -> str:
     return '\n-- \n' + signature_text.rstrip('\n') + '\n'
 
 
+def sig_edit(body: str, old_sig: str, new_sig: str,
+             quote_anchor: str) -> tuple[int, int, str, str, str]:
+    """Decide the signature edit on *body*.
+
+    The compose document is ``[user text][sig block][quoted tail]`` and
+    the caller knows the exact blocks it inserted, so no content
+    markers are needed.  Returns ``(start, end, pre, sig, post)``:
+    replace ``[start, end)`` of *body* with ``pre + sig_block_text(sig)
+    + post``, where *sig* is the bare signature text and ``pre``/``post``
+    are separator newlines.  All-empty result means nothing to change.
+
+    * ``old_sig``'s block still intact in *body* → replaced exactly.
+    * ``old_sig`` missing (user edited/deleted it) → new sig inserted
+      before *quote_anchor* (the exact quoted/forwarded text generated
+      at compose time), or appended at the end when there is no anchor.
+    * ``new_sig`` empty → removal only; an edited-away old block is left
+      as the user's own text (never duplicated).
+
+    Callers apply the edit with a ``QTextCursor`` — ``pre``/``post``
+    stay plain text so the block's HTML form can be inserted instead of
+    the plaintext one while the surrounding layout stays identical.
+    """
+    old_block = sig_block_text(old_sig)
+    if old_block and old_block in body:
+        start = body.find(old_block)
+        end = start + len(old_block)
+        if not new_sig:
+            # Removal also drops the blank-line separator that follows
+            # the block, so toggling between accounts with and without
+            # signatures does not accumulate a stray newline per switch
+            # (the next insert recreates the separator).
+            if end < len(body) and body[end] == '\n':
+                end += 1
+        return start, end, '', new_sig, ''
+    if not new_sig:
+        return 0, 0, '', '', ''
+    if quote_anchor and quote_anchor in body:
+        idx = body.find(quote_anchor)
+        return idx, idx, '', new_sig, '\n'
+    # Append at the end, with a blank line before the block.
+    end = len(body)
+    if body and not body.endswith('\n'):
+        return end, end, '\n', new_sig, ''
+    return end, end, '', new_sig, ''
+
+
 def quote_body_text(msg: dict) -> str:
     """'On <date>, <name> wrote:' + '> ' lines, or ''."""
     return util.quote_body_text(msg)
@@ -136,26 +182,22 @@ class ComposeSeed:
     cc_text: str = ''
     subject: str = ''
     body: str = ''
-    sig_block: str = ''  # cached sig block at seed time
+    quoted_tail: str = ''  # exact quoted/forwarded text (sig placement anchor)
     attachments: list[str] = field(default_factory=list)
     temp_dirs: list[str] = field(default_factory=list)
 
 
-def build_mailto_seed(msg: dict, sig_text: Optional[str]) -> ComposeSeed:
+def build_mailto_seed(msg: dict) -> ComposeSeed:
     seed = ComposeSeed()
     headers = msg.get('headers', {})
     if 'To' in headers:
         seed.to_text = headers['To']
     if 'Subject' in headers:
         seed.subject = headers['Subject']
-    seed.sig_block = sig_block_text(sig_text)
-    # Body is just the signature block if any, else empty
-    seed.body = seed.sig_block if seed.sig_block else ''
     return seed
 
 
-def build_reply_seed(msg: dict, sig_text: Optional[str],
-                    *, to_all: bool) -> ComposeSeed:
+def build_reply_seed(msg: dict, *, to_all: bool) -> ComposeSeed:
     seed = ComposeSeed()
     senders = util.get_header_addresses(msg.get('headers', {}), ['From', 'Reply-To'])
     recipients = util.get_header_addresses(msg.get('headers', {}), ['To', 'Cc'])
@@ -168,16 +210,13 @@ def build_reply_seed(msg: dict, sig_text: Optional[str],
     if 'Subject' in msg.get('headers', {}):
         seed.subject = subject_with_prefix(msg['headers']['Subject'], 'RE')
 
-    seed.sig_block = sig_block_text(sig_text)
-    quoted = quote_body_text(msg)
-    body = seed.sig_block if seed.sig_block else '\n'
-    if quoted:
-        body += '\n' + quoted
-    seed.body = normalize_body(body)
+    seed.quoted_tail = quote_body_text(msg)
+    if seed.quoted_tail:
+        seed.body = normalize_body(seed.quoted_tail)
     return seed
 
 
-def build_forward_seed(msg: dict, sig_text: Optional[str]) -> ComposeSeed:
+def build_forward_seed(msg: dict) -> ComposeSeed:
     seed = ComposeSeed()
     if 'Subject' in msg.get('headers', {}):
         seed.subject = subject_with_prefix(msg['headers']['Subject'], 'FW')
@@ -188,11 +227,10 @@ def build_forward_seed(msg: dict, sig_text: Optional[str]) -> ComposeSeed:
         seed.temp_dirs.append(temp_dir)
     seed.attachments.extend(att)
 
-    seed.sig_block = sig_block_text(sig_text)
     fwd = forwarded_text(msg)
-    body = seed.sig_block if seed.sig_block else '\n'
-    body += '\n' + fwd
-    seed.body = normalize_body(body)
+    seed.quoted_tail = fwd
+    if fwd:
+        seed.body = normalize_body(fwd)
     return seed
 
 

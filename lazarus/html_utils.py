@@ -24,6 +24,7 @@ Split from ``util.py`` so rendering helpers have a single owner.
 
 from __future__ import annotations
 
+import html
 import re
 import subprocess
 import email.header
@@ -56,6 +57,21 @@ def linkify(s: str) -> str:
 def html2html(s: str) -> str:
     """Identity HTML filter — replace to customise HTML rendering."""
     return s
+
+
+def html_to_plain(src: str) -> str:
+    """Fast approximation of an HTML fragment's rendered text.
+
+    Block-level tags and ``<br>`` become newlines, remaining tags are
+    stripped, entities decoded.  Used to derive a plain-text search key
+    for HTML signatures — the result matches Qt's ``toPlainText()``
+    rendering of the inserted block closely enough to locate it.  Not a
+    general HTML-to-text converter (see :func:`w3m_html2text`).
+    """
+    s = re.sub(r'(?i)<br\s*/?>', '\n', src)
+    s = re.sub(r'(?i)</?(?:p|div|li|tr|h[1-6]|blockquote)\s*/?>', '\n', s)
+    s = re.sub(r'<[^>]+>', '', s)
+    return html.unescape(s).strip()
 
 
 html2text = w3m_html2text

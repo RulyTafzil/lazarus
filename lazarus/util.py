@@ -167,6 +167,7 @@ from .html_utils import (  # noqa: E402
     linkify,
     html2html,
     html2text,
+    html_to_plain,
     simple_escape,
     decode_header,
     colorize_text,
