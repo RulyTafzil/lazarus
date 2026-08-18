@@ -457,7 +457,7 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         w_layout.addWidget(self.status_label)
 
-        self.status_timer = QTimer()
+        self.status_timer = QTimer(self)
         self.status_timer.setSingleShot(True)
         self.status_timer.timeout.connect(
             lambda: self.status_label.setVisible(False))

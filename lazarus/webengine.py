@@ -33,6 +33,7 @@ from PyQt6.QtWebEngineCore import (
 )
 from PyQt6.QtGui import QDesktopServices
 import email.parser
+import logging
 import re
 import subprocess
 import sys
@@ -41,6 +42,8 @@ import traceback
 from . import settings
 from . import util
 from .protocols import PanelApp
+
+logger = logging.getLogger(__name__)
 
 LOCAL_PROTOCOLS = ['cid', 'message']
 
@@ -122,8 +125,20 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
         self.message: Optional[email.message.Message] = None
 
     def set_message(self, filename: str) -> None:
-        with open(filename, 'rb') as f:
-            self.message = email.parser.BytesParser().parse(f)
+        """Parse the raw message file for ``cid:`` lookups.
+
+        The path comes from the notmuch index and can be stale — e.g. a
+        background trash/archive batch moved the file and ``notmuch new``
+        has not re-indexed yet.  A missing file means no embedded images
+        for this render, not an error, so tolerate it instead of raising
+        out of a Qt slot.
+        """
+        try:
+            with open(filename, 'rb') as f:
+                self.message = email.parser.BytesParser().parse(f)
+        except OSError as e:
+            logger.debug('set_message: cannot read %s: %s', filename, e)
+            self.message = None
 
     def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
         if request is None:
