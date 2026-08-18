@@ -3,8 +3,7 @@
 ## Identity
 - **Name**: Lazarus — a fork of [Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger
 - **Package**: `lazarus-mail` (`0.3`)
-- **Original Author**: Aleks Kissinger <aleks0@gmail.com>
-- **Fork Maintainer**: Ruly Tafzil
+- **Original Author**: Aleks Kissinger <aleks0@gmail.com> (Dodo); **Maintainer**: Ruly Tafzil (fork)
 - **License**: GPLv3 (`COPYING`)
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `master`)
@@ -22,37 +21,35 @@ layout with a persistent thread preview, and a built-in rich-text compose
 editor. All operations go through notmuch tags + Maildir file moves — no mail
 is ever deleted outright.
 
-Diverged from upstream Dodo: persistent preview, async bulk tag/trash/archive
-worker, mail filter rules, built-in `RichTextEditor`, address autocomplete,
-per-account signatures, parallel mbsync, hicolor icons, low-poly watermark tab
-background, 602-theme terminal-style pack library (`themes.REGISTRY`) + live
-theme switching.
+Diverged from upstream Dodo: persistent split-pane thread preview, async bulk
+tag/trash/archive worker, mail filter rules, built-in `RichTextEditor` (with
+plaintext mode), address autocomplete, per-account signatures (plain + HTML),
+parallel mbsync, 600+ terminal-style theme library (`themes.REGISTRY`) with
+live switching, low-poly watermark tab background, hicolor icons.
 
 ## Tech Stack
 
 | Layer | Tech | Notes |
 |-------|------|-------|
-| Language | Python 3.10+ (declared `>=3.7` in `setup.py`) | `from __future__ import annotations` throughout |
+| Language | Python 3.10+ (`python_requires=">=3.10"`) | `from __future__ import annotations` throughout |
 | GUI | PyQt6 `>=6.2`, PyQt6-WebEngine `>=6.2` | `QApplication`/`QMainWindow`/`QSplitter`/`QTreeView`/`QWebEngineView`/`QTabWidget`/`QStackedWidget` |
-| Type checking | mypy `disallow_untyped_defs = True` (`mypy.ini`) | |
-| HTML | `bleach >=5.0`, `w3m` | `w3m` renders HTML→plaintext; bleach sanitizes |
-| Email index | `notmuch` CLI | Wrapped by `lazarus/notmuch.py`; `post-new` hook maps folders→tags |
-| IMAP sync | `mbsync` (default) or `offlineimap` | `SyncMailThread` runs `mbsync -V <acct>` in parallel |
+| Type checking | mypy `disallow_untyped_defs = True` (`mypy.ini`) | must stay at 0 errors |
+| HTML | `bleach >=5.0`, `w3m` | `w3m` renders HTML→plaintext; bleach `Linker` linkifies URLs |
+| Email index | `notmuch` CLI | Wrapped by `lazarus/notmuch.py` |
+| IMAP sync | `mbsync -V <acct>` per account (parallel) | `sync_mail_command` shell fallback used **only** when `smtp_accounts` is empty |
 | SMTP send | `msmtp` | `msmtp -a "{account}" -t`; per-account via `send_mail_command` dict |
 | PGP | `python-gnupg` (optional) | `lazarus/pgp_util.py`; `gnupg_home`/`gnupg_keyid` settings |
-| File browser | `file_browser_command` / `file_picker_command` | Attachments / file picker |
-| Build | `setuptools >=42` | `setup.py` + `pyproject.toml`; `share/` + `package_data` for icons |
+| Build | `setuptools >=42` | `setup.py` + `pyproject.toml`; icons via `package_data` + `--install-desktop` (no `data_files`) |
 | Logging | stdlib `logging` | Level/file from `settings.log_level`/`log_file`; status bar mirror |
 
 ## Project Layout
 ```
 ~/Projects/lazarus/
-├── .agent                 # this file — project roadmap
-├── .git/                   # remotes: origin (forgejo), upstream (dodo)
-├── lazarus/                # Python package (8592 LOC total)
+├── .agent                  # this file
+├── lazarus/                # Python package (11.3k LOC)
 │   ├── __init__.py         # re-exports app/themes/settings/keymap/util
 │   ├── __main__.py         # app.main() entry
-│   ├── app.py              # Dodo(QApplication) bootstrap (~360L) — config+logging, signals, HelpWindow, sync timer, async Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
+│   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, sync timer, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
 │   ├── controller.py       # AppController(QObject) + SyncMailThread — panel registry, sync engine, orchestration
 │   ├── mainwindow.py       # MainWindow(QMainWindow) — splitter, tabs, preview, status bar
 │   ├── panel.py            # Panel(QWidget) base — keychords, dirty flag, debounce
@@ -60,38 +57,41 @@ theme switching.
 │   ├── thread.py           # ThreadPanel — double-buffered web view + message list
 │   ├── thread_model.py     # ThreadModel + ThreadItem (conversation/thread modes)
 │   ├── compose.py          # ComposePanel — reply/forward, account switch, sig, PGP
-│   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop, formatting toolbar (B/I/U, align, lists, colour, insert image)
+│   ├── compose_model.py    # Qt-free seeds + sig_edit() placement logic
+│   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop, formatting toolbar, plaintext mode
 │   ├── compose_threads.py  # SendmailThread (msmtp + sent save)
 │   ├── mime_builder.py     # ComposeData dataclass + build_message() (multipart/related)
 │   ├── actions.py          # MarkableActionsMixin + _BulkMoveWorker + move/expunge helpers
 │   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
 │   ├── tag.py              # TagPanel + TagModel
-│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag modes
+│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag/theme modes
 │   ├── keymap.py           # global_keymap (consolidated) + tag/compose/command_bar maps
 │   ├── address_completer.py# AddressCompleter + _AddressLoader (notmuch address bg thread)
 │   ├── webengine.py        # MessagePage/Handler, EmbeddedImageHandler, RemoteBlocker
-│   ├── themes.py           # Nord/Solarized/Gruvbox/Catppuccin palettes + apply_theme()
+│   ├── themes.py           # Hand-written palettes + terminal-theme pack import + apply_theme()
 │   ├── config.py           # ConfigError + load_config() + _validate_settings() (exec + validation gate)
 │   ├── settings.py         # All defaults with docstrings (validated by config.py after exec)
 │   ├── signature.py        # Per-account signature loader (signature / signature.html)
 │   ├── pgp_util.py         # PGP/MIME sign/encrypt via python-gnupg
-│   ├── notmuch.py          # Thin CLI wrapper — count/tags/search_files/search_json/tag/new/run
-│   ├── util.py             # HTML/text helpers, linkify/colorize, email parse, key_string, CSS
-│   ├── helpwindow.py       # HelpWindow — keybinding HTML (Global/Compose/Command-bar; _GLOBAL_GROUPS display grouping)
-│   └── icons/hicolor/*/apps/lazarus.png  # 16/32/64/128/256/512/1024 bundled PNGs
-│   └── theme_packs/builtin.json          # 602 terminal-style themes (iTerm2/ghostty shape)
-├── share/
-│   ├── applications/lazarus.desktop
-│   └── icons/hicolor/*/apps/lazarus.png  # installed via data_files
+│   ├── notmuch.py          # Thin CLI wrapper — run/count/count_batch/tags/search_files/search_json/show_part/tag/new
+│   ├── util.py             # Compat shim re-exporting split helpers + email/account helpers
+│   ├── html_utils.py       # linkify, colorize_text, w3m_html2text, html_to_plain
+│   ├── mail_utils.py       # message_parts, body_text/html, quote, write_attachments
+│   ├── keys.py             # key_string + basic_keytab/keytab
+│   ├── style.py            # Memoised cell_font/theme_color; NerdFont family + glyph_image()
+│   ├── protocols.py        # PanelApp/ThreadList/ThreadView protocols + method sets
+│   ├── helpwindow.py       # HelpWindow — keybinding HTML
+│   ├── icons/hicolor/*/apps/lazarus.png  # 16-1024px bundled PNGs (package_data)
+│   └── theme_packs/builtin.json          # 602 terminal-style themes
+├── tests/                  # 292 tests (pytest, offscreen Qt, notmuch stubbed)
+├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
 ├── docs/                   # Sphinx (Makefile, make.bat, source/)
-├── Lazarus.png             # 1024px source icon
 ├── README.md
 ├── COPYING                 # GPLv3
-├── setup.py                # name lazarus-mail 0.3, entry_points, package_data + data_files
+├── setup.py                # lazarus-mail 0.3; package_data icons + theme_packs
 ├── pyproject.toml          # setuptools build-system
-├── mypy.ini
-├── MANIFEST.in / .mailmap / .readthedocs.yaml / .gitignore
-└── lazarus_mail.egg-info/
+├── mypy.ini / MANIFEST.in / .mailmap / .readthedocs.yaml / .gitignore
+└── Lazarus.png             # 1024px source icon
 ```
 
 ## Architecture
@@ -109,18 +109,25 @@ theme switching.
 │ CommandBar (centered modal overlay, grow-to-content) / StatusBar │
 └──────────────────────────────────────────────────────────┘
 ```
-- Preview always visible; `thread_pane_position` = `right`/`left`/`below`/`above` controls `QSplitter` orientation + widget order (`_position_to_orientation`).
+- Preview starts collapsed (list full width); the last open divider is
+  restored on `show_thread()` (`_load_open_splitter_state`, ~50/50 default).
 - `Enter` on a thread → `SearchPanel.open_current_thread()` → `MainWindow.show_thread()` (no thread tabs).
 - `Escape` in preview → `MainWindow.focus_list()`; `C-Enter` → `clear_thread()`.
 - `h`/`l` switch `QTabWidget` tabs; `j`/`k` move thread cursor; `J`/`K` move message cursor in preview.
-- `j`/`k` auto-opens selected thread after 150 ms debounce (`Panel` timer).
-- `QSettings` persists `main_window_geometry`, `main_window_splitter`, `open_searches` (restored at startup).
+- `j`/`k` auto-opens the selected thread after a 150 ms debounce (only if the preview is visible).
+- `QSettings` persists `main_window_geometry`, splitter state, `open_searches` (restored at startup).
 
 ### Class Hierarchy
 ```
 QApplication
- └── Dodo (app.py) — bootstrap-only (~360L): config+logging, signals, HelpWindow, sync timer, warm-up. No delegation shims — panels receive `AppController` (the sole `PanelApp` implementer); Dodo keeps only `show_help`/`sync_mail`/`_cleanup_sync`/`_restore_open_searches` (Qt lifecycle plumbing).
-      └── controller.AppController (QObject) — panel registry + SyncMailThread/engine; the single `PanelApp` interface panels and the global keymap dispatch to. Cycle broken at runtime: app.py imports no panel modules; BulkMoveWorker has shutdown sentinel wired to aboutToQuit.
+ └── Dodo (app.py) — bootstrap-only (~370L): config+logging, signal plumbing, HelpWindow,
+     sync timer, Chromium warm-up view, theme registry build. Keeps only show_help /
+     sync_mail / _cleanup_sync / _restore_open_searches (Qt lifecycle). Panels receive
+     AppController — the SOLE PanelApp implementer.
+      └── controller.AppController (QObject) — panel registry + SyncMailThread; the single
+          PanelApp interface the global keymap and panels dispatch to. app.py imports no
+          panel modules (cycle broken at runtime); actions._BulkMoveWorker wired via
+          set_batch_done_listener().
 
 QMainWindow
  └── MainWindow (mainwindow.py)
@@ -131,142 +138,138 @@ QMainWindow
       └── Window icon (QIcon.fromTheme('lazarus') → bundled 1024 PNG fallback)
 
 Panel(QWidget) — base for all views (panel.py, has_refreshed signal)
- ├── SearchPanel (search.py)    — SearchModel + QTreeView (5 cols: date/#, from, subject, tags); MarkableActionsMixin
- ├── ThreadPanel (thread.py)    — ThreadModel + QTreeView (message list) + double-buffered QWebEngineView
+ ├── SearchPanel (search.py)    — SearchModel + QTreeView (5 cols); MarkableActionsMixin
+ ├── ThreadPanel (thread.py)    — ThreadModel + QTreeView + double-buffered QWebEngineView
  ├── ComposePanel (compose.py)  — RichTextEditor + headers + attachments + PGP + account switch + sig
- └── TagPanel (tag.py)          — TagModel + QTreeView (tag browser with unread/total)
+ └── TagPanel (tag.py)          — TagModel + QTreeView (tag browser, batched counts)
 
 Models (QAbstractItemModel):
  ├── SearchModel — wraps notmuch search --format=json (thread dicts)
- ├── ThreadModel — wraps notmuch show --format=json, ThreadItem tree, conversation vs thread mode
- └── TagModel    — wraps notmuch search --output=tags with unread/total counts
+ ├── ThreadModel — wraps notmuch show --format=json, ThreadItem tree, conversation/thread modes
+ └── TagModel    — wraps notmuch tags + count --batch
 
 Helpers:
- ├── RichTextEditor(QTextEdit) — inline image temp dir, insert_image_from_file/data, body_html/text, collect_inline_images, formatting_toolbar()
- ├── AddressCompleter(QCompleter) — notmuch address preload in _AddressLoader thread, MatchContains
+ ├── RichTextEditor(QTextEdit) — inline image temp dir, body_html/text, collect_inline_images,
+ │                               formatting_toolbar(), toggle_plain() (plaintext mode)
+ ├── AddressCompleter(QCompleter) — notmuch address preload thread, MatchContains
  ├── MessagePage/Handler, EmbeddedImageHandler, RemoteBlockingUrlRequestInterceptor (webengine.py)
- └── SendmailThread (compose_threads.py — QThread)
+ ├── SendmailThread (compose_threads.py — QThread)
  └── _BulkMoveWorker(QThread) + MarkableActionsMixin (actions.py)
 ```
 
 ### Data Flow
 ```
-Search:   notmuch search --format=json → notmuch.search_json() → SearchModel → QTreeView (render_thread_cell, 5 cols)
-Thread:   notmuch show --format=json   → ThreadModel (ThreadItem tree) → QTreeView + QWebEngineView (MessagePage, double-buffered)
-Compose:  labels+fields (To/Cc/Bcc/Subject) + RichTextEditor.body_html/text + attachments + inline images
+Search:   notmuch search --format=json → SearchModel → QTreeView (render_thread_cell, 5 cols)
+Thread:   notmuch show --format=json   → ThreadModel (ThreadItem tree) → QTreeView + QWebEngineView
+          (MessagePage, double-buffered, _SwapGuard arbitrates stale loads)
+Compose:  fields (To/Cc/Bcc/Subject/From) + RichTextEditor + attachments + inline images
             → ComposeData (mime_builder) → build_message() → multipart/related MIME
-            → SendmailThread → msmtp (send_mail_command) → mailbox save to sent_dir → status bar
-Sync:     settings.smtp_accounts → SyncMailThread (controller.py: parallel mbsync -V + notmuch new)
-            → .progress (pyqtSignal) → MainWindow.status_label → notmuch new (Processed) → controller.refresh_panels()
-            → rules.apply_rules(filter_rules, filter_scope_query) (auto after sync; C-r manual)
-            → [move_to rules via move_files → _BulkMoveWorker]
-Tag/Move: MarkableActionsMixin.tag_thread/toggle/archive/delete → notmuch.tag() → collect_files() → _resolve_stale_path()
-            → _BulkMoveWorker.enqueue([(src,dst)]) (serial QThread) → move_to_trash/archive/expunge/restore
-            → _run_notmuch_new() → has_refreshed → refresh_panels() (keeps preview open)
-Delete:   d → +trash tag + move files to [Gmail]/Trash or [account]/Trash → refresh; d d → expunge_trash() (irreversible)
-Archive:  a → -inbox -unread (+ optional tag ops); A → archive_to_local → move to ~/Mail/Archive (mail_root/archive_dir)
+            → SendmailThread → msmtp → mailbox save to sent_dir → status bar
+          Signature: seeds provide the quote (ComposeSeed.quoted_tail); _insert_signature
+            places the sig block structurally via compose_model.sig_edit (no markers);
+            HTML sig file used in rich mode, plain block otherwise.
+Sync:     SyncMailThread (parallel mbsync -V per account + notmuch new)
+            → controller.refresh_panels() → rules.apply_rules(filter_rules, filter_scope_query)
+            (auto after sync; C-r manual) → moves enqueued to _BulkMoveWorker
+Tag/Move: MarkableActionsMixin.tag/archive/delete → notmuch.tag() → collect_files()
+            → _resolve_stale_path() → _BulkMoveWorker.enqueue([(src,dst)]) (serial QThread)
+            → notmuch new (--no-hooks) → batch_done → refresh_panels (listener-registered)
+Delete:   d → +trash tag + move files to [Gmail]/Trash or [account]/Trash; d d → expunge (irreversible)
+Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archive
 ```
 
 ## Module Map
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `app.py` | 365 | `Dodo(QApplication)` bootstrap — validated config load, logging, signals, `HelpWindow`, sync timer, async Chromium warm-up; builds `themes.REGISTRY` + resolves initial theme (remembered last switch > config default) after config.py runs; `main()`/`install_desktop()`; no delegation shims (panels get `AppController`) |
-| `compose.py` | 791 | `ComposePanel` — compose/reply/forward; labeled To/Cc/Bcc/Subject/From rows (hidden Cc/Bcc toggle via M-c/M-b), From = account dropdown (address per smtp_accounts, `_set_account` shared with `[`/`]` cycle, PGP/send status at row right), `_sig_block_text`/`_insert_signature`/`_reload_signature`, PGP toggles, `SendmailThread` wiring, `_set_fields_enabled`+status on send, cursor-to-top |
-| `controller.py` | 699 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `sync_mail` + `SyncMailThread` (parallel mbsync); `set_theme`/`cycle_theme`/`theme_bar` (live theme switching, invalidates watermark mesh); owns `actions.batch_done` wiring. The single `PanelApp` implementer — panels + global keymap dispatch here |
-| `actions.py` | 646 | `MarkableActionsMixin` (tag/archive/delete/restore hooks), `_BulkMoveWorker(QThread)` serial file-move queue, `_resolve_stale_path`/`collect_files`/`move_to_trash`/`move_to_archive`/`move_files`/`move_specific_files`/`expunge_trash`/`restore_from_trash`, `_run_notmuch_new` |
-| `thread.py` | 672 | `ThreadPanel` — double-buffered `QWebEngineView`, message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `reply`/`forward`/`open_attachments` (via `notmuch.show_part`), `scroll_message` |
-| `mainwindow.py` | 665 | `MainWindow` — `QSplitter`+`QTabWidget`+`QStackedWidget`, `CommandBar`/`StatusBar` overlay, `WatermarkTabWidget` (low-poly mesh + right-aligned watermark title in the tab-bar strip, `invalidate_mesh()` on theme switch), `QIcon.fromTheme('lazarus')`→bundled fallback, geometry/splitter/open-searches persistence |
-| `settings.py` | 534 | All defaults with docstrings — mail paths, commands, fonts, themes, filters, logging, security; `theme_overrides` (per-theme key corrections); exec'd `config.py` overrides |
-| `themes.py` | 821 | Hand-written palettes (`nord_p`, `solarized_p`, `cat_macchiato_p`, `gruvbox_p`, …) + terminal-style theme import (`_validate_terminal_entry`/`terminal_theme_to_lazarus` heuristic mapping, `load_theme_pack`, `build_registry` — hand-written > bundled pack > user packs > overrides, `REGISTRY`; declarative `DEFAULT_TERMINAL_MAP` drives the mapping AND the colormap.py template) + `apply_theme()` + global QSS builder + live switching (`set_theme`/`cycle_theme`/`ordered_names`/`ThemeError`, QSettings `last_theme_name` persistence) |
-| `search.py` | 485 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `columns` |
-| `thread_model.py` | 411 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree, message access, tagging, conversation/thread modes |
-| `panel.py` | 358 | `Panel(QWidget)` base — keychord handling (`PanelApp`/controller), dirty tracking, 150 ms debounce, `has_refreshed`, `HeaderInsetTreeView` |
-| `editor.py` | 617 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images`, paste/drag-drop, `formatting_toolbar()` (NerdFont glyphs: B/I/U + align + lists + colour + image, synced to cursor format) |
-| `commandbar.py` | 326 | `CommandBar(QPlainTextEdit)` — centered modal overlay (dim + click-away), grow-to-content width/wrap, tag + theme-name autocomplete (`mode='theme'` completes the whole line), per-mode history; tag list fetched via process-wide `_TagStore` (outlives every bar — a per-bar `_TagLoader` crashed teardown with “Destroyed while thread is still running”) |
-| `address_completer.py` | 250 | `AddressCompleter(QCompleter)` + `_AddressLoader(QThread)` — `notmuch address --output=recipients --deduplicate=address --format=json -- *` preload, `MatchContains`, `_MIN_CHARS=2` |
-| `webengine.py` | 232 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler`, `RemoteBlockingUrlRequestInterceptor`, `LOCAL_PROTOCOLS=[cid,message]` |
-| `tag.py` | 218 | `TagPanel` + `TagModel` — tag browser with unread/total counts |
-| `mime_builder.py` | 211 | `ComposeData` dataclass + `build_message()` — plain/HTML/multipart/related, attachments, inline images, `Date` header |
-| `compose_model.py` | 203 | `ComposeModel` — `ComposeSeed` + `build_reply/forward/mailto` + account helpers (Qt-free, testable) |
-| `keymap.py` | 194 | Consolidated `global_keymap` (incl. `t h` theme bar, `M-<`/`M->` cycle theme) + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`; numeric `1-9` tag hotkeys |
-| `keys.py` | 187 | `key_string` + `basic_keytab`/`keytab` (split from util) |
-| `util.py` | 184 | Compat shim re-exporting split helpers + owned: email/account helpers (`get_header_addresses`/`strip_email_address`/`email_is_me`/…), header split/wrap, `make_message_css`, `sort_tags` |
-| `config.py` | 179 | `ConfigError` + `load_config()` — exec config.py with file:lineno + validation (required fields, smtp_accounts, `~Mail` typo) |
-| `compose_threads.py` | 143 | `SendmailThread` (build MIME, `In-Reply-To`/`References`, PGP, msmtp, sent save, `send_success`/`send_error`) |
-| `notmuch.py` | 168 | Wrapper — `run()`, `count()`, `count_batch(--batch)`, `tags()`, `search_files()`, `search_json()`, `show_part()` (binary part extraction), `tag()`, `new()` |
-| `mail_utils.py` | 172 | Mail-content helpers — `message_parts`, `body_text/html`, `quote`, `write_attachments` (via `notmuch.show_part`) |
-| `pgp_util.py` | 165 | PGP/MIME sign/encrypt via `python-gnupg` (`gnupg_home`/`gnupg_keyid`) |
-| `protocols.py` | 158 | `PanelApp`/`ThreadList`/`ThreadView` structural protocols + `LIST_METHODS`/`THREAD_METHODS` fail-fast sets (incl. `set_theme`/`cycle_theme`/`theme_bar`) |
-| `style.py` | 158 | Memoised `cell_font()`/`theme_color()` for list/tree cell rendering (used by search/thread/tag models); `nerd_font_family()` resolver + `glyph_image()` (glyph → temp PNG for QSS arrows); `disabled_foreground()` theme-safe blend |
-| `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, enqueues moves to `_BulkMoveWorker`, warns on 0-file matches |
-| `helpwindow.py` | 133 | `HelpWindow(QWidget)` — keybinding HTML (`_render_keymap`/`_split_dict`; `_GLOBAL_GROUPS` render-time display grouping; Navigation section removed) |
-| `html_utils.py` | 107 | Rendering helpers — `linkify`, `colorize_text`, `w3m_html2text`, `html2html` |
-| `signature.py` | 92 | `config_dir(account)` + per-account `signature`/`signature.html` loader (via `QStandardPaths`, `util.html2text` fallback) |
-| `__init__.py` | 23 | Re-exports `app`, `themes`, `settings`, `keymap`, `util` |
-| `__main__.py` | 22 | `from . import app; app.main()` |
-
-`package_data`: `lazarus/icons/hicolor/*/apps/lazarus.png` (7 sizes) + `lazarus/theme_packs/*.json`.
-`data_files`: `share/applications/lazarus.desktop` + `share/icons/hicolor/*/apps/lazarus.png`.
+| `themes.py` | 1177 | Hand-written palettes + terminal-style theme import (`DEFAULT_TERMINAL_MAP` heuristic → 19 `THEME_KEYS`), `load_theme_pack`, `build_registry` (hand-written > bundled pack > user packs > overrides), `REGISTRY`, `apply_theme()` global QSS builder, live switching (`set_theme`/`cycle_theme`/`ordered_names`, QSettings `last_theme_name`), colormap.py template generation |
+| `compose.py` | 787 | `ComposePanel` — compose/reply/forward; labeled field rows (hidden Cc/Bcc via M-c/M-b), From = account dropdown (`_set_account` shared with `[`/`]`), PGP/send status, `_insert_signature` (structural placement via `sig_edit`, HTML sigs in rich mode), `SendmailThread` wiring, `RichTextEditor` integration |
+| `controller.py` | 737 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `refresh_tab_titles` (batched `count --batch`), `sync_mail` + `SyncMailThread`, theme switching, `close_panel` (deleteLater + in-flight-send guard). Sole `PanelApp` implementer |
+| `thread.py` | 672 | `ThreadPanel` — double-buffered `QWebEngineView` + `_SwapGuard` (newest-load-wins), message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `open_attachments`, `scroll_message` |
+| `mainwindow.py` | 653 | `MainWindow` — splitter + tabs + preview, `WatermarkTabWidget` (low-poly mesh + watermark, `invalidate_mesh()` on theme switch), CommandBar/StatusBar overlay, splitter open-state persistence (`_load_open_splitter_state`), geometry/open-searches persistence |
+| `editor.py` | 617 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images` (file:// → cid:), paste/drag-drop, `formatting_toolbar()` (NerdFont glyphs, synced to cursor format), `toggle_plain()` plaintext mode |
+| `search.py` | 492 | `SearchPanel` + `SearchModel` + `render_thread_cell()`; in-place thread refresh; `title()` pure (counts via controller batch); `apply_thread_count` |
+| `thread_model.py` | 411 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree (O(1) parent via `row_in_parent`), conversation/thread modes, message tagging |
+| `app.py` | 370 | `Dodo(QApplication)` bootstrap — validated config, logging, signals (Ctrl-C pipe), HelpWindow, sync timer, `_warm_webengine`, theme registry build + initial resolve; `main()`/`install_desktop()` |
+| `panel.py` | 364 | `Panel(QWidget)` base — keychord handling (prefix timer, parented QTimers), dirty tracking, 150 ms debounce, `has_refreshed`, `HeaderInsetTreeView` |
+| `commandbar.py` | 363 | `CommandBar(QPlainTextEdit)` — modal overlay (dim + click-away), grow-to-content, tag + theme-name autocomplete, per-mode history; process-wide `_TagStore` owns the bg tag loader (outlives bars) |
+| `address_completer.py` | 250 | `AddressCompleter(QCompleter)` + singleton `_AddressLoader(QThread)` — `notmuch address` preload, MatchContains, min 2 chars |
+| `webengine.py` | 247 | `MessagePage`, `MessageHandler`, `EmbeddedImageHandler` (tolerates stale/missing files), `RemoteBlockingUrlRequestInterceptor`, `LOCAL_PROTOCOLS=[cid,message]` |
+| `compose_model.py` | 236 | Qt-free: `ComposeSeed` + `build_reply/forward/mailto` (quote-only bodies + `quoted_tail`), `sig_edit()` pure placement, `sig_block_text`, account helpers |
+| `tag.py` | 218 | `TagPanel` + `TagModel` — tag browser with unread/total counts (batched) |
+| `mime_builder.py` | 211 | `ComposeData` dataclass + `build_message()` — plain/HTML/multipart/related, attachments, inline images |
+| `keymap.py` | 194 | Consolidated `global_keymap` (C-q quit, `t h` theme bar, `M-<`/`M->` theme cycle) + empty `search_keymap`/`thread_keymap` (override hooks), `tag_keymap`, `compose_keymap`, `command_bar_keymap`; `1-9` tag hotkeys |
+| `keys.py` | 187 | `key_string` + `basic_keytab`/`keytab` |
+| `mail_utils.py` | 186 | Message-part helpers — `message_parts`, `body_text/html`, `quote_body_text` (tolerates missing Date/From), `write_attachments` |
+| `util.py` | 184 | Compat shim re-exporting split helpers + owned email/account helpers, `make_message_css`, `sort_tags` |
+| `config.py` | 179 | `ConfigError` + `load_config()` — exec config.py with file:lineno + validation |
+| `notmuch.py` | 168 | Wrapper — `run`, `count`, `count_batch(--batch)`, `tags`, `search_files`, `search_json`, `show_part` (binary), `tag`, `new` |
+| `style.py` | 167 | Memoised `cell_font()`/`theme_color(_or)()`; `nerd_font_family()` + `glyph_image()` (glyph → temp PNG for QSS); `disabled_foreground()` |
+| `pgp_util.py` | 165 | PGP/MIME sign/encrypt via python-gnupg |
+| `protocols.py` | 158 | `PanelApp`/`ThreadList`/`ThreadView` structural protocols + `LIST_METHODS`/`THREAD_METHODS` fail-fast sets |
+| `compose_threads.py` | 143 | `SendmailThread` — build MIME, In-Reply-To/References, PGP, msmtp, sent save, `send_success`/`send_error` |
+| `rules.py` | 137 | `Rule(query, tag_add, tag_remove, move_to)` + `apply_rules()` — scoped by `filter_scope_query`, moves via `move_specific_files` |
+| `helpwindow.py` | 133 | `HelpWindow` — keybinding HTML |
+| `html_utils.py` | 116 | `linkify`, `colorize_text`, `w3m_html2text`, `html_to_plain` (sig search keys) |
+| `signature.py` | 90 | `config_dir(account)` + per-account `signature`/`signature.html` loader (QStandardPaths) |
+| `__init__.py` / `__main__.py` | 23/22 | Re-exports; entry point |
 
 ## Icons & Desktop Integration
 
-### Window Icon (`mainwindow.py:56`)
+### Window Icon
 `QIcon.fromTheme('lazarus')` first (XDG `~/.local/share/icons/hicolor/`), fallback to bundled `lazarus/icons/hicolor/1024x1024/apps/lazarus.png` shipped as `package_data`. No SVG — all sizes from PNG set.
 
 ### Desktop Entry (`app.py:install_desktop`)
-`lazarus --install-desktop` copies bundled PNGs to `~/.local/share/icons/hicolor/` and writes embedded `_DESKTOP_ENTRY` to `~/.local/share/applications/lazarus.desktop`, then `update-desktop-database`. One-shot explicit step — pipx cannot install `data_files` automatically; system packaging uses `setup.py:data_files`.
+`lazarus --install-desktop` copies the bundled PNGs (package_data) to `~/.local/share/icons/hicolor/` and writes the embedded `_DESKTOP_ENTRY` to `~/.local/share/applications/lazarus.desktop`, then runs `update-desktop-database`. This is the **single** install path — there is no `data_files`/`share/` mechanism anymore (data_files landed inside pipx venvs where no desktop looks; removed 2026-08).
 
 ## Key Bindings
 
-All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thread` / direct `Dodo` methods, so they work regardless of focus. `search_keymap`/`thread_keymap` are empty dicts kept for `config.py` overrides.
+All `global_keymap` keys delegate via `AppController.delegate_to_list` / `delegate_to_thread` / direct controller methods, so they work regardless of focus. `search_keymap`/`thread_keymap` are empty dicts kept for `config.py` overrides.
 
 ### Navigation (global)
 | Key | Action |
 |-----|--------|
-| `j` / `k` / `↓` / `↑` | Next/previous thread (`navigate_list`) |
+| `j` / `k` / `↓` / `↑` | Next/previous thread |
 | `<tab>` / `S-<tab>` | Next/previous unread thread |
 | `J` / `K` | Next/previous message in thread preview |
 | `g g` / `G` | First/last thread |
 | `M-j` / `M-k` | Down/up 20 threads |
 | `<pageup>` / `<pagedown>` | Page up/down (list) |
 | `<space>` / `-` | Page down/up (message) |
-| `<enter>` | Open thread in preview (`open_current_thread`) |
-| `<escape>` | Focus list (`focus_list`) |
-| `C-<enter>` | Close thread preview (`clear_thread`) |
-| `h` / `l` | Previous/next tab (`previous_panel`/`next_panel`) |
+| `<enter>` | Open thread in preview |
+| `<escape>` | Focus list |
+| `C-<enter>` | Close thread preview |
+| `h` / `l` | Previous/next tab |
 | `x` / `X` | Close panel / close all |
 
 ### Actions (global → list)
 | Key | Action |
 |-----|--------|
-| `s` | Mark thread and advance (`mark_and_advance`) |
-| `a` | Archive current/marked (`archive_thread` → `-inbox -unread`) |
-| `d` | Delete to trash (current/marked → `+trash` + move to `[Gmail]/Trash`) |
-| `d d` | Empty trash (`expunge_trash`, irreversible) |
+| `s` | Mark thread and advance |
+| `a` | Archive current/marked (`-inbox -unread`) |
+| `d` | Delete to trash (current/marked → `+trash` + file move) |
+| `d d` | Empty trash (irreversible) |
 | `d u` | Restore from trash |
 | `A` | Archive to local Maildir (`~/Mail/Archive`) |
-| `u` / `f` | Toggle `unread`/`flagged` (`toggle_thread_tag`) |
-| `t t` | Tag current thread (`tag_bar`) |
-| `t m` | Tag all marked threads (`tag_bar mode='tag marked'`) |
-| `t h` | Theme picker (`theme_bar` — command bar in `theme` mode, `theme:` prefilled; type a name, autocomplete like `tag:`, Enter applies; bare names also work) |
+| `u` / `f` | Toggle `unread`/`flagged` |
+| `t t` | Tag current thread |
+| `t m` | Tag all marked threads |
+| `t h` | Theme picker (command bar in `theme` mode, `theme:` prefilled, autocomplete) |
 | `1`–`9` | Toggle `tag_hotkeys` tag |
 
 ### Global / Views
 | Key | Action |
 |-----|--------|
-| `?` | Help (`HelpWindow`, three-column HTML) |
-| `c` | Compose (`open_compose`) |
-| `I` | Show inbox (`tag:inbox`) |
-| `U` | Show unread (`tag:inbox and tag:unread`) |
-| `F` | Show flagged (`tag:flagged`) |
-| `T` | Tag browser (`open_tags`) |
-| `/` | Search bar (`search_bar`) |
-| `C-/` | Edit current tab query in-place (`edit_search_query`) |
-| `` ` `` | Manual sync (`sync_mail quiet=False`) |
-| `C-r` | Apply filter rules (`apply_filter_rules`) |
-| `M-<` / `M->` | Previous/next theme (`cycle_theme`; Alt — `C-<` collides with the `C-<enter>` chord prefix) |
-| `Q` | Quit (`prompt_quit`, respects dirty panels/`keep_open`) |
+| `?` | Help window |
+| `C-q` | Quit (`prompt_quit`) |
+| `` ` `` | Manual sync |
+| `c` | Compose |
+| `I` / `U` / `F` | Show inbox / unread / flagged |
+| `T` | Tag browser |
+| `/` | Search bar |
+| `C-/` | Edit current tab query in-place |
+| `C-r` | Apply filter rules |
+| `M-<` / `M->` | Previous/next theme (Alt — `C-<` collides with the `C-<enter>` chord prefix) |
 
 ### Thread View (global → thread preview)
 | Key | Action |
@@ -274,34 +277,32 @@ All `global_keymap` keys delegate via `Dodo.delegate_to_list` / `delegate_to_thr
 | `H` | Toggle HTML/plaintext |
 | `i` | Toggle remote images |
 | `M` | Toggle list mode (conversation ↔ tree) |
-| `r` / `R` | Reply all / reply — focused context: preview's current message, or the list's selected thread (most recent email) |
+| `r` / `R` | Reply all / reply — focused context: preview's current message, or the list's selected thread |
 | `C-y` | Forward — same focused-context rule |
-| `O` | Open attachments (dump to temp dir → file browser) |
+| `O` | Open attachments |
 
 ### Thread View — message-level actions (Ctrl-variants act on the selected
-message in the preview; the plain keys above act on the whole thread)
+message in the preview; the plain keys act on the whole thread)
 | Key | Action |
 |-----|--------|
-| `C-u` | Toggle `unread` on the current message |
-| `C-f` | Toggle `flagged` on the current message |
-| `C-a` | Archive current message (`-inbox -unread`) |
-| `C-A` | Archive current message to local Maildir |
+| `C-u` / `C-f` | Toggle `unread` / `flagged` on the current message |
+| `C-a` / `C-A` | Archive / archive-to-local the current message |
 | `C-d` | Move current message to Trash |
 | `C-t` | Tag current message (modal, `+` prefilled) |
 
 ### Tag Panel (`tag_keymap`)
-`j`/`k`/`↓`/`↑`, `g g`/`G`, `M-k`/`M-j`, `<enter>` (search tag).
+`j`/`k`/`↓`/`↑`, `g g`/`G`, `C-d` down 20 / `C-u` up 20, `<enter>` (search tag).
 
 ### Compose (`compose_keymap`)
 | Key | Action |
 |-----|--------|
 | `<escape>` | Toggle focus (editor ↔ chrome) |
-| `<enter>` | Insert newline (when editor focused) |
-| `H` | Toggle plaintext compose (chrome focus; Shift+H — mirrors the reading view's HTML toggle). Plain mode: formatting stripped, outgoing message has no HTML part; toolbar formatting buttons disabled, `Plain` shown in the status area |
-| `C-s` | Send (`SendmailThread`, disables UI, status on error) |
-| `M-c` / `M-b` | Toggle hidden Cc / Bcc row: reveal + focus, or hide — content in a hidden row is disregarded on send but remembered (re-reveal restores it) |
-| `a` | Attach file (file picker or `file_picker_command`) |
-| `[` / `]` | Previous/next SMTP account (cycles the From dropdown too, reloads sig) |
+| `<enter>` | Insert newline (editor focused) |
+| `H` | Toggle plaintext compose (Shift+H in chrome; toolbar `[Plaintext \| HTML]` toggle too). Plain mode: formatting stripped, outgoing message has no HTML part, formatting buttons disabled |
+| `C-s` | Send (`SendmailThread`, disables UI while sending) |
+| `M-c` / `M-b` | Toggle hidden Cc / Bcc row (content in a hidden row is disregarded on send but remembered) |
+| `a` | Attach file |
+| `[` / `]` | Previous/next SMTP account (cycles From dropdown, reloads + re-places sig) |
 | `p` / `e` | Toggle PGP sign/encrypt |
 
 ### Command Bar (`command_bar_keymap`)
@@ -309,7 +310,7 @@ message in the preview; the plain keys above act on the whole thread)
 
 ## Configuration
 
-Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardPaths` and `exec()`'d at startup. All settings in `lazarus.settings` with documented defaults; `email_address` + `sent_dir` are required.
+Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardPaths` and `exec()`'d at startup. All settings live in `lazarus.settings` with documented defaults; `email_address` + `sent_dir` are required.
 
 ### Required
 | Setting | Purpose |
@@ -320,77 +321,75 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 ### Key Optional
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `theme` | `themes.nord` | Palette dict; `apply_theme()` at startup; `M-<`/`M->`/`t h` switch live (QSettings `last_theme_name` remembered across launches) |
-| `theme_overrides` | `{}` | `{theme_name: {key: value}}` per-theme exceptions on top of the heuristic mapping — value can be a hex color, an ANSI palette index of the source theme (`'fg_subject_unread': 3`), a named terminal color (`'fg_tags': 'foreground'`), or another Lazarus key (`'fg_date': 'fg_dim'`) |
-| `default_heuristic` | `{}` | Replace lines of the built-in heuristic itself for every pack theme (`{'fg_subject': 2}` = palette green, all themes) — mirrors `DEFAULT_TERMINAL_MAP`, same value forms as `theme_overrides`; `theme_overrides[theme]` runs after and wins |
-| `colormap.py` | (file) | `~/.config/lazarus/themes/colormap.py` — auto-created on first run, never overwritten; documents all 19 color keys + the built-in heuristic (generated from `DEFAULT_TERMINAL_MAP`, no drift), exec'd at startup and merged per-key over config.py (this file wins); defines `default_heuristic` (replace the built-in mapping) and `theme_overrides` (per-theme exceptions) |
-| `sync_mail_command` | `'offlineimap'` | Fallback shell sync when `smtp_accounts` empty |
-| `sync_mail_interval` | `300` | Auto-sync secs; `-1` disables |
-| `send_mail_command` | `'msmtp -a "{account}" -t'` | `str` or `{account: cmd}`; `{account}` placeholder |
-| `smtp_accounts` | `['default']` | Account names; drives parallel `mbsync -V` + compose switch |
-| `file_browser_command` | `"nautilus '{dir}'"` | Attachment viewer; `{dir}` temp dir |
+| `theme` | `themes.nord` | Palette dict; live-switchable (`M-<`/`M->`/`t h`), last choice remembered in QSettings |
+| `theme_overrides` | `{}` | `{theme_name: {key: value}}` per-theme corrections — hex, source-palette ANSI index, named terminal color, or another Lazarus key |
+| `default_heuristic` | `{}` | Replaces lines of the built-in terminal-theme mapping for every pack theme; `theme_overrides[theme]` wins over it |
+| `colormap.py` | (file) | `~/.config/lazarus/themes/colormap.py` — auto-created, never overwritten, generated from `DEFAULT_TERMINAL_MAP`; defines the above two settings |
+| `sync_mail_command` | `'offlineimap'` | **Fallback only**: used when `smtp_accounts` is empty; otherwise parallel `mbsync -V <acct>` runs |
+| `sync_mail_interval` | `300` | Auto-sync seconds; `-1` disables |
+| `send_mail_command` | `'msmtp -a "{account}" -t'` | `str` or `{account: cmd}` |
+| `smtp_accounts` | `['default']` | Account names; drives parallel sync + compose From dropdown |
+| `file_browser_command` | `"nautilus '{dir}'"` | Reveal-after-save; `{dir}` placeholder |
 | `file_picker_command` | `None` | Optional picker; `{tempfile}` out list |
-| `web_browser_command` | `''` | Empty → desktop default |
+| `web_browser_command` | `''` | Empty → desktop default browser |
 | `init_queries` | `['tag:inbox']` | Non-closable startup tabs (`keep_open=True`) |
 | `mail_root` | `'~/Mail'` | Maildir root; Trash/Archive resolution base |
-| `archive_dir` | `'~/Mail/Archive'` | Local archive dest |
+| `archive_dir` | `'~/Mail/Archive'` | Local archive destination |
 | `thread_pane_position` | `'right'` | `right/left/below/above` → splitter orientation |
-| `force_dark_mode` | `True` | Sets `QTWEBENGINE_CHROMIUM_FLAGS --force-dark-mode` before web view init |
+| `force_dark_mode` | `True` | `QTWEBENGINE_CHROMIUM_FLAGS --force-dark-mode` before web init |
 | `default_to_html` | `False` | Thread view HTML default |
-| `wrap_message` | `True` | Plaintext wrap |
-| `wrap_column` | `78` | Wrap width |
+| `wrap_message` / `wrap_column` | `True` / `78` | Plaintext wrapping |
 | `remove_temp_dirs` | `'ask'` | `always/never/ask` attachment temp cleanup |
 | `gnupg_home` / `gnupg_keyid` | `None` | PGP home/key |
 | `filter_rules` | `[]` | `List[Rule]` — auto after sync + `C-r` |
 | `filter_scope_query` | `'tag:inbox and tag:unread'` | Scopes rules as `(scope) and (rule.query)` |
+| `use_signature` | `True` | Per-account sig insertion — rich mode uses `signature.html` directly, plain mode uses `signature` |
 | `tag_hotkeys` | `{}` | `{'1':'Urgent',...}` → `1-9` toggles |
-| `tag_icons` | `{inbox,unread,attachment,sent,replied,flagged,marked,signed}` | NerdFont icons |
-| `nerd_font` | `''` | NerdFont family for toolbar/dropdown-arrow glyphs; empty = auto-pick installed `* Nerd Font`, else `tag_font` |
-| `tag_order` | `['marked','Urgent',...]` | Tag display priority |
-| `hide_tags` | `['unread','sent']` | Hidden in search tag column |
-| `log_level` | `'WARNING'` | `DEBUG/INFO/WARNING/ERROR/CRITICAL` |
-| `log_file` | `''` | Empty → stderr only |
+| `tag_icons` | inbox/unread/attachment/sent/replied/flagged/marked/signed | NerdFont icons |
+| `nerd_font` | `''` | NerdFont family for glyphs; empty = auto-pick installed `* Nerd Font`, else `tag_font` |
+| `tag_order` / `hide_tags` | — | Tag display priority / hidden tags |
+| `log_level` / `log_file` | `'WARNING'` / `''` | Logging; empty file → stderr |
 | `html_block_remote_requests` | `True` | Block remote HTML resources |
-| `html_confirm_open_links` | `True` | Confirm before opening browser |
-| `html_confirm_open_links_trusted_hosts` | `[]` | Bypass confirm for hosts |
-| `use_signature` | `True` | Per-account sig insertion |
-| `search_font`/`search_font_size` | `DejaVu Sans Mono`/`13` | Search/list/tag fonts |
-| `tag_font`/`tag_font_size` | `DejaVu Sans Mono`/`13` | |
-| `message_font`/`message_font_size` | `DejaVu Sans Mono`/`12` | Plaintext viewer |
-| `compose_editor_font/size` | `DejaVu Sans Mono`/`12` | Compose editor |
-| `search_view_padding` | `1` | Row spacing |
+| `html_confirm_open_links` / `_trusted_hosts` | `True` / `[]` | Link-open confirmation |
+| `search_font`/`size`, `tag_font`/`size`, `message_font`/`size`, `compose_editor_font`/`size` | DejaVu Sans Mono | Fonts |
 | `search_title_format` | `"{query} [{num_threads}]"` | Tab titles |
 | `search_color_overrides` | `{}` | `{tag:{col:color}}` per-column overrides |
-| `message_css` | `pre/body/a/scrollbar` | Theme-aware CSS (`{bg,fg,fg_dim,fg_bright,bg_button}`) |
-| `message2html_filters` | `[]` | Custom renderers `(msg→HTML|None)` |
+| `message_css` | — | Theme-aware CSS template (`{bg,fg,...}` placeholders) |
+| `message2html_filters` | `[]` | Custom renderers `(msg→HTML\|None)` |
 
 ### Per-Account Signatures (`signature.py`)
-`$XDG_CONFIG_HOME/lazarus/<account>/signature` (text) + `signature.html` (HTML, optional) per `smtp_accounts` entry. Swapped on `[`/`]` account cycle; HTML downconverted via `html2text` until rich compose uses it directly.
+`$XDG_CONFIG_HOME/lazarus/<account>/signature` (plain) + `signature.html` (optional), per `smtp_accounts` entry. Rich-text compose inserts `signature.html` directly (its plain-text rendering is derived via `html_utils.html_to_plain` so the block can still be located for account switches); plaintext compose (or no HTML file) uses the plain block. Swapped on `[`/`]` account cycle; placement is structural (`compose_model.sig_edit` — exact block + exact quote anchor), so no content-marker scanning and no newline drift.
 
 ## Ruly's Setup
 - **Mail**: `~/Mail/` — Gmail (`RulyTafzil@gmail.com/`) + `contact@RulyTafzil.com`
-- **Sync**: `mbsync -a -V` per account in parallel (`synchronize_flags=true`), fallback `sync_mail_command`
+- **Sync**: parallel `mbsync -V <acct>` per account (`synchronize_flags=true`)
 - **Send**: `msmtp` with `gmail` + `contact` accounts
 - **Theme**: Nord
-- **Editor**: n/a (built-in `RichTextEditor` is the only compose editor; external `$EDITOR` flow removed Aug 2026)
+- **Editor**: built-in `RichTextEditor` is the only compose editor (external `$EDITOR` flow removed)
 - **Notmuch**: `post-new` hook maps folders→tags, strips Trash/Spam tags
 
 ## Development
 
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
-- **Type check**: `mypy lazarus` — **clean (0 errors)**; `disallow_untyped_defs = True`; keep it green
-- **Tests**: 225 tests in `tests/` — `python -m pytest` from the repo root (pytest injected into the lazarus-mail pipx venv). Pure logic + offscreen Qt (Tiers 1+2): notmuch stubbed, QSettings redirected to tmp, `lazarus.settings` restored per test (see `tests/conftest.py`). No WebEngine construction in tests (segfaults offscreen — models are covered, panels aren't).
+- **Type check**: `mypy lazarus` (pipx venv) — **must stay at 0 errors**; `disallow_untyped_defs = True`
+- **Lint**: `pyflakes lazarus` — clean apart from intentional re-exports in `__init__.py`/`util.py`
+- **Tests**: 292 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
-- **Conventions**: file headers keep original `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry Ruly header. Keep `key_string` / `message_css` / `LOCAL_PROTOCOLS` stable — they are part of the public `config.py` surface.
+- **Conventions**: file headers keep `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry the Ruly header. Keep `key_string`, `message_css`, `LOCAL_PROTOCOLS`, and the `lazarus.util` re-exports stable — part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
-- **PR workflow (Aug 2026)**: feature branches `pr/<slug>` → Forgejo API PRs (see forgejo-git skill) → merge+prune in order, rebasing downstream branches as they go. 8-PR cleanup series (mypy 182→0, protocols, perf, latent bugs) + test suite + features (message-level actions, list reply/forward, compose Cc/Bcc toggles) merged; each PR's description carries its verification notes.
-- **Aug 2026 cleanup (pr/refactor-cleanup)**: dead code + unused imports removed (incl. all `from . import app` runtime imports — app.py no longer imports panel modules), Dodo shim layer deleted (AppController is the sole `PanelApp` implementer), duplication consolidated (`notmuch.show_part`, `util.sort_tags`, `_cycle_account`, single `_parse_address_list`), Qt star imports → explicit. Net −149 LOC, 158 tests, mypy 0. 
-- **Aug 2026 (pr/cleanup-style-editor)**: shared `style.cell_font`/`theme_color` (memoised, used by all three list/tree models), `ThreadItem.row_in_parent` → O(1) `ThreadModel.parent`, file-browser fallback in argv form (no shell), `sanitize_filename` comment; **external-editor flow removed** — `EditorThread`, `editor_command`, compose `E` key, and the raw-message round-trip all deleted (built-in `RichTextEditor` is the only compose editor).
-- **Aug 2026 (pr/compose-labels-toolbar)**: compose fields get real left labels (To/Cc/Bcc/Subject, right-aligned, fixed width so boxes align; placeholders dropped); `RichTextEditor.formatting_toolbar()` — compact strip (B/I/U checkables synced to cursor format, exclusive align group, bullet/numbered lists, text-colour dialog, insert-image dialog); all buttons NoFocus so keyboard focus stays in the editor.
-- **Aug 2026 (pr/compose-labels-toolbar follow-ups)**: polish — 2px right margins on field rows, toolbar left-aligned/content-sized with reduced vertical padding, header font one point smaller than body; **From row** — old account/from header bar replaced by a labeled `From:` dropdown (one item per `smtp_accounts`, address text, account-name prefix when addresses collide, CSS-triangle arrow), PGP/send status moved into the row's right side, `[`/`]` still cycle and keep the combo selection in sync via a single guarded `_set_account(idx)`; From moved to the top of the field stack; **NerdFont icons** — toolbar buttons and the dropdown arrow use NerdFont glyphs (Font Awesome codepoints, auto-picked family via `settings.nerd_font`, arrow rendered to a temp PNG for QSS `image:` since Qt QSS can't use font glyphs).
-- **Aug 2026 (pr/compose-plaintext-mode)**: compose **plaintext mode** — `RichTextEditor.toggle_plain()` (Shift+H in compose chrome, or the toolbar's `[Plaintext | HTML]` segmented toggle at the far left — two exclusive checkable buttons in a bordered box, active segment filled, click switches mode; QML Switch rejected as non-trivial + wrong shape): strips formatting in place (fresh char format), disables the formatting buttons, and makes `body_html()`/`collect_inline_images()` no-op so the outgoing message takes `build_message`'s plaintext-only path (bare `text/plain`, no HTML part). Status area shows `Plain`; toolbar sync runs once at build so the HTML segment is highlighted on open. `body_text()` now strips Qt's U+FFFC image placeholder char.
-- **Aug 2026 (pr/fix-thread-swap-race)**: `_SwapGuard` in thread.py arbitrates the double-buffer view swap — rapid H/i toggling (or fast message nav) left several web loads in flight and the old code swapped on every `loadFinished`, so a stale completion could flip back to old content and stacked connections could double-swap. Guard rules: only the newest request may swap, each request swaps at most once, and a scheduled swap is void if superseded before its deferred timer runs. `refresh_content` also disconnects before reconnecting so connections stay bounded at one per view. Verified: 5 pure-logic unit tests (test_swap_guard.py) + standalone offscreen WebEngine check (13 rapid loads → exactly one swap to the newest request).
-- **Aug 2026 (master, post-.agent)**: watermark title + low-poly geometric tab-strip background (`WatermarkTabWidget`, `mainwindow.py`) — mesh/title painted from theme colors, opacity tuned; `images/` (old dodo screenshots) removed.
-- **Aug 2026 (pr/theme-import-switching)**: **terminal-style theme import + live theme switching**. `themes.py` gains `_validate_terminal_entry`/`terminal_theme_to_lazarus` (16-ANSI heuristic mapping → Lazarus keys, dark/light aware), `load_theme_pack` (JSON list, per-entry error tolerance), `build_registry()` (hand-written Python themes > bundled `theme_packs/builtin.json` — 602 iTerm2-shape themes ~350KB > `~/.config/lazarus/themes/*.json` user packs > `settings.theme_overrides` per-key corrections) and `REGISTRY`. Live switching: `set_theme`/`cycle_theme`/`ordered_names`/`current_name`/`ThemeError`, `M-<`/`M->` cycle keys, `t h` command-bar picker (theme-name autocomplete), QSettings `last_theme_name` remembered across launches (`resolve_initial_theme` prefers it over config default), `style.py` caches self-invalidate via `settings.theme` rebind (new dict id), watermark mesh invalidated on switch. `app.py` builds REGISTRY after config.py runs; `setup.py`/`MANIFEST.in` ship `theme_packs/*.json`. Tests: 19 in test_theme_import.py (mapping/validation/pack-loading/priority/overrides) + controller theme tests. Note: quit key is `Q` (the temporary `C-q` from 0b05e36 was reverted; `C-<` theme-cycle rejected — collides with the `C-<enter>` chord prefix, hence Alt).
-- **Aug 2026 (pr/theme-import-switching fixes)**: `_TagLoader` teardown race fixed — per-bar parented QThread crashed at teardown (“Destroyed while thread is still running”); now a process-wide `_TagStore` owns the loader (fetch per idle period, broadcast via shared `loaded` signal, finished loaders replaced not destroyed). `lazarus/__init__.py` restored to the re-export shim (had been clobbered by a copy of keymap.py — `import lazarus; lazarus.settings` silently broke). `test_compose_model.py` restored (9 compose_model tests — had been overwritten with AppController tests; those live in test_controller.py, which also gained the 4 keypress theme tests). mypy back to 0 (incl. `QPaintEvent | None` override); unused imports dropped; stale transfer zips (`files.zip`) removed. **Theme-key contract**: every theme must define `THEME_KEYS` (19 keys — the full set the app reads; the terminal mapping emits all of them, pinned by test_theme_import.py so an incomplete mapping can't ship again); `style.theme_color_or()` degrades gracefully for minimal user-supplied theme dicts.
-- **Linter**: `pyflakes lazarus` (pipx venv) should stay clean apart from the intentional re-exports in `lazarus/__init__.py` and `lazarus/util.py`.
+- **PR workflow**: NEVER commit on master. Branch `pr/<slug>` from master → push (Clanker SSH key, port 2222) → PR via `tea pr create` (`FORGEJO_TOKEN`) → Ruly tests the branch before merging → merge in PR number order, rebase any downstream branches, then delete local + remote branches. Merge style: merge commit.
+
+### Durable gotchas (learned the hard way)
+- **Quit key is `C-q`** (not `Q` — a `Q` binding for help once crashed after the AppController split; keep global commands on the controller).
+- **Theme contract**: every theme must define all 19 `THEME_KEYS`; the terminal mapping emits the full set (pinned by `test_theme_import.py`). Read theme colors defensively via `style.theme_color_or()`.
+- **WebEngine under pytest**: constructing `QWebEngineView`/pages segfaults offscreen — model logic is tested via stubs; only a bare scheme handler (no view) is safe (`test_webengine.py`).
+- **Test widget hygiene**: shown top-level widgets (panels, windows, completer popups) must be closed/deleted at test end — garbage-collecting them mid-paint in a later test segfaults the shared offscreen QApplication. New test files should include the close/deleteLater fixture.
+- **`deleteLater` vs running QThread**: closing a `ComposePanel` mid-send must not delete it (`close_panel` skips; the send-completion callback deletes). Panel timers are parented (`QTimer(self)`) so they can't fire on a dead widget.
+- **`_BulkMoveWorker`**: singleton; both `batch_done` receivers (`notmuch new` + `refresh_panels`) are wired inside `actions` (`set_batch_done_listener`) so a recreated worker stays connected.
+- **Thread panel double-buffer**: rapid `H`/`i` toggling leaves several web loads in flight — `_SwapGuard` ensures only the newest request may swap, each at most once.
+- **Sync**: `sync_mail_command` is ignored whenever `smtp_accounts` is non-empty (default) — parallel mbsync path. `refresh_tab_titles` batches per-tab thread counts into one `notmuch count --batch`.
+- **Signatures**: insertion is structural (`sig_edit`); seeds must keep `quoted_tail` populated or account-switch placement degrades to append-at-end.
+- **`notmuch count --batch`** exists (`count_batch`) — prefer it over N subprocesses (TagModel, tab titles).
+
+### Shelved work
+- `pr/html-replies` branch contains a shelved `.plan` (compose-pane HTML fidelity analysis, 2026-08-14). Do not resurrect without a decision on approach — the two panes use different rendering engines (Chromium vs QTextEdit), which is architectural, not a bug.
