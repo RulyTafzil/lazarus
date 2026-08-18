@@ -85,6 +85,7 @@ Lazarus has a built-in rich-text compose editor. It supports:
 * address autocomplete drawn from your notmuch mail history
 * reveal / dismiss cc and bcc fields with `M+c` and `M+b`
 * add attachments via `a`
+* reply/forward bodies open with **two blank lines at the top**, so there's room to type above the quoted/forwarded text; `<enter>` from the compose chrome inserts a newline **and** moves the cursor into the editor
 * per-account signatures, auto-inserted based on which account you're sending from (`~/config/lazarus/<account>/signature[.html]`)
 * switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)

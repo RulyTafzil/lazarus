@@ -347,8 +347,14 @@ class ComposePanel(panel.Panel):
         )
 
     def insert_newline(self) -> None:
-        """Insert a newline at the editor cursor position."""
+        """Insert a newline at the editor cursor position.
+
+        Bound to ``<enter>``.  When invoked from the chrome (panel focus,
+        not the editor), the newline is inserted **and** focus moves into
+        the editor, so typing continues there immediately.
+        """
         self.editor.insertPlainText('\n')
+        self.editor.setFocus()
 
     # ── Panel interface ──────────────────────────────────────────────
 

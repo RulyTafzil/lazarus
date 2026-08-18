@@ -297,7 +297,7 @@ message in the preview; the plain keys act on the whole thread)
 | Key | Action |
 |-----|--------|
 | `<escape>` | Exit the editor (or a header field) to the compose chrome — one-directional, never re-enters the editor; no-op from the chrome (click the body to resume typing) |
-| `<enter>` | Insert newline (editor focused) |
+| `<enter>` | Insert newline; from the chrome, also moves focus into the editor (typing continues there) |
 | `H` | Toggle plaintext compose (Shift+H in chrome; toolbar `[Plaintext \| HTML]` toggle too). Plain mode: formatting stripped, outgoing message has no HTML part, formatting buttons disabled |
 | `C-s` | Send (`SendmailThread`, disables UI while sending) — also works while the editor is focused |
 | `M-c` / `M-b` | Toggle hidden Cc / Bcc row (content in a hidden row is disregarded on send but remembered) |

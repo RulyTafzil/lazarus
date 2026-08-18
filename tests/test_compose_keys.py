@@ -43,8 +43,14 @@ def panel(qapp):
     p.send = MagicMock()
     p.attach_file = MagicMock()
     yield p
+    # Widget hygiene: close + deleteLater + flush, so a shown top-level
+    # panel can't be garbage-collected mid-paint in a later test (which
+    # segfaults the shared offscreen QApplication once WebEngine is up).
     p.close()
+    p.deleteLater()
     qapp.processEvents()
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def _click(qapp, widget, key, mods=Qt.KeyboardModifier.NoModifier):
@@ -123,6 +129,40 @@ def test_escape_from_field_focuses_chrome(qapp, panel):
     assert not p.to_field.hasFocus()
     assert not p.editor.hasFocus()
     assert p.hasFocus()
+
+
+def _cursor_to_end(p):
+    from PyQt6.QtGui import QTextCursor
+    c = p.editor.textCursor()
+    c.movePosition(QTextCursor.MoveOperation.End)
+    p.editor.setTextCursor(c)
+
+
+def test_enter_from_chrome_inserts_newline_and_focuses_editor(qapp, panel):
+    """<enter> with the chrome focused inserts a newline at the editor's
+    cursor **and** moves focus into the editor, so typing continues there."""
+    p = panel
+    p.editor.setPlainText('hello')
+    _cursor_to_end(p)
+    p.setFocus()
+    qapp.processEvents()
+    assert not p.editor.hasFocus()
+    assert p.hasFocus()
+    _click(qapp, p, Qt.Key.Key_Enter)
+    assert p.editor.hasFocus()
+    assert p.editor.toPlainText() == 'hello\n'
+
+
+def test_enter_from_editor_stays_in_editor(qapp, panel):
+    """<enter> while editing just adds a newline; focus stays put."""
+    p = panel
+    p.editor.setPlainText('hello')
+    _cursor_to_end(p)
+    p.editor.setFocus()
+    qapp.processEvents()
+    _click(qapp, p.editor, Qt.Key.Key_Enter)
+    assert p.editor.hasFocus()
+    assert p.editor.toPlainText() == 'hello\n'
 
 
 # -- closed surface: chrome focus ------------------------------------------
@@ -244,7 +284,10 @@ def test_reply_opens_with_editor_focused(qapp):
     qapp.processEvents()   # deferred focus callback
     assert p.editor.hasFocus()
     p.close()
+    p.deleteLater()
     qapp.processEvents()
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 # -- closed surface: editor focus ------------------------------------------

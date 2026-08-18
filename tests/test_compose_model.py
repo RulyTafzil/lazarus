@@ -53,6 +53,22 @@ def test_forward_seed_quotes_original():
     assert '---------- Forwarded message' in seed.quoted_tail
 
 
+def test_reply_seed_two_blank_lines_at_top():
+    """Reply bodies start with two blank lines so there's room to type
+    above the quoted text (cursor starts at the top)."""
+    seed = build_reply_seed(_msg(), to_all=False)
+    assert seed.body.startswith('\n\n')
+    assert 'quoted body' in seed.body
+
+
+def test_forward_seed_two_blank_lines_at_top():
+    """Forwarded bodies start with two blank lines, same as replies."""
+    seed = build_forward_seed(_msg())
+    assert seed.body.startswith('\n\n')
+    assert 'quoted body' in seed.body
+    assert '---------- Forwarded message' in seed.quoted_tail
+
+
 def test_mailto_seed(tmp_path):
     msg = _msg({'To': 'Bob <bob@example.com>'})
     seed = build_mailto_seed(msg)
