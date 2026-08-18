@@ -85,11 +85,14 @@ Lazarus has a built-in rich-text compose editor. It supports:
 * address autocomplete drawn from your notmuch mail history
 * reveal / dismiss cc and bcc fields with `M+c` and `M+b`
 * add attachments via `a`
+* reply/forward bodies open with **two blank lines at the top**, so there's room to type above the quoted/forwarded text; `<enter>` from the compose chrome inserts a newline **and** moves the cursor into the editor
 * per-account signatures, auto-inserted based on which account you're sending from (`~/config/lazarus/<account>/signature[.html]`)
 * switching between configured SMTP accounts with `[` / `]` (or the From dropdown — one item per account, addresses shown)
 * PGP sign/encrypt, toggled per-message with `p` / `e` (requires `gnupg_keyid` configured; disabled automatically for accounts that don't have a key set)
 
-`C-s` sends. `<escape>` toggles focus between the editor and the rest of the compose panel's chrome (subject, to/cc/from fields, etc).
+`C-s` sends. `<escape>` exits the editor (or any header field) to the compose panel chrome, where the compose hotkeys live; it never re-enters the editor, and does nothing if you're already on the chrome — click the body to resume typing.
+
+**Compose is a closed key surface.** While composing, keys never act on mail behind you: the list/thread hotkeys (`j`/`k`/`d`/`a`/`u`/`f`, `J`/`K`, the message-level `C-d`/`C-f`/`C-a`/`C-t`, tag hotkeys `1`–`9`, …) are all swallowed, in the editor, the fields, and the chrome alike — so a stray chord can't delete/archive/tag a thread you were reading. Only compose hotkeys plus app-level keys (help `?`, sync `` ` ``, quit `C-q`, `c` new compose, `l`/`h` tab, `I`/`U`/`F`/`T`, search bars `/`/`C-/`, rules `C-r`, theme `M-<`/`M->`/`t h`, close `x`/`X`) remain live.
 
 ### Mail filter rules
 

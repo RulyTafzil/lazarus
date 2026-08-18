@@ -183,7 +183,7 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 | File | Lines | Purpose |
 |------|-------|---------|
 | `themes.py` | 1177 | Hand-written palettes + terminal-style theme import (`DEFAULT_TERMINAL_MAP` heuristic → 19 `THEME_KEYS`), `load_theme_pack`, `build_registry` (hand-written > bundled pack > user packs > overrides), `REGISTRY`, `apply_theme()` global QSS builder, live switching (`set_theme`/`cycle_theme`/`ordered_names`, QSettings `last_theme_name`), colormap.py template generation |
-| `compose.py` | 787 | `ComposePanel` — compose/reply/forward; labeled field rows (hidden Cc/Bcc via M-c/M-b), From = account dropdown (`_set_account` shared with `[`/`]`), PGP/send status, `_insert_signature` (structural placement via `sig_edit`, HTML sigs in rich mode), `SendmailThread` wiring, `RichTextEditor` integration |
+| `compose.py` | 804 | `ComposePanel` — compose/reply/forward; labeled field rows (hidden Cc/Bcc via M-c/M-b), From = account dropdown (`_set_account` shared with `[`/`]`), PGP/send status, `_insert_signature` (structural placement via `sig_edit`, HTML sigs in rich mode), `SendmailThread` wiring, `RichTextEditor` integration |
 | `controller.py` | 737 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `refresh_tab_titles` (batched `count --batch`), `sync_mail` + `SyncMailThread`, theme switching, `close_panel` (deleteLater + in-flight-send guard). Sole `PanelApp` implementer |
 | `thread.py` | 672 | `ThreadPanel` — double-buffered `QWebEngineView` + `_SwapGuard` (newest-load-wins), message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `open_attachments`, `scroll_message` |
 | `mainwindow.py` | 653 | `MainWindow` — splitter + tabs + preview, `WatermarkTabWidget` (low-poly mesh + watermark, `invalidate_mesh()` on theme switch), CommandBar/StatusBar overlay, splitter open-state persistence (`_load_open_splitter_state`), geometry/open-searches persistence |
@@ -296,14 +296,23 @@ message in the preview; the plain keys act on the whole thread)
 ### Compose (`compose_keymap`)
 | Key | Action |
 |-----|--------|
-| `<escape>` | Toggle focus (editor ↔ chrome) |
-| `<enter>` | Insert newline (editor focused) |
+| `<escape>` | Exit the editor (or a header field) to the compose chrome — one-directional, never re-enters the editor; no-op from the chrome (click the body to resume typing) |
+| `<enter>` | Insert newline; from the chrome, also moves focus into the editor (typing continues there) |
 | `H` | Toggle plaintext compose (Shift+H in chrome; toolbar `[Plaintext \| HTML]` toggle too). Plain mode: formatting stripped, outgoing message has no HTML part, formatting buttons disabled |
-| `C-s` | Send (`SendmailThread`, disables UI while sending) |
+| `C-s` | Send (`SendmailThread`, disables UI while sending) — also works while the editor is focused |
 | `M-c` / `M-b` | Toggle hidden Cc / Bcc row (content in a hidden row is disregarded on send but remembered) |
 | `a` | Attach file |
 | `[` / `]` | Previous/next SMTP account (cycles From dropdown, reloads + re-places sig) |
 | `p` / `e` | Toggle PGP sign/encrypt |
+
+**Compose is a closed key surface**: keys may only act on the visible
+compose panel or app-level things (help, sync, quit, new compose, tab
+switch, search bars, rules, theme). Everything that would delegate to the
+hidden thread list / thread preview (`j`/`k`/`d`/`a`/`u`/`f`, `J`/`K`,
+message-level `C-d`/`C-f`/`C-a`/`C-t`, tag hotkeys `1`–`9`) is swallowed in
+every focus state — via `ComposePanel._allow_global_key` gating the global
+fallthrough in `Panel.keyPressEvent` against `keymap.COMPOSE_ALLOWED_GLOBALS`
+(both the single-key path and the keychord-timeout path).
 
 ### Command Bar (`command_bar_keymap`)
 `<enter>` accept, `<escape>` close, `<down>`/`<up>` history.
@@ -389,7 +398,10 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Thread panel double-buffer**: rapid `H`/`i` toggling leaves several web loads in flight — `_SwapGuard` ensures only the newest request may swap, each at most once.
 - **Sync**: `sync_mail_command` is ignored whenever `smtp_accounts` is non-empty (default) — parallel mbsync path. `refresh_tab_titles` batches per-tab thread counts into one `notmuch count --batch`.
 - **Signatures**: insertion is structural (`sig_edit`); seeds must keep `quoted_tail` populated or account-switch placement degrades to append-at-end.
+- **Compose is a closed key surface**: `_allow_global_key` gates the global fallthrough in `Panel.keyPressEvent` (single-key *and* prefix-timeout paths) against `keymap.COMPOSE_ALLOWED_GLOBALS`, so list/thread hotkeys can never act on hidden panels from compose — even unbound Ctrl chords leaking up from the editor/fields. Adding a global binding that should be reachable while composing means adding it to `COMPOSE_ALLOWED_GLOBALS` + a `test_compose_keys.py` case.
+- **Escape in compose is one-directional** (`escape_focus` = `self.setFocus()`): it exits the editor/fields to the chrome and never re-enters the editor — do not 'restore' the old toggle or the two-mode model breaks.
 - **`notmuch count --batch`** exists (`count_batch`) — prefer it over N subprocesses (TagModel, tab titles).
+- **HTML parity in reply/forward**: `notmuch show` elides `text/html` parts unless `--include-html` is passed. Every call site that produces displayed/quoted body content must pass `--include-html` (+ `--decrypt=true` for parity with the preview) or HTML-only emails reply with an **empty body** — e.g. `search._thread_latest_message` must mirror `thread_model._fetch_full_thread` (pinned by `test_list_reply_quotes_html_only_email`).
 
 ### Shelved work
 - `pr/html-replies` branch contains a shelved `.plan` (compose-pane HTML fidelity analysis, 2026-08-14). Do not resurrect without a decision on approach — the two panes use different rendering engines (Chromium vs QTextEdit), which is architectural, not a bug.

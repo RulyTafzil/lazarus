@@ -161,8 +161,8 @@ taking :class:`~lazarus.search.TagPanel` as input.
 """
 
 compose_keymap: Keymap = {
-  '<escape>':    ('toggle focus', lambda p: p.escape_focus()),
-  '<enter>':     ('insert newline', lambda p: p.insert_newline() if hasattr(p, 'insert_newline') else None),
+  '<escape>':    ('focus chrome', lambda p: p.escape_focus()),
+  '<enter>':     ('newline (focus editor)', lambda p: p.insert_newline() if hasattr(p, 'insert_newline') else None),
   'H':           ('toggle plaintext', lambda p: p.toggle_plain()),
   'C-s':         ('send', lambda p: p.send()),
   'M-c':         ('reveal Cc', lambda p: p.reveal_cc()),
@@ -178,6 +178,34 @@ compose_keymap: Keymap = {
 A dictionary from key strings to pairs consisting of a short docstring and a function
 taking :class:`~lazarus.compose.ComposePanel` as input.
 """
+
+COMPOSE_ALLOWED_GLOBALS: frozenset[str] = frozenset({
+    # The compose panel is a **closed key surface**: while composing, keys
+    # may only ever act on the visible compose panel or on app-level things
+    # that are visible (help, sync, quit, new compose, tab switching, search
+    # bars, theme).  Everything that would delegate to the (hidden) thread
+    # list or thread preview — and the ``1-9`` tag hotkeys — is swallowed,
+    # so a stray ``d``/``C-d``/``t t``/``J`` etc. can never act on mail
+    # behind the compose pane.  ``ComposePanel._allow_global_key`` gates the
+    # global fallthrough in :data:`panel.Panel.keyPressEvent`.
+    #
+    # ``compose_keymap`` is consulted first, so keys bound there (``a``, ``H``,
+    # ``p``, ``e``, ``[``, ``]``, ``C-s``, ``M-c``, ``M-b``, ``<enter>``,
+    # ``<escape>``) act on the visible panel regardless of this set.
+    'C-q',      # quit
+    '`',        # sync mail
+    '?',        # help
+    'C-r',      # apply filter rules
+    'c',        # compose (opens a new, visible compose panel)
+    'l', 'h',   # next / previous panel (visible tab switching)
+    'x', 'X',   # close panel / close all (closes the visible compose)
+    'I', 'U', 'F',  # show inbox / unread / flagged (new visible searches)
+    'T',        # tag browser (new visible tab)
+    '/',        # search bar
+    'C-/',      # edit search query
+    't h',      # theme picker (visible command-bar overlay)
+    'M-<', 'M->',   # cycle theme
+})
 
 command_bar_keymap: Keymap = {
   '<enter>':  ('accept', lambda b: b.accept()),

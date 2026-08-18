@@ -212,7 +212,9 @@ def build_reply_seed(msg: dict, *, to_all: bool) -> ComposeSeed:
 
     seed.quoted_tail = quote_body_text(msg)
     if seed.quoted_tail:
-        seed.body = normalize_body(seed.quoted_tail)
+        # Two blank lines at the top of the body so there is room to
+        # type above the quoted text (the cursor starts at the top).
+        seed.body = '\n\n' + normalize_body(seed.quoted_tail)
     return seed
 
 
@@ -230,7 +232,9 @@ def build_forward_seed(msg: dict) -> ComposeSeed:
     fwd = forwarded_text(msg)
     seed.quoted_tail = fwd
     if fwd:
-        seed.body = normalize_body(fwd)
+        # Two blank lines at the top of the body so there is room to
+        # type above the forwarded text (the cursor starts at the top).
+        seed.body = '\n\n' + normalize_body(fwd)
     return seed
 
 

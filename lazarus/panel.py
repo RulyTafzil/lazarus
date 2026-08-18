@@ -185,7 +185,8 @@ class Panel(QWidget):
         def prefix_timeout() -> None:
             if self.keymap and self._prefix in self.keymap:
                 self.keymap[self._prefix][1](self)
-            elif self._prefix in keymap.global_keymap:
+            elif (self._prefix in keymap.global_keymap
+                    and self._allow_global_key(self._prefix)):
                 keymap.global_keymap[self._prefix][1](self.app)
             self._prefix = ""
 
@@ -329,6 +330,18 @@ class Panel(QWidget):
         logger.info('before_close: end')
         return True
 
+    def _allow_global_key(self, cmd: str) -> bool:
+        """Whether a *global* keymap binding may fire from this panel.
+
+        Defaults to allowing the full :data:`~lazarus.keymap.global_keymap`
+        (used by the list/thread/tag panels).  Panels that must never act on
+        other, hidden panels — e.g. :class:`~lazarus.compose.ComposePanel`,
+        a *closed key surface* — override this to a whitelist so keychords
+        (this is also consulted by the prefix-timeout path) and single keys
+        can't leak out to the global keymap.
+        """
+        return True
+
     def keyPressEvent(self, e: QKeyEvent | None) -> None:
         """Passes key events to the appropriate keymap
 
@@ -357,7 +370,7 @@ class Panel(QWidget):
         elif self.keymap and cmd in self.keymap:
             self._prefix = ""
             self.keymap[cmd][1](self)
-        elif cmd in keymap.global_keymap:
+        elif cmd in keymap.global_keymap and self._allow_global_key(cmd):
             self._prefix = ""
             keymap.global_keymap[cmd][1](self.app)
         else:

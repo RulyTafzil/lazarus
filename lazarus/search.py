@@ -438,13 +438,23 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
     # the preview (r / R / C-y from the search list).
 
     def _thread_latest_message(self) -> Optional[dict]:
-        """Fetch the most recent message of the selected thread."""
+        """Fetch the most recent message of the selected thread.
+
+        Must request the same parts the thread preview shows
+        (``ThreadModel._fetch_full_thread``): notmuch ``show`` elides
+        ``text/html`` parts unless ``--include-html`` is passed, so a
+        reply/forward from the list to an HTML-only email would otherwise
+        come back with an empty body.  ``--decrypt=true`` keeps encrypted
+        content in parity with the preview too.
+        """
         thread_id = self._current_thread_id()
         if not thread_id:
             return None
         try:
-            r = notmuch.run('show', '--exclude=false', '--format=json',
-                            '--', f'thread:{thread_id}', check=True)
+            r = notmuch.run(
+                'show', '--exclude=false', '--format=json',
+                '--include-html', '--decrypt=true',
+                '--', f'thread:{thread_id}', check=True)
             data = json.loads(r.stdout)
         except (subprocess.CalledProcessError, json.JSONDecodeError, IndexError):
             return None
