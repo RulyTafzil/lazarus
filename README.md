@@ -159,7 +159,7 @@ A few settings worth knowing about beyond the basics:
 | `mail_root` | `~/Mail` | Root of your local Maildir tree — used to find each account's Trash/Archive/INBOX folders for the archive/trash workflow |
 | `archive_dir` | `~/Mail/Archive` | Where `A` moves mail to locally, separate from remote archiving |
 | `thread_pane_position` | `'right'` | Where the persistent thread preview docks |
-| `sync_mail_command` | `'offlineimap'` | Change to `'mbsync -a'` (or similar) if that's what you use |
+| `sync_mail_command` | `'offlineimap'` | Shell-command sync fallback — used **only** when `smtp_accounts = []`; otherwise sync runs `mbsync -V <account>` per configured account |
 | `sync_mail_interval` | `300` | Seconds between automatic syncs; `-1` disables |
 | `default_thread_list_mode` | `'conversation'` | `'conversation'` shows a flat reading order; `'thread'` shows the notmuch reply tree |
 | `gnupg_keyid` | `None` | GPG key ID (or `{account: keyid}` dict) enabling PGP sign/encrypt in compose |
