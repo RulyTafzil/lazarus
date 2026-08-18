@@ -19,7 +19,12 @@ def mw(qapp, fake_app):
     win = mainwindow.MainWindow(fake_app)
     win.resize(1000, 700)
     win.show()
-    return win
+    yield win
+    # Close the window before the next test runs: a shown top-level
+    # window that is later garbage-collected mid-paint in another test
+    # can segfault the shared offscreen QApplication.
+    win.close()
+    qapp.processEvents()
 
 
 @pytest.fixture
