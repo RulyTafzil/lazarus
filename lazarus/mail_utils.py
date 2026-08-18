@@ -97,9 +97,23 @@ def quote_body_text(m: dict) -> str:
     text = body_text(m)
     if not text:
         return ''
-    name, addr = email.utils.parseaddr(m['headers']['From'])
-    date = email.utils.parsedate_to_datetime(m['headers']['Date'])
-    prefix = f'On {date.strftime("%c")}, {name if name else addr} wrote:\n'
+    # Missing/malformed From or Date headers must not crash compose
+    # (e.g. replying to a message without a Date header used to raise
+    # KeyError inside build_reply_seed).
+    name, addr = email.utils.parseaddr(m['headers'].get('From', ''))
+    who = name if name else (addr or 'Sender')
+    date_hdr = m['headers'].get('Date')
+    if date_hdr:
+        try:
+            dt = email.utils.parsedate_to_datetime(date_hdr)
+        except (TypeError, ValueError):
+            dt = None
+    else:
+        dt = None
+    if dt is not None:
+        prefix = f'On {dt.strftime("%c")}, {who} wrote:\n'
+    else:
+        prefix = f'{who} wrote:\n'
     return ''.join([prefix] + [f'> {ln}\n' for ln in text.splitlines()])
 
 

@@ -253,10 +253,9 @@ Signatures are loaded from files (not from this settings module -- see
 
 where ``<account>`` is one of the names in
 :func:`~lazarus.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
-``~/.config``). Either file is optional; if only ``signature.html``
-exists its plaintext rendering (via :func:`~lazarus.util.html2text`) is
-used until Lazarus has a rich-text compose mode. Set this to False to
-disable signature insertion entirely.
+``~/.config``). Either file is optional; in rich-text compose mode the
+HTML file is inserted directly when present, otherwise the plaintext one
+is used. Set this to False to disable signature insertion entirely.
 """
 
 filter_rules: List[rules.Rule] = []

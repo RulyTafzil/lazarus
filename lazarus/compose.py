@@ -96,6 +96,12 @@ class ComposePanel(panel.Panel):
         # ── Signatures ───────────────────────────────────────────────
         self.signature_text: Optional[str] = None
         self.signature_html: Optional[str] = None
+        # The sig text currently in the document ('' = none) and the
+        # exact quoted/forwarded tail the seed generated — maintained by
+        # _insert_signature, which places the block by structure, not by
+        # scanning for quote markers.
+        self._sig_block = ''
+        self._quoted_tail = ''
         if settings.use_signature:
             self.signature_text, self.signature_html = signature.load(
                 self.account_name())
@@ -107,14 +113,13 @@ class ComposePanel(panel.Panel):
         self._data.from_addr = self.email_address()
         seed = None
         if msg and mode == 'mailto':
-            seed = compose_model.build_mailto_seed(msg, self.signature_text)
+            seed = compose_model.build_mailto_seed(msg)
             self.to_field.setText(seed.to_text)
             self.subject_field.setText(seed.subject)
-            # keep _insert_signature behavior for mailto
             self._insert_signature()
         elif msg and (mode == 'reply' or mode == 'replyall'):
             seed = compose_model.build_reply_seed(
-                msg, self.signature_text, to_all=(mode == 'replyall'))
+                msg, to_all=(mode == 'replyall'))
             self.to_field.setText(seed.to_text)
             self.cc_field.setText(seed.cc_text)
             # reply-all populates Cc — reveal the hidden row so it's visible
@@ -122,16 +127,18 @@ class ComposePanel(panel.Panel):
                 self.cc_row.show()
             self.subject_field.setText(seed.subject)
             self.editor.setPlainText(seed.body)
-            self._sig_block = seed.sig_block
+            self._quoted_tail = seed.quoted_tail
+            self._insert_signature()
         elif msg and mode == 'forward':
-            seed = compose_model.build_forward_seed(msg, self.signature_text)
+            seed = compose_model.build_forward_seed(msg)
             self.subject_field.setText(seed.subject)
             for d in seed.temp_dirs:
                 self.temp_dirs.append(d)
             for fi in seed.attachments:
                 self._add_attachment_file(fi)
             self.editor.setPlainText(seed.body)
-            self._sig_block = seed.sig_block
+            self._quoted_tail = seed.quoted_tail
+            self._insert_signature()
         else:
             def _focus_to() -> None:
                 try:
@@ -478,108 +485,77 @@ class ComposePanel(panel.Panel):
 
     # ── Signatures ───────────────────────────────────────────────────
 
-    def _sig_block_text(self) -> str:
-        """Signature block with leading newline, or ''."""
-        return compose_model.sig_block_text(self.signature_text)
+    def _sig_html_block(self) -> str:
+        """The signature as a rich-text fragment, or ''.
+
+        ``-- `` is the conventional plaintext separator and is inserted
+        literally, so the block's plain-text rendering (used to locate
+        it on the next account switch) is the same as the plaintext
+        block's.
+        """
+        if not self.signature_html:
+            return ''
+        return f'<br>-- <br>{self.signature_html}<br>'
 
     def _insert_signature(self) -> None:
-        """Insert the current account's plaintext signature.
+        """Insert or replace the current account's signature block.
 
-        On the first call the signature is appended at the end of the
-        document.  On subsequent calls (account switch) the old signature
-        block is replaced in-place — preserving any quoted reply text
-        that appears below it.
+        The document is ``[user text][sig block][quoted tail]`` and the
+        exact blocks are known (:func:`compose_model.sig_edit`), so no
+        content-marker scanning is needed.  Called once at compose time
+        and again on every account switch; preserves the user's cursor.
 
-        Bug fix: an empty ``_sig_block`` (no-sig account) previously
-        matched at index 0 (``''.find('') == 0``) and caused the new sig
-        to be inserted *before* user text. Empty old blocks are now
-        treated as "no sig present" and the new sig is inserted after
-        user text but before quoted/forwarded content when that exists.
+        Rich mode with an HTML signature inserts the HTML block (its
+        plain-text rendering is the same as the plaintext block's, so
+        replacement still finds it); plain mode — or no HTML file —
+        inserts the plaintext block.
         """
         doc = self.editor.document()
         if doc is None:
             return
-        full_text = doc.toPlainText()
 
-        new_block = self._sig_block_text()
-
-        # In-place replacement only when we have a non-empty cached sig
-        # that is actually found in the document.
-        if getattr(self, '_sig_block', None) is not None:
-            old_block = self._sig_block
-            if old_block:
-                idx = full_text.find(old_block)
-                if idx >= 0:
-                    old_pos = self.editor.textCursor().position()
-                    cursor = QTextCursor(doc)
-                    cursor.setPosition(idx)
-                    cursor.setPosition(
-                        idx + len(old_block),
-                        QTextCursor.MoveMode.KeepAnchor)
-                    if new_block:
-                        cursor.insertText(new_block)
-                    else:
-                        cursor.removeSelectedText()
-                    self._sig_block = new_block
-                    len_diff = len(new_block) - len(old_block)
-                    if old_pos > idx + len(old_block):
-                        old_pos += len_diff
-                    elif old_pos > idx:
-                        old_pos = idx + len(new_block)
-                    if self.editor.textCursor().position() != old_pos:
-                        c = self.editor.textCursor()
-                        c.setPosition(old_pos)
-                        self.editor.setTextCursor(c)
-                    return
-                # Non-empty old sig not found (user deleted it) — fall
-                # through to insertion logic below if we have a new sig.
-                if not new_block:
-                    self._sig_block = new_block
-                    return
-            else:
-                # old_block == '' -> no previous sig
-                if not new_block:
-                    return
-                # fall through to insertion
-
-        # No old sig found (or no previous sig) — insert new sig if any.
-        if not new_block:
-            # Ensure cache is set for future switches
-            if getattr(self, '_sig_block', None) is None:
-                self._sig_block = ''
-            return
-
-        # Find quoted/forwarded block to insert *before* it, so the sig
-        # stays above the quoted text. Otherwise append at end after user
-        # text (the reported bug was sig inserted before user text).
-        insert_idx = -1
-        for marker in ("\nOn ", "---------- Forwarded message", "\n> "):
-            idx = full_text.find(marker)
-            if idx != -1:
-                insert_idx = idx
-                break
-
-        cursor = QTextCursor(doc)
-        if insert_idx != -1:
-            cursor.setPosition(insert_idx)
-            # new_block starts with "\n-- \n", so inserting at the
-            # leading "\n" of the marker keeps correct spacing.
-            # If the marker has no leading \n (forwarded at pos 0), just
-            # insert there — leading \n in new_block still separates.
-            if full_text and insert_idx == 0 and full_text.startswith("\n"):
-                # Avoid doubling the leading newline when inserting at 0
-                # (rare, but keeps formatting tidy).
-                pass
-            cursor.insertText(new_block)
+        rich = (not self.editor.plain_mode and bool(self.signature_html))
+        if rich:
+            # The block in the document renders from the HTML file, so
+            # the replacement search key must match that rendering —
+            # not the plaintext file, whose content may differ.
+            sig_key: str = util.html_to_plain(self.signature_html or '')
         else:
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            if full_text and not full_text.endswith('\n'):
-                cursor.insertText('\n')
-            cursor.insertText(new_block)
-        self._sig_block = new_block
-        if not full_text.strip():
-            self.editor.moveCursor(QTextCursor.MoveOperation.Start)
+            sig_key = self.signature_text or ''
+
+        text = doc.toPlainText()
+        start, end, pre, sig, post = compose_model.sig_edit(
+            text, self._sig_block, sig_key, self._quoted_tail)
+        if start == end and not pre and not sig and not post:
+            return  # nothing to change
+
+        old_pos = self.editor.textCursor().position()
+        cursor = QTextCursor(doc)
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        if pre:
+            cursor.insertText(pre)
+        if rich:
+            cursor.insertHtml(self._sig_html_block())
+        else:
+            cursor.insertText(compose_model.sig_block_text(sig))
+        if post:
+            cursor.insertText(post)
+        self._sig_block = sig
+
+        # Restore the user's cursor, shifted by the edit's length delta:
+        # positions before the edit are unchanged, positions inside it
+        # clamp to the new block's end, positions after shift by the
+        # plain-text delta.
+        plain_repl = pre + compose_model.sig_block_text(sig) + post
+        new_pos = old_pos
+        if old_pos > end:
+            new_pos = old_pos + (len(plain_repl) - (end - start))
+        elif old_pos > start:
+            new_pos = start + len(plain_repl)
+        c = self.editor.textCursor()
+        c.setPosition(min(new_pos, doc.characterCount() - 1))
+        self.editor.setTextCursor(c)
 
     def _reload_signature(self) -> None:
         """Swap the signature when the account changes."""

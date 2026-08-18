@@ -33,11 +33,9 @@ QStandardPaths so this also does the right thing on macOS/Windows.)
 
 Either file is optional. If only ``signature.html`` exists, its
 plaintext form (via :func:`lazarus.util.html2text`) is used as the
-plaintext signature until Lazarus has a rich-text compose mode -- at
-which point ``signature.html`` will be used directly instead of being
-downconverted. The HTML content is loaded and returned regardless, so
-callers written against a future HTML compose panel don't need this
-module to change.
+plaintext signature; in rich-text compose mode the HTML content is
+inserted directly instead. The HTML content is loaded and returned
+regardless, so callers can choose per mode.
 """
 
 from __future__ import annotations
