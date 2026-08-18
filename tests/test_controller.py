@@ -102,6 +102,28 @@ def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
     assert ctl.num_panels() == 1
 
 
+def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, notmuch_stub):
+    """Dirty search tabs share one ``count --batch`` invocation instead
+    of one subprocess per tab."""
+    notmuch_stub.threads = [
+        make_thread('t1', 'A'), make_thread('t2', 'B')]  # both tag:inbox
+    ctl.open_search('tag:inbox')
+    ctl.open_search('tag:flagged')
+    # Dirty both titles (as refresh_panels does for non-current tabs).
+    for i in range(mw.tabs.count()):
+        mw.tabs.widget(i).dirty = True
+
+    batch_before = sum(1 for c in notmuch_stub.count_calls
+                       if c[0] == '__batch__')
+    ctl.refresh_tab_titles()
+    batch_after = sum(1 for c in notmuch_stub.count_calls
+                      if c[0] == '__batch__')
+
+    assert batch_after == batch_before + 1       # one batch for both tabs
+    assert mw.tabs.tabText(0) == 'tag:inbox [2]'
+    assert mw.tabs.tabText(1) == 'tag:flagged [0]'
+
+
 def test_navigate_list_on_search_panel(ctl, mw, qapp, notmuch_stub):
     notmuch_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
     ctl.open_search('tag:inbox')

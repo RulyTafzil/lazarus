@@ -585,10 +585,27 @@ class AppController(QObject):
 
     def refresh_tab_titles(self) -> None:
         from . import panel as panel_mod
+        from . import search as search_mod
+
+        panels: list[panel_mod.Panel] = []
         for i in range(self.num_panels()):
             w = self.tabs.widget(i)
             if isinstance(w, panel_mod.Panel):
-                self.tabs.setTabText(i, w.title())
+                panels.append(w)
+
+        # Refresh dirty search-tab thread counts in one ``notmuch count
+        # --batch`` invocation instead of one subprocess per tab —
+        # title() used to spawn them serially on the UI thread after
+        # every sync.
+        dirty = [w for w in panels
+                 if isinstance(w, search_mod.SearchPanel) and w.title_dirty]
+        if dirty:
+            counts = notmuch.count_batch([w.q for w in dirty])
+            for w, n in zip(dirty, counts):
+                w.apply_thread_count(n)
+
+        for w in panels:
+            self.tabs.setTabText(self.tabs.indexOf(w), w.title())
 
     def refresh_panels(self) -> None:
         from . import panel as panel_mod
