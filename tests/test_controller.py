@@ -59,6 +59,41 @@ def test_close_panel_by_widget(ctl, mw, qapp):
     assert mw.tabs.count() == 0
 
 
+def _flush_deferred_deletes() -> None:
+    """Deliver pending DeferredDelete events.
+
+    deleteLater() posts a DeferredDelete event; processEvents() alone
+    does not flush those (the real event loop does, continuously)."""
+    from PyQt6.QtCore import QCoreApplication, QEvent
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+def test_close_panel_deletes_widget(ctl, mw, qapp):
+    """Closed tab panels are destroyed, not just detached from the tab
+    widget — removeTab alone leaked every closed panel for the session."""
+    from PyQt6 import sip
+    a = DummyPanel(ctl, 'a')
+    ctl.add_panel(a)
+    ctl.close_panel(a)
+    _flush_deferred_deletes()
+    assert sip.isdeleted(a)
+
+
+def test_close_panel_skips_delete_while_sending(ctl, mw, qapp):
+    """A ComposePanel with an in-flight SendmailThread must survive
+    close (deleting it would kill the running QThread); compose's send
+    completion callback performs the deleteLater instead."""
+    from PyQt6 import sip
+    a = DummyPanel(ctl, 'a')
+    a.sendmail_thread = object()  # in-flight send marker
+    ctl.add_panel(a)
+    ctl.close_panel(a)
+    _flush_deferred_deletes()
+    assert mw.tabs.count() == 0          # still removed from the tabs
+    assert not sip.isdeleted(a)          # …but not destroyed
+    del a.sendmail_thread
+
+
 def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
     notmuch_stub.threads = [make_thread('t1', 'Hello')]
     ctl.open_search('tag:inbox')

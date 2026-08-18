@@ -370,6 +370,15 @@ class AppController(QObject):
                     w0 = self.panel_history.pop()
                     self.tabs.setCurrentWidget(w0)
                 self.tabs.removeTab(index)
+                # removeTab() only detaches the widget — without
+                # deleteLater() every closed tab leaked (model, widgets,
+                # timers) for the rest of the session.  Exception: a
+                # ComposePanel with an in-flight SendmailThread must not
+                # be deleted under its running thread ("QThread:
+                # destroyed while running") — compose's send completion
+                # callback performs the deleteLater() once it finishes.
+                if getattr(w, 'sendmail_thread', None) is None:
+                    w.deleteLater()
 
     def open_search(self, query: str, keep_open: bool = False) -> None:
         if not query:
