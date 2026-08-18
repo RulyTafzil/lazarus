@@ -184,16 +184,6 @@ class SearchModel(QAbstractItemModel):
             self.num_threads = len(self.d)
             self.endResetModel()
 
-    def refresh_num_threads(self) -> None:
-        """Only refresh the number of threads in the search, not the underlying data"""
-        logger.info("Search '%s': Refreshing cached thread count", self.q)
-        try:
-            r = notmuch.run('count', '--output=threads', self.q, check=True)
-            self.num_threads = int(r.stdout)
-        except subprocess.CalledProcessError as e:
-            # Just log the error and move on
-            logger.warning("Error refreshing thread count: %s", e.stderr)
-
     def thread_json(self, index: QModelIndex) -> Optional[dict]:
         """Return a JSON object associated with the thread at the given model index"""
 
@@ -361,12 +351,29 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             else:
                 self.tree.setCurrentIndex(current)
 
+    @property
+    def title_dirty(self) -> bool:
+        """True when the tab title's thread count needs a refresh."""
+        return self._dirty_title
+
+    def apply_thread_count(self, count: int) -> None:
+        """Store a thread count fetched in batch.
+
+        The controller collects every dirty search panel's query and
+        runs a single ``notmuch count --batch`` for all of them (see
+        ``AppController.refresh_tab_titles``); each panel receives its
+        result here instead of spawning its own subprocess.
+        """
+        self.model.num_threads = count
+        self._dirty_title = False
+
     def title(self) -> str:
-        """Use the configured tab title"""
+        """Use the configured tab title.
+
+        Pure formatting — the thread count is refreshed by the
+        controller (``refresh_tab_titles`` → ``apply_thread_count``).
+        """
         logger.info("Search '%s': updating title", self.q)
-        if self._dirty_title:
-            self.model.refresh_num_threads()
-            self._dirty_title = False
         return settings.search_title_format.format(
             query=self.q, num_threads=self.model.num_threads
         )

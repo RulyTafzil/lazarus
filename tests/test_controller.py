@@ -16,7 +16,11 @@ def mw(qapp, fake_app, notmuch_stub):
     win = mainwindow.MainWindow(fake_app)
     win.resize(1000, 700)
     win.show()
-    return win
+    yield win
+    # Close before the next test: a shown top-level window garbage-
+    # collected mid-paint in a later test segfaults the shared app.
+    win.close()
+    qapp.processEvents()
 
 
 @pytest.fixture
@@ -92,6 +96,8 @@ def test_close_panel_skips_delete_while_sending(ctl, mw, qapp):
     assert mw.tabs.count() == 0          # still removed from the tabs
     assert not sip.isdeleted(a)          # …but not destroyed
     del a.sendmail_thread
+    a.deleteLater()                      # …and now it can go
+    _flush_deferred_deletes()
 
 
 def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
@@ -100,6 +106,28 @@ def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
     ctl.open_search('tag:inbox')
     # same query -> same tab, not a duplicate
     assert ctl.num_panels() == 1
+
+
+def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, notmuch_stub):
+    """Dirty search tabs share one ``count --batch`` invocation instead
+    of one subprocess per tab."""
+    notmuch_stub.threads = [
+        make_thread('t1', 'A'), make_thread('t2', 'B')]  # both tag:inbox
+    ctl.open_search('tag:inbox')
+    ctl.open_search('tag:flagged')
+    # Dirty both titles (as refresh_panels does for non-current tabs).
+    for i in range(mw.tabs.count()):
+        mw.tabs.widget(i).dirty = True
+
+    batch_before = sum(1 for c in notmuch_stub.count_calls
+                       if c[0] == '__batch__')
+    ctl.refresh_tab_titles()
+    batch_after = sum(1 for c in notmuch_stub.count_calls
+                      if c[0] == '__batch__')
+
+    assert batch_after == batch_before + 1       # one batch for both tabs
+    assert mw.tabs.tabText(0) == 'tag:inbox [2]'
+    assert mw.tabs.tabText(1) == 'tag:flagged [0]'
 
 
 def test_navigate_list_on_search_panel(ctl, mw, qapp, notmuch_stub):
