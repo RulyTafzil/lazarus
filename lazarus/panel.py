@@ -170,10 +170,15 @@ class Panel(QWidget):
         self.temp_dirs: List[str] = []
         self._geometry_key: str | None = None
 
-        # set up timer and prefix cache for handling keychords
+        # set up timer and prefix cache for handling keychords.
+        # Timers are parented to the panel so they are deleted with it:
+        # a parentless QTimer's slot closure holds a strong ref to the
+        # panel, keeping the Python wrapper alive after deleteLater() —
+        # and can then fire on the dead C++ widget (RuntimeError in the
+        # event loop).
         self._prefix = ""
         self._prefixes: Set[str] = set()
-        self._prefix_timer = QTimer()
+        self._prefix_timer = QTimer(self)
         self._prefix_timer.setSingleShot(True)
         self._prefix_timer.setInterval(500)
 
@@ -186,8 +191,9 @@ class Panel(QWidget):
 
         self._prefix_timer.timeout.connect(prefix_timeout)
 
-        # Auto-open thread preview on selection change (debounced)
-        self._auto_open_timer = QTimer()
+        # Auto-open thread preview on selection change (debounced;
+        # parented — see the note at _prefix_timer above)
+        self._auto_open_timer = QTimer(self)
         self._auto_open_timer.setSingleShot(True)
         self._auto_open_timer.setInterval(150)
         self._auto_open_timer.timeout.connect(self._on_auto_open)

@@ -34,7 +34,7 @@ import re
 import logging
 import queue
 import threading
-from typing import Set, Optional, List, Tuple, Literal
+from typing import Callable, Set, Optional, List, Tuple, Literal
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -103,6 +103,27 @@ class _BulkMoveWorker(QThread):
 # Singleton worker, started on first use and kept alive for the session.
 _worker: _BulkMoveWorker | None = None
 
+# App-level slot run after every completed move batch, alongside the
+# worker's own ``notmuch new`` (in practice the controller's
+# refresh_panels).  Kept module-level so a recreated worker is wired
+# identically — the connection used to be made once, at startup, against
+# the *first* worker instance and would have been silently lost if the
+# worker were ever recreated.
+_batch_done_listener: Optional[Callable[[], None]] = None
+
+
+def set_batch_done_listener(fn: Optional[Callable[[], None]]) -> None:
+    """Register (or clear, with None) the app-level slot run after each
+    completed move batch.
+
+    If a worker is already running the slot is connected immediately;
+    otherwise :func:`_get_worker` connects it when the worker starts.
+    """
+    global _batch_done_listener
+    _batch_done_listener = fn
+    if fn is not None and _worker is not None and _worker.isRunning():
+        _worker.batch_done.connect(fn)
+
 
 def _run_notmuch_new() -> None:
     """Re-index after a batch of file moves has actually landed on disk.
@@ -121,6 +142,8 @@ def _get_worker() -> _BulkMoveWorker:
     if _worker is None or _worker.isFinished():
         _worker = _BulkMoveWorker()
         _worker.batch_done.connect(_run_notmuch_new)
+        if _batch_done_listener is not None:
+            _worker.batch_done.connect(_batch_done_listener)
         _worker.start()
     return _worker
 
@@ -497,8 +520,8 @@ def move_to_archive(notmuch_query: str) -> int:
     # Search BEFORE tagging: notmuch_query often includes tag:inbox or
     # tag:unread (e.g. the default 'tag:inbox' view), and those are
     # exactly the tags we're about to remove. Re-searching afterwards
-    # would match nothing, so we move this exact file list instead of
-    # re-querying inside move_files().
+    # would match nothing, so we move this exact file list rather than
+    # re-querying after the tags changed.
     files = collect_files(notmuch_query)
     notmuch.tag('-inbox -unread', notmuch_query, exclude_marked=True)
     # Errors here are non-fatal — file moves proceed regardless.
@@ -506,39 +529,14 @@ def move_to_archive(notmuch_query: str) -> int:
     return move_specific_files(files, os.path.expanduser(settings.archive_dir))
 
 
-def move_files(notmuch_query: str, target_dir: str) -> int:
-    """Search for *notmuch_query* and move matching files into
-    ``target_dir/cur/``.
-
-    This only handles the physical file move — it does **not** change
-    any notmuch tags.
-
-    CAUTION: the search happens *inside* this call. If a caller tags
-    ``notmuch_query`` (e.g. removing a tag the query itself depends
-    on, such as ``tag:inbox``) before calling this, the search here
-    will run against the already-changed tags and can match nothing.
-    Callers that tag first should instead call :func:`collect_files`
-    *before* tagging and pass the result to :func:`move_specific_files`
-    directly (see :func:`move_to_archive` and
-    :func:`lazarus.rules.apply_rules` for examples).
-
-    File moves are enqueued to the same background worker used by
-    :func:`move_to_trash` and :func:`move_to_archive`, so rapid
-    successive moves are serialised and ``notmuch new`` fires once
-    after each batch.
-
-    :returns: the number of *files moved* (happens asynchronously)
-    """
-    return move_specific_files(collect_files(notmuch_query), target_dir)
-
-
 def move_specific_files(files: List[str], target_dir: str) -> int:
     """Move an already-resolved list of file paths into
     ``target_dir/cur/``.
 
-    Use this instead of :func:`move_files` whenever the file list was
-    collected *before* a tagging operation that might change which
-    files a fresh search would match.
+    This is the only file-move entry point: callers collect the file
+    list with :func:`collect_files` *before* any tagging that might
+    change which files a fresh search would match (see
+    :func:`move_to_archive` and :func:`lazarus.rules.apply_rules`).
 
     :returns: the number of *files moved* (happens asynchronously)
     """

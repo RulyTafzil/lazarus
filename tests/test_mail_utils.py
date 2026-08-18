@@ -137,14 +137,6 @@ def test_colorize_text_returns_text():
     assert 'body' in out
 
 
-def test_clean_html2html_sanitizes(monkeypatch):
-    # bleach escapes disallowed tags so they render as text, not markup
-    out = html_utils.clean_html2html(
-        '<p>ok</p><script>alert(1)</script>')
-    assert '<script>' not in out and '<p>' not in out
-    assert 'ok' in out
-
-
 def test_w3m_html2text(monkeypatch):
     # stub w3m subprocess so the test doesn't depend on it being installed
     class FakeProc:

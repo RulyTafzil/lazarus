@@ -701,10 +701,16 @@ class ComposePanel(panel.Panel):
                 success = False
                 error = ''
             self.app.refresh_panels()
-            if success and self.is_open:
+            if not self.is_open:
+                # The panel was closed while the send was in flight —
+                # close_panel skipped deleteLater() to avoid killing the
+                # running thread.  It has finished now, so delete here.
+                self.deleteLater()
+                return
+            if success:
                 self.app.status_message('Email sent', 'info')
                 self.app.close_panel(self)
-            elif error and self.is_open:
+            elif error:
                 self.status_label.setText(error)
                 self.status_label.setStyleSheet(
                     f'color: {settings.theme["fg_bad"]};')

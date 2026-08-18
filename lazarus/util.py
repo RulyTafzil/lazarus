@@ -163,7 +163,6 @@ def sort_tags(tags: Iterable[str]) -> list[str]:
 
 from .keys import key_string, basic_keytab, keytab  # noqa: E402,I001
 from .html_utils import (  # noqa: E402
-    clean_html2html,
     w3m_html2text,
     linkify,
     html2html,

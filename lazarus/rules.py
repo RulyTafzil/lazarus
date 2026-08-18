@@ -28,7 +28,7 @@ Rules are applied automatically after every successful sync (see the
 re-tagged on every run. Tag operations are idempotent -- safe to
 re-apply to a message that already has the tags. File moves (for rules
 with a ``move_to`` folder) are enqueued to the same background worker
-used by :func:`~lazarus.actions.move_files`, so they're serialised and
+used by :func:`~lazarus.actions.move_specific_files`, so they're serialised and
 ``notmuch new`` runs after each batch lands on disk.
 
 Re-run the whole rule set by hand with ``C-r``

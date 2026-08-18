@@ -140,8 +140,9 @@ class Dodo(QApplication):
 
         # Refresh panels after background file moves (filter, trash,
         # archive) complete and notmuch new finishes re-indexing.
-        # Single wiring via controller; Dodo.refresh_panels delegates there.
-        actions._get_worker().batch_done.connect(self.controller.refresh_panels)
+        # Registered through actions (not a one-off connect against the
+        # first worker instance) so a recreated worker keeps the wiring.
+        actions.set_batch_done_listener(self.controller.refresh_panels)
 
         # Preload the address book in the background so autocomplete
         # is ready by the time the user opens the compose panel.

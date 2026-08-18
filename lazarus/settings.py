@@ -121,10 +121,20 @@ smtp_accounts = ['default']
 
 This setting allows switching SMTP accounts in the Compose panel. The first account
 in the list is selected by default.
+
+Note this also selects the sync path: with a non-empty list, mail sync runs
+``mbsync -V <account>`` per account and :func:`~lazarus.settings.sync_mail_command`
+is ignored (set ``[]`` here to use the shell command instead).
 """
 
 sync_mail_command = 'offlineimap'
-"""Command used to sync IMAP with local Maildir"""
+"""Shell command used to sync IMAP with local Maildir (fallback path)
+
+Only used when :func:`~lazarus.settings.smtp_accounts` is empty.  With any
+accounts configured — the default is ``['default']`` — syncing instead runs
+``mbsync -V <account>`` for each account in parallel and this command is
+ignored.  Set ``smtp_accounts = []`` to force the shell-command path.
+"""
 
 sync_mail_interval = 300
 """Interval to run :func:`~lazarus.settings.sync_mail_command` automatically, in seconds
