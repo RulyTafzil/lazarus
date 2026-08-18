@@ -158,13 +158,14 @@ class ComposePanel(panel.Panel):
             sb = self.editor.verticalScrollBar()
             if sb is not None:
                 sb.setValue(0)
-            # Reply/forward/forward: panel (chrome) focused so the
-            # compose keymap is active ([ ] account switch, etc.),
-            # not the To field's address completer. Deferred so it
-            # runs after add_panel's setFocus().
+            # Reply/forward: open with the cursor in the editor body so
+            # typing is the immediate next action — <escape> then exits to
+            # the chrome for the compose hotkeys (account switch, etc.).
+            # Deferred so it runs after add_panel's setFocus().
             if msg is not None and mode in ('reply', 'replyall', 'forward'):
                 try:
-                    self.setFocus()
+                    self.editor.setFocus()
+                    self.editor.moveCursor(QTextCursor.MoveOperation.Start)
                 except RuntimeError:
                     pass  # panel destroyed before the timer fired
         QTimer.singleShot(0, _reset_cursor_to_top)
@@ -372,6 +373,20 @@ class ComposePanel(panel.Panel):
             f'color: {settings.theme["fg"]}; font-style: italic;')
 
         super().refresh()
+
+    def _allow_global_key(self, cmd: str) -> bool:
+        """Compose is a *closed key surface*: only the allowlisted
+        app-level globals in :data:`keymap.COMPOSE_ALLOWED_GLOBALS` may
+        fire, so a key can never act on the hidden thread list or thread
+        preview while composing.
+
+        ``compose_keymap`` is consulted first, so compose-panel hotkeys
+        (attach, PGP, account switch, plaintext, Cc/Bcc, send, escape)
+        always win; everything else falls back to this gate, which lets
+        through help/quit/sync/new-compose/tab-switch/theme/search etc.
+        and swallows list/thread/tag-hotkey bindings.
+        """
+        return cmd in keymap.COMPOSE_ALLOWED_GLOBALS
 
     def _sync_data_from_fields(self) -> None:
         """Pull values from UI fields into self._data.
@@ -704,18 +719,21 @@ class ComposePanel(panel.Panel):
         self.subject_field.setEnabled(enabled)
 
     def escape_focus(self) -> None:
-        """Toggle focus between the editor and the compose panel chrome.
+        """Exit the editor (or any field) to the compose panel chrome.
 
-        Bound to ``<escape>``.  While editing, all keys type text and only
-        Ctrl chords trigger commands.  Press ``<escape>`` to move focus to
-        the panel itself — then all compose command keys (``a``, ``p``,
-        ``e``, ``w``, ``E``, ``[``, ``]``) work as plain keypresses.
-        Press ``<escape>`` again to return to the editor.
+        One-directional (bound to ``<escape>``): escape parks focus on the
+        panel, where the compose command keys (``a``, ``p``, ``e``, ``[``,
+        ``]``, ``H``, ``C-s``, ``M-c``, ``M-b``) are reachable.  It never
+        re-enters the editor, and from the chrome it is a no-op — to return
+        to the body, click it.
+
+        While the editor is focused, plain keys type text and the editor's
+        own shortcuts (Ctrl+B/I/U, Ctrl+C/X/V/Z etc.) apply; the modifier
+        compose chords ``C-s`` / ``M-c`` / ``M-b`` and ``<escape>`` reach
+        the panel via the event filter, and unbound chords are swallowed by
+        the closed key surface so they never act on the hidden panels.
         """
-        if self.editor.hasFocus():
-            self.setFocus()
-        else:
-            self.editor.setFocus()
+        self.setFocus()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         """Override to let certain keys pass through to child line edits
