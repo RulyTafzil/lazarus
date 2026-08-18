@@ -1,8 +1,27 @@
 """RichTextEditor formatting toolbar — buttons, sync, formatting ops."""
+import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QTextCursor, QTextListFormat
 
 from lazarus.compose import ComposePanel
+
+_panels = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_panels(qapp):
+    """Close + destroy every ComposePanel a test opened.
+
+    The panels are shown top-level widgets; leaving them to be garbage-
+    collected mid-paint in a later test segfaults the shared offscreen
+    QApplication (paint on a deleted widget).
+    """
+    yield
+    for p in _panels:
+        p.close()
+        p.deleteLater()
+    _panels.clear()
+    qapp.processEvents()
 
 
 def _panel(qapp):
@@ -13,6 +32,7 @@ def _panel(qapp):
     p.resize(600, 500)
     p.show()
     qapp.processEvents()
+    _panels.append(p)
     return p
 
 

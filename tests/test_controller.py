@@ -16,7 +16,11 @@ def mw(qapp, fake_app, notmuch_stub):
     win = mainwindow.MainWindow(fake_app)
     win.resize(1000, 700)
     win.show()
-    return win
+    yield win
+    # Close before the next test: a shown top-level window garbage-
+    # collected mid-paint in a later test segfaults the shared app.
+    win.close()
+    qapp.processEvents()
 
 
 @pytest.fixture
@@ -92,6 +96,8 @@ def test_close_panel_skips_delete_while_sending(ctl, mw, qapp):
     assert mw.tabs.count() == 0          # still removed from the tabs
     assert not sip.isdeleted(a)          # …but not destroyed
     del a.sendmail_thread
+    a.deleteLater()                      # …and now it can go
+    _flush_deferred_deletes()
 
 
 def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
