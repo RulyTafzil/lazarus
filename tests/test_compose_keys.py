@@ -69,15 +69,19 @@ def test_allowlist_is_subset_of_global_keymap():
 
 def test_allowlist_excludes_all_list_thread_and_tag_hotkeys():
     """The allowlist may never contain anything that targets the hidden
-    thread list or thread preview, or the 1-9 tag hotkeys."""
+    thread list or thread preview, or the 1-9 tag hotkeys.
+
+    ``C-<enter>`` is the one intentional exception: it closes the thread
+    preview pane, which is a deliberate escape hatch while composing.
+    """
     forbidden = {
         # list navigation / actions
         'j', 'k', '<down>', '<up>', '<tab>', 'S-<tab>', 'g g', 'G',
         'M-j', 'M-k', '<pageup>', '<pagedown>', '<enter>',
         'u', 'f', 's', 'a', 'A', 'd', 'd d', 'd u',
-        # thread / message keys
+        # thread / message keys (C-<enter> close-preview is allowed)
         'J', 'K', 'M', '<space>', '-', 'H', 'i', 'R', 'r', 'C-y', 'O',
-        'C-<enter>', 'C-u', 'C-f', 'C-a', 'C-A', 'C-d', 'C-t',
+        'C-u', 'C-f', 'C-a', 'C-A', 'C-d', 'C-t',
         # tags / tag hotkeys
         't t', 't m', *(f'{n}' for n in '123456789'),
     }
@@ -87,7 +91,7 @@ def test_allowlist_excludes_all_list_thread_and_tag_hotkeys():
 def test_allowlist_contains_the_full_safe_applevel_set():
     allowed = {
         'C-q', '`', '?', 'C-r', 'c', 'l', 'h', 'x', 'X',
-        'I', 'U', 'F', 'T', '/', 'C-/', 't h', 'M-<', 'M->',
+        'I', 'U', 'F', 'T', '/', 'C-<enter>', 't h', 'M-<', 'M->',
     }
     assert keymap.COMPOSE_ALLOWED_GLOBALS == allowed
 
@@ -246,8 +250,14 @@ def test_chrome_focus_allowlisted_globals_fire(qapp, panel):
     assert app.open_tags.called
     _click(qapp, p, Qt.Key.Key_Slash)                                  # '/' search bar
     assert app.search_bar.called
-    _click(qapp, p, Qt.Key.Key_Slash, Qt.KeyboardModifier.ControlModifier)  # 'C-/' edit query
-    assert app.edit_search_query.called
+    _click(qapp, p, Qt.Key.Key_Slash, Qt.KeyboardModifier.ControlModifier)
+    # 'C-/' edits the search query — not meaningful on the compose screen,
+    # so it is NOT in the allowlist and must be swallowed.
+    assert not app.edit_search_query.called
+    _click(qapp, p, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier)
+    # 'C-<enter>' closes the thread preview — deliberate escape hatch
+    # while composing, so it IS allowlisted.
+    assert app.main_window.clear_thread.called
     _click(qapp, p, Qt.Key.Key_R, Qt.KeyboardModifier.ControlModifier)  # 'C-r'
     assert app.apply_filter_rules.called
     _click(qapp, p, Qt.Key.Key_Q, Qt.KeyboardModifier.ControlModifier)  # 'C-q'

@@ -180,10 +180,18 @@ class AddressCompleter(QCompleter):
         We call ``setWidget()`` directly so the completer knows where
         to show its popup, but skip ``widget.setCompleter()`` to avoid
         QLineEdit's internal inline-completion logic.
+
+        Completion is driven by ``textEdited`` — NOT ``textChanged``.
+        ``textChanged`` also fires on programmatic ``setText()``, so a
+        reply/forward that pre-populates the To field with an address
+        already in the loaded address book would instantly show the
+        popup and steal focus from the compose editor body.  ``textEdited``
+        fires only on genuine user keystrokes, so the popup appears only
+        once the user actually types in the field.
         """
         self._line_edit = widget
         self.setWidget(widget)
-        widget.textChanged.connect(self._on_text_changed)
+        widget.textEdited.connect(self._on_text_changed)
         self.activated.connect(self._on_activated)
 
     def _on_activated(self, text: str) -> None:
