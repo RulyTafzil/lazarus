@@ -234,10 +234,13 @@ class ThreadModel(QAbstractItemModel):
         return parent if parent.isValid() else QModelIndex()
 
     def default_message(self) -> QModelIndex:
-        """Return the oldest matching message or the last message."""
-        for idx in self.iterate_indices():
-            if self.message_at(idx)['id'] in self.matches:
-                return idx
+        """Return the latest matching message or the last message."""
+        matching_indices = [
+            idx for idx in self.iterate_indices()
+            if self.message_at(idx)['id'] in self.matches
+        ]
+        if matching_indices:
+            return max(matching_indices, key=lambda idx: self.message_at(idx)['timestamp'])
         return self.get_last_msg_idx()
 
     def default_collapsed(self) -> set[str]:
