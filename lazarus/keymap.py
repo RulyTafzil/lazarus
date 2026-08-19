@@ -202,7 +202,7 @@ COMPOSE_ALLOWED_GLOBALS: frozenset[str] = frozenset({
     'I', 'U', 'F',  # show inbox / unread / flagged (new visible searches)
     'T',        # tag browser (new visible tab)
     '/',        # search bar
-    'C-/',      # edit search query
+    'C-<enter>',  # close thread preview
     't h',      # theme picker (visible command-bar overlay)
     'M-<', 'M->',   # cycle theme
 })
