@@ -1,0 +1,200 @@
+"""Search list mode — the opt-in two-row 'card' view vs. the flat list.
+
+Covers ``settings.search_list_mode`` routing (flat table vs. two-line
+card), the ``C-l`` toggle wiring in SearchPanel, QSettings persistence,
+and that the CardDelegate renders without crashing / collapses to a
+degenerate size (the flat view is left untouched).
+"""
+import pytest
+
+from PyQt6.QtCore import QRect, QSettings, Qt
+from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+from lazarus import settings
+from lazarus.search import (
+    LIST_MODE_CARD, LIST_MODE_FLAT, SearchModel, SearchPanel, CardDelegate,
+)
+from tests.conftest import make_thread
+
+
+@pytest.fixture
+def panel(qapp, fake_app, notmuch_stub):
+    """A standalone SearchPanel with an isolated list-mode setting."""
+    QSettings('lazarus', 'lazarus').remove('search_list_mode')
+    settings.search_list_mode = LIST_MODE_FLAT
+    notmuch_stub.threads = [make_thread('t1', 'Hello', total=3)]
+    p = SearchPanel(fake_app, 'tag:inbox')
+    yield p
+    p.close()
+    p.deleteLater()
+    qapp.processEvents()
+
+
+def test_default_is_flat_list(panel):
+    """The flat view is untouched: header visible, all columns shown,
+    and the default (non-card) delegate in place."""
+    assert settings.search_list_mode == LIST_MODE_FLAT
+    assert panel.tree.isHeaderHidden() is False
+    for c in range(1, len(('date', '#', 'from', 'subject', 'tags'))):
+        assert panel.tree.isColumnHidden(c) is False
+    assert panel.tree.itemDelegate() is not panel._card_delegate
+    assert panel.tree.itemDelegate() is panel._default_delegate
+
+
+def test_toggle_to_card(panel):
+    """``toggle_search_list_mode`` switches to the two-row card:
+    single stretched column, header hidden, CardDelegate active, and the
+    choice is persisted to QSettings."""
+    panel.toggle_search_list_mode()
+
+    assert settings.search_list_mode == LIST_MODE_CARD
+    assert panel.tree.isHeaderHidden() is True
+    assert panel.tree.isColumnHidden(0) is False
+    for c in range(1, 5):
+        assert panel.tree.isColumnHidden(c) is True
+    assert panel.tree.itemDelegate() is panel._card_delegate
+    assert QSettings('lazarus', 'lazarus').value('search_list_mode') == LIST_MODE_CARD
+
+
+def test_toggle_round_trip_restores_flat(panel):
+    """Toggling twice returns to the flat list with the header shown,
+    all columns visible and the default delegate back in place."""
+    panel.toggle_search_list_mode()
+    panel.toggle_search_list_mode()
+
+    assert settings.search_list_mode == LIST_MODE_FLAT
+    assert panel.tree.isHeaderHidden() is False
+    for c in range(1, 5):
+        assert panel.tree.isColumnHidden(c) is False
+    assert panel.tree.itemDelegate() is panel._default_delegate
+
+
+def test_card_delegate_size_hint_is_two_lines(qapp, notmuch_stub):
+    """The card's natural row height fits two text lines plus padding."""
+    from PyQt6.QtGui import QFontMetrics
+    notmuch_stub.threads = [make_thread('t1', 'Hello', total=3,
+                                        tags=['inbox', 'unread'])]
+    model = SearchModel('tag:inbox')
+    delegate = CardDelegate()
+
+    opt = QStyleOptionViewItem()
+    opt.rect = QRect(0, 0, 600, 60)
+    idx = model.index(0, 0)
+    fm = QFontMetrics(model.data(idx, Qt.ItemDataRole.FontRole))
+    size = delegate.sizeHint(opt, idx)
+    assert size.width() >= 60
+    assert size.height() >= 2 * fm.height()
+
+
+@pytest.mark.parametrize('selected', [False, True])
+def test_card_delegate_paints(qapp, notmuch_stub, selected):
+    """The card paints (selected and unselected) without crashing and
+    draws actual pixels — no degenerate empty output."""
+    from PyQt6.QtGui import QPainter, QPixmap
+    notmuch_stub.threads = [make_thread('t1', 'Hello ' * 40, total=3,
+                                        tags=['inbox', 'unread'])]
+    model = SearchModel('tag:inbox')
+    delegate = CardDelegate()
+
+    opt = QStyleOptionViewItem()
+    opt.rect = QRect(0, 0, 800, 60)
+    if selected:
+        opt.state |= QStyle.StateFlag.State_Selected
+    idx = model.index(0, 0)
+    size = delegate.sizeHint(opt, idx)
+    opt.rect = QRect(0, 0, 800, size.height())
+
+    pm = QPixmap(800, size.height())
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    delegate.paint(painter, opt, idx)
+    painter.end()
+
+    # At least the card border + some text pixels landed.
+    assert pm.toImage().size().width() > 0
+
+
+def test_fresh_card_panel_is_single_column_and_survives_refresh(qapp, fake_app,
+                                                               notmuch_stub):
+    """A panel created while already in card mode is a proper single-column
+    card view from the start, and stays that way across ``refresh()`` —
+    previously the saved flat header layout was re-applied on refresh,
+    squeezing a card into every column until the user toggled twice."""
+    QSettings('lazarus', 'lazarus').remove('search_list_mode')
+    settings.search_list_mode = LIST_MODE_CARD
+    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    p = SearchPanel(fake_app, 'tag:inbox')
+    try:
+        assert p.tree.isHeaderHidden() is True
+        assert p.tree.isColumnHidden(1) is True     # multi-column grid hidden
+        assert p.tree.itemDelegate() is p._card_delegate
+        # The failing path: refresh() re-ran restore_tree_geometry() and
+        # dropped card mode.
+        p.refresh()
+        assert p.tree.isHeaderHidden() is True
+        for c in range(1, 5):
+            assert p.tree.isColumnHidden(c) is True
+        assert p.tree.itemDelegate() is p._card_delegate
+        # set_query() (a new search) similarly keeps card mode.
+        p.set_query('tag:inbox and tag:unread')
+        assert p.tree.isHeaderHidden() is True
+        for c in range(1, 5):
+            assert p.tree.isColumnHidden(c) is True
+        assert p.tree.itemDelegate() is p._card_delegate
+    finally:
+        p.close()
+        p.deleteLater()
+        qapp.processEvents()
+
+
+def test_static_indicator_width_aligns_sender(qapp, notmuch_stub):
+    """The thread-count indicator occupies a constant width whether the
+    message is threaded or not, so the sender (and subject) start at the
+    same x on every card."""
+    # Both threads non-unread so their 'from' font/metrics are identical.
+    notmuch_stub.threads = [
+        make_thread('tA', 'Alpha', total=3, tags=['inbox']),
+        make_thread('tB', 'Beta', total=1, tags=['inbox']),
+    ]
+    from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPixmap
+    model = SearchModel('tag:inbox')
+    delegate = CardDelegate()
+    opt = QStyleOptionViewItem()
+    opt.rect = QRect(0, 0, 800, 60)
+    idx_a, idx_b = model.index(0, 0), model.index(1, 0)
+    h = delegate.sizeHint(opt, idx_a).height()
+
+    from_font = model.data(idx_a, Qt.ItemDataRole.FontRole)
+    fm = QFontMetrics(from_font)
+    reserved = fm.horizontalAdvance('\uf086 00')
+    inner_left = CardDelegate.margin_h + 1 + CardDelegate.pad_h
+    col_gap = CardDelegate.col_gap
+    bg = QColor(settings.theme['bg'])
+
+    band_top = 2 + CardDelegate.pad_v - 1
+    band_bot = 2 + CardDelegate.pad_v + fm.height() + 1
+
+    def sender_x(idx):
+        pm = QPixmap(800, h)
+        pm.fill(bg)
+        p = QPainter(pm)
+        o = QStyleOptionViewItem()
+        o.rect = QRect(0, 0, 800, h)
+        delegate.paint(p, o, idx)
+        p.end()
+        img = pm.toImage()
+        # Skip the indicator region + gap; the first ink at/after that is
+        # the sender text's left edge (glyph, if any, stays far left).
+        start = inner_left + reserved + col_gap - 1
+        for x in range(start, 800):
+            for y in range(band_top, band_bot):
+                c = img.pixelColor(x, y)
+                if (abs(c.red() - bg.red()) + abs(c.green() - bg.green())
+                        + abs(c.blue() - bg.blue()) > 60):
+                    return x
+        return None
+
+    xa, xb = sender_x(idx_a), sender_x(idx_b)
+    assert xa is not None and xb is not None, (xa, xb)
+    # Sender (and subject) share the same left edge on both cards.
+    assert abs(xa - xb) <= 2

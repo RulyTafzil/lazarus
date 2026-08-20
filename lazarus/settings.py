@@ -403,6 +403,17 @@ message_font_size = 12
 search_view_padding = 1
 """A bit of spacing around each line in the search panel"""
 
+search_list_mode = 'list'
+"""How the search list renders each thread row.
+
+- ``'list'`` — the classic flat table (date/#/from/subject/tags columns).
+- ``'card'`` — a two-row card per thread (line 1: sender + date;
+  line 2: subject + tags), only used for display.  ``C-l`` toggles the
+  focused tab between the two; the choice is remembered across restarts
+  (a runtime toggle, so it overrides this default until the value is
+  changed here).
+"""
+
 tag_hotkeys: dict[str, str] = {}
 """Number keys mapped to tags for quick toggling.
 
