@@ -106,8 +106,11 @@ def build_message(
         eml = email.message.EmailMessage(
             policy=email.policy.EmailPolicy(utf8=False))
         _set_headers(eml, data)
-        eml.set_content(data.body_html or '', subtype='html')
-        eml.add_alternative(data.body_text or '', subtype='plain')
+        # RFC 2046: multipart/alternative must list parts in increasing order
+        # of preference, with the richest (HTML) LAST — receivers render the
+        # last alternative they can parse.  Plain first, HTML last.
+        eml.set_content(data.body_text or '', subtype='plain')
+        eml.add_alternative(data.body_html or '', subtype='html')
         _add_attachments(eml, data)
         return eml
 
@@ -132,6 +135,7 @@ def build_message(
         data.body_html or '', 'html'))
 
     for cid, path in data.inline_images.items():
+        path = os.path.expanduser(path)
         if not os.path.exists(path):
             continue
         maintype, subtype = _guess_mime(path)
@@ -182,10 +186,11 @@ def _add_attachments(
 ) -> None:
     """Attach files from *data.attachments* to *msg*."""
     for att_path in data.attachments:
+        att_path = os.path.expanduser(att_path)
         if not os.path.exists(att_path):
             continue
         maintype, subtype = _guess_mime(att_path)
-        with open(os.path.expanduser(att_path), 'rb') as f:
+        with open(att_path, 'rb') as f:
             att_data = f.read()
 
         if hasattr(msg, 'add_attachment'):

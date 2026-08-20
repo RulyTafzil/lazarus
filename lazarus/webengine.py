@@ -244,4 +244,8 @@ class MessagePage(QWebEnginePage):
             return False
         if ty == QWebEnginePage.NavigationType.NavigationTypeRedirect:
             return False  # never allow <meta> redirects
-        return settings.html_block_remote_requests
+        # acceptNavigationRequest returns True to allow, False to reject.  The
+        # last block governs remaining navigation types (field/form submits,
+        # sub-frame navigations, typed URLs): when remote requests are blocked
+        # they must be rejected, so invert the setting here.
+        return not settings.html_block_remote_requests
