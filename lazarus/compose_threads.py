@@ -72,13 +72,13 @@ class SendmailThread(QThread):
                 if ('filename' in self.panel.msg and
                         len(self.panel.msg['filename']) != 0):
                     try:
-                        with open(self.panel.msg['filename'][0]) as f:
-                            old_msg = email.parser.Parser().parse(
+                        with open(self.panel.msg['filename'][0], 'rb') as f:
+                            old_msg = email.parser.BytesParser().parse(
                                 f, headersonly=True)
                             if 'References' in old_msg:
                                 refs = (old_msg['References'].split()
                                         + refs)
-                    except IOError:
+                    except OSError:
                         logger.debug("Couldn't open message for References")
                 eml['References'] = ' '.join(refs)
 

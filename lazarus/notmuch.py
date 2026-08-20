@@ -138,7 +138,8 @@ def show_part(part_id: int, message_id: str, decrypt: bool = True) -> bytes:
     if decrypt:
         args.append('--decrypt=true')
     args += ['--', 'id:' + message_id]
-    return subprocess.run(args, stdout=subprocess.PIPE, check=True).stdout
+    return subprocess.run(['notmuch', *args], stdout=subprocess.PIPE,
+                          check=True).stdout
 
 
 def tag(tag_expr: str, query: str, exclude_marked: bool = False) -> subprocess.CompletedProcess:

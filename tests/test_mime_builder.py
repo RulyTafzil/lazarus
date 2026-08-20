@@ -38,9 +38,11 @@ def test_empty_body_coerced():
 def test_html_message_is_alternative():
     msg = build_message(_data(body_text='plain', body_html='<p>html</p>'))
     assert msg.get_content_type() == 'multipart/alternative'
-    subtypes = sorted(part.get_content_subtype()
-                      for part in msg.walk() if part.is_multipart() is False)
-    assert 'html' in subtypes and 'plain' in subtypes
+    # RFC 2046: alternatives rise in fidelity; the richest (HTML) is LAST so
+    # receivers that render the last supported alternative show HTML.
+    leaf = [part for part in msg.walk() if part.is_multipart() is False]
+    subtypes = [p.get_content_subtype() for p in leaf]
+    assert [s for s in subtypes if s in ('plain', 'html')] == ['plain', 'html']
 
 
 def test_inline_image_adds_related_part(tmp_path):
@@ -77,6 +79,21 @@ def test_missing_attachment_path_skipped(tmp_path):
     disps = [p.get('Content-Disposition', '')
              for p in msg.walk() if p.get('Content-Disposition')]
     assert not any(d.startswith('attachment') for d in disps)
+
+
+def test_tilde_attachment_path_is_expanded(tmp_path, monkeypatch):
+    """A leading ``~/`` in an attachment path is expanded before the
+    existence check, so the file isn't silently dropped."""
+    import os
+    monkeypatch.setenv('HOME', str(tmp_path))
+    att = tmp_path / 'tilde.txt'
+    att.write_text('worked')
+    msg = build_message(_data(body_text='b', attachments=['~/tilde.txt']))
+    att_parts = [p for p in msg.walk()
+                 if p.get('Content-Disposition', '').startswith('attachment')]
+    assert len(att_parts) == 1
+    assert att_parts[0].get_filename() == 'tilde.txt'
+    assert b'worked' in att_parts[0].get_payload(decode=True)
 
 
 def test_image_attachment_uses_mimeimage(tmp_path):
