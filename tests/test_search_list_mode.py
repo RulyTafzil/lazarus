@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from lazarus import settings
 from lazarus.search import (
-    LIST_MODE_FLAT, SearchModel, SearchPanel, CardDelegate,
+    LIST_MODE_FLAT, SearchModel, SearchPanel, CardDelegate, _single_line,
 )
 from tests.conftest import make_thread
 
@@ -188,6 +188,59 @@ def test_fresh_card_panel_survives_refresh(qapp, fake_app, notmuch_stub):
         p.close()
         p.deleteLater()
         qapp.processEvents()
+
+
+def test_single_line_normalizes_newlines():
+    """Regression: some mail (e.g. certain Google messages) folds its
+    Subject with a trailing newline.  A single-line renderer must not draw
+    it as two lines, which pushes the subject up into the From line and lets
+    the color-emoji glyph bleed upward.  ``_single_line`` collapses CR/LF."""
+    assert _single_line('welcome to google ai pro, ruly \U0001F525\n') == \
+        'welcome to google ai pro, ruly \U0001F525 '
+    assert _single_line('a\r\nb') == 'a b'
+    assert _single_line('no newline') == 'no newline'
+    assert _single_line(123) == '123'
+
+
+def test_card_subject_trailing_newline_does_not_overlap(qapp, notmuch_stub):
+    """Painting a card whose subject carries a trailing newline must keep the
+    subject (line 2) from vertically overlapping the From line (line 1)."""
+    from PyQt6.QtGui import QColor, QPainter, QPixmap
+    settings.search_list_mode = 'card'
+    notmuch_stub.threads = [make_thread(
+        't1', 'welcome to google ai pro, ruly \U0001F525\n')]
+    model = SearchModel('tag:inbox')
+    delegate = CardDelegate()
+    idx = model.index(0, 0)
+    opt = QStyleOptionViewItem()
+    h = delegate.sizeHint(opt, idx).height()
+    opt.rect = QRect(0, 0, 680, h)
+    bg = QColor(settings.theme['bg'])
+    pm = QPixmap(680, h); pm.fill(bg)
+    p = QPainter(pm); delegate.paint(p, opt, idx); p.end()
+    img = pm.toImage()
+
+    # Find the vertical ink bands across the text region and assert the two
+    # lines are strictly separated (no overlap).
+    xs = range(40, 480)
+    bands = []
+    cur = None
+    for y in range(h):
+        ink = any(
+            abs(img.pixelColor(x, y).red() - bg.red())
+            + abs(img.pixelColor(x, y).green() - bg.green())
+            + abs(img.pixelColor(x, y).blue() - bg.blue()) > 60
+            for x in xs)
+        if ink and cur is None:
+            cur = y
+        elif not ink and cur is not None:
+            bands.append((cur, y - 1)); cur = None
+    if cur is not None:
+        bands.append((cur, h - 1))
+    assert len(bands) >= 2
+    # line 1 (From) above line 2 (subject); no band may overlap the next.
+    for i in range(len(bands) - 1):
+        assert bands[i][1] < bands[i + 1][0], f'bands overlap: {bands}'
 
 
 def test_static_indicator_width_aligns_sender(qapp, notmuch_stub):

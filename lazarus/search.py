@@ -51,6 +51,23 @@ LIST_MODE_CARD = 'card'
 # ``render_thread_cell`` for the '#' column).
 COUNT_GLYPH = '\uf086'
 
+
+def _single_line(s: Any) -> str:
+    """Normalize a cell string for the card's single-line renderer.
+
+    Some mail carries a trailing newline in its Subject (e.g. certain
+    Google mail folds with a final ``\n``).  QFontMetrics.elidedText passes
+    such a string through unchanged, and drawText then splits it across two
+    lines — pushing the subject up against the From line and letting the
+    tall color-emoji glyph bleed upward, which reads as the subject
+    'clipping into the From field'.  Collapse CR/LF to spaces (and strip the
+    surrounding control chars) so the card stays a true single-line renderer.
+    The flat list view is untouched — its default delegate handles newlines.
+    """
+    if not isinstance(s, str):
+        return str(s)
+    return s.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+
 # Default column widths (px) used to reset a flat list when a legacy card
 # layout is found in the shared ``search_tree_geometry`` key.  Subject
 # (col 3) is the flexible one — stretchLastSection fills it out.
@@ -205,14 +222,14 @@ class CardDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(card, self.radius, self.radius)
 
         # ── line 1: [indicator] From ........ Date ──────────────────
-        from_text = render_thread_cell(thread, 'from',
-                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        from_text = _single_line(render_thread_cell(
+            thread, 'from', Qt.ItemDataRole.DisplayRole, hide_query=hide_query))
         from_col = render_thread_cell(thread, 'from',
                                       Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
         from_font = render_thread_cell(thread, 'from',
                                        Qt.ItemDataRole.FontRole, hide_query=hide_query)
-        date_text = render_thread_cell(thread, 'date',
-                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        date_text = _single_line(render_thread_cell(
+            thread, 'date', Qt.ItemDataRole.DisplayRole, hide_query=hide_query))
         date_col = render_thread_cell(thread, 'date',
                                       Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
         date_font = render_thread_cell(thread, 'date',
@@ -258,14 +275,14 @@ class CardDelegate(QStyledItemDelegate):
                          | Qt.AlignmentFlag.AlignVCenter, date_text)
 
         # ── line 2: Subject ........ [tags] ────────────────────────
-        subj_text = render_thread_cell(thread, 'subject',
-                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        subj_text = _single_line(render_thread_cell(
+            thread, 'subject', Qt.ItemDataRole.DisplayRole, hide_query=hide_query))
         subj_col = render_thread_cell(thread, 'subject',
                                       Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
         subj_font = render_thread_cell(thread, 'subject',
                                        Qt.ItemDataRole.FontRole, hide_query=hide_query)
-        tags_text = render_thread_cell(thread, 'tags',
-                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        tags_text = _single_line(render_thread_cell(
+            thread, 'tags', Qt.ItemDataRole.DisplayRole, hide_query=hide_query))
         tags_col = render_thread_cell(thread, 'tags',
                                       Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
         tags_font = render_thread_cell(thread, 'tags',
