@@ -6,7 +6,7 @@
 - **Original Author**: Aleks Kissinger <aleks0@gmail.com> (Dodo); **Maintainer**: Ruly Tafzil (fork)
 - **License**: GPLv3 (`COPYING`)
 - **Local dir**: `~/Projects/lazarus`
-- **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `master`)
+- **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
 - **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons)
 - **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` → `app.main()`)
@@ -388,7 +388,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry the Ruly header. Keep `key_string`, `message_css`, `LOCAL_PROTOCOLS`, and the `lazarus.util` re-exports stable — part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
-- **PR workflow**: NEVER commit on master. Branch `pr/<slug>` from master → push (Clanker SSH key, port 2222) → PR via `tea pr create` (`FORGEJO_TOKEN`) → Ruly tests the branch before merging → merge in PR number order, rebase any downstream branches, then delete local + remote branches. Merge style: merge commit.
+- **PR workflow**: NEVER commit on the mainline (`main`, formerly `master`). Branch `pr/<slug>` from `main` → push (Clanker SSH key, port 2222) → PR via `tea pr create` (`FORGEJO_TOKEN`) → Ruly tests the branch before merging → merge in PR number order, rebase any downstream branches, then delete local + remote branches. Merge style: merge commit.
 
 ### Durable gotchas (learned the hard way)
 - **Quit key is `C-q`** (not `Q` — a `Q` binding for help once crashed after the AppController split; keep global commands on the controller).
