@@ -13,20 +13,16 @@ based tools. Specifically:
 - [python-gnupg](https://pypi.org/project/python-gnupg/) if you want PGP
   sign/encrypt support (optional)
 
-Lazarus is a modern frontend for the amazing CLI based email system. Lazarus
-began as a fork of [Dodo](https://github.com/akissinger/dodo), created by Aleks
-Kissinger, and still shares some foundational code with that project. See
-[Relationship to Dodo](#relationship-to-dodo) below for the full attribution and
-licensing details. This README describes Lazarus as it exists today, which has
-diverged from upstream Dodo in several ways such as a persistent split-pane
-thread preview, a built-in rich-text compose editor, mail filter rules,
+Lazarus began as a fork of [Dodo](https://github.com/akissinger/dodo), created
+by Aleks Kissinger, and still shares some foundational code with that project.
+See [Relationship to Dodo](#relationship-to-dodo) below for the full attribution
+and licensing details. Lazarus as it exists today has diverged from upstream
+Dodo in several ways such as a persistent split-pane thread preview, a built-in
+rich-text compose editor, a 'card' view mode for email lists, mail filter rules,
 signatures, an updated theme system, and more.
 
-As an email client, Lazarus is feature-complete for daily use but not
-exhaustively tested. Since it's built on notmuch, all operations work through
-tags and file moves rather than deleting anything outright, so you're very
-unlikely to lose mail to a bug — but as with any hackable tool you maintain
-yourself, use your own judgment.
+Lazarus is feature-complete for me personally, but has not been exhaustively
+tested.
 
 ## Main goals
 
@@ -41,10 +37,7 @@ yourself, use your own judgment.
 
 ## Prerequisites
 
-Lazarus is just a frontend for other tools. You'll need:
-
-- something to sync IMAP mail to a local Maildir — All of the above are standard
-  packages on Linux/macOS package managers.
+You'll need the CLI tools mentioned above installed and properly configured.
 
 ## Install and run
 
@@ -74,11 +67,10 @@ for the full key-binding reference.
 
 ### Layout
 
-Lazarus opens with a split-pane layout: a tabbed list view (search results,
-compose panels, the tag browser) on one side, and a **persistent thread preview
-pane** on the other — configurable via `thread_pane_position`
-(`right`/`left`/`below`/`above`). The app starts with a tab open on `tag:inbox`.
-From there:
+Lazarus has a split-pane layout. When you open an email you'll see a preview
+pane of that email thread. The position of the preview pane is configurable via
+`thread_pane_position` (`right`/`left`/`below`/`above`). The app starts with a
+tab open on `tag:inbox`. From there:
 
 - `j` / `k` (or ↓ / ↑) move between threads in the list; the thread under the
   cursor opens in the preview pane automatically after a short debounce
@@ -166,12 +158,15 @@ src=images/nord.webp>
 
 600+ themes pulled from the
 [iTerm2-Color-Schemes repo](https://github.com/mbadolato/iTerm2-Color-Schemes).
-You can cycle through themes in-app with M+< and M+>. Alternatively, the hotkey
-t h will bring up a theme picker. Each theme has 16 colors (0-15) specified,
-along with five named colors (background, foreground, cursor-color,
-selection-background, and selection-foreground). You can add custom themes in
-your ~/.config/lazarus/themes/ folder, and customize the colormapping in
-~/.config/lazarus/themes/colormap.py
+Honestly, probably way too many. You can cycle through themes in-app with M+<
+and M+>. Alternatively, the hotkey t h will bring up a theme picker. Each theme
+has 16 colors (0-15) specified, along with five named colors (background,
+foreground, cursor-color, selection-background, and selection-foreground). You
+can add custom themes in your ~/.config/lazarus/themes/ folder, and customize
+the colormapping in ~/.config/lazarus/themes/colormap.py
+
+Most of the themes look good I haven't checked all 600, some may need manual
+tweaking as to which colors are mapped to what in Lazarus.
 
 sample colormap.py:
 
