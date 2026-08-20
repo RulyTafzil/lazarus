@@ -1,9 +1,21 @@
 # Lazarus
 
-Lazarus is a modern frontend for the amazing CLI based
-[notmuch](https://notmuchmail.org/) email system. Lazarus began as a fork of
-[Dodo](https://github.com/akissinger/dodo), created by Aleks Kissinger, and
-still shares some foundational code with that project. See
+Lazarus is a local email client that acts as a frontend for a variety of CLI
+based tools. Specifically:
+
+- [notmuch](https://notmuchmail.org/) for it's amazing indexing, tagging, and
+  searching. This is the heart of Lazarus.
+- [mbsync](https://isync.sourceforge.io/) or
+  [offlineimap](http://www.offlineimap.org/) to sync an imap account with a
+  local maildir.
+- [msmtp](https://marlam.de/msmtp/) to send email
+- [w3m](http://w3m.sourceforge.net/) for rendering HTML messages as plaintext ()
+- [python-gnupg](https://pypi.org/project/python-gnupg/) if you want PGP
+  sign/encrypt support (optional)
+
+Lazarus is a modern frontend for the amazing CLI based email system. Lazarus
+began as a fork of [Dodo](https://github.com/akissinger/dodo), created by Aleks
+Kissinger, and still shares some foundational code with that project. See
 [Relationship to Dodo](#relationship-to-dodo) below for the full attribution and
 licensing details. This README describes Lazarus as it exists today, which has
 diverged from upstream Dodo in several ways such as a persistent split-pane
@@ -31,18 +43,8 @@ yourself, use your own judgment.
 
 Lazarus is just a frontend for other tools. You'll need:
 
-- something to sync IMAP mail to a local Maildir —
-  [mbsync](https://isync.sourceforge.io/) or
-  [offlineimap](http://www.offlineimap.org/) both work; `mbsync` is what the
-  default settings assume
-- a sendmail-compatible SMTP client to send mail —
-  [msmtp](https://marlam.de/msmtp/) is the default
-- [notmuch](https://notmuchmail.org/) for email indexing, searching, and tagging
-- [w3m](http://w3m.sourceforge.net/) for rendering HTML messages as plaintext
-- [python-gnupg](https://pypi.org/project/python-gnupg/) if you want PGP
-  sign/encrypt support (optional)
-
-All of the above are standard packages on Linux/macOS package managers.
+- something to sync IMAP mail to a local Maildir — All of the above are standard
+  packages on Linux/macOS package managers.
 
 ## Install and run
 
