@@ -105,6 +105,7 @@ global_keymap: Keymap = {
   't t':         ('tag', lambda a: a.tag_bar()),
   't m':         ('tag all marked', lambda a: a.tag_bar(mode='tag marked')),
   't h':         ('theme', lambda a: a.theme_bar()),
+  'C-l':         ('toggle search list mode', lambda a: a.delegate_to_list('toggle_search_list_mode')),
   'M-<':         ('previous theme', lambda a: a.cycle_theme(-1)),
   'M->':         ('next theme', lambda a: a.cycle_theme(1)),
 }

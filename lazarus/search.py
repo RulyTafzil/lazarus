@@ -17,11 +17,14 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import Optional, Any, Set
+from typing import Optional, Any, Set, cast
 
-from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex
-from PyQt6.QtWidgets import QWidget, QLabel
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QAbstractItemModel, QModelIndex, QRect, QSize, QSettings
+from PyQt6.QtWidgets import (
+    QWidget, QLabel, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
+    QHeaderView,
+)
+from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPen
 import subprocess
 import json
 import logging
@@ -39,6 +42,14 @@ from .thread_model import latest_message
 logger = logging.getLogger(__name__)
 
 columns = ['date', '#', 'from', 'subject', 'tags']
+
+# Values for ``settings.search_list_mode``.
+LIST_MODE_FLAT = 'list'
+LIST_MODE_CARD = 'card'
+
+# NerdFont glyph prefix for a thread's message count (also used by
+# ``render_thread_cell`` for the '#' column).
+COUNT_GLYPH = '\uf086'
 
 
 def render_thread_cell(thread_d: dict, col: str, role: int,
@@ -108,6 +119,175 @@ def render_thread_cell(thread_d: dict, col: str, role: int,
         return ' '.join(thread_d['tags'])
 
     return None
+
+
+class CardDelegate(QStyledItemDelegate):
+    """Two-line 'card' renderer for the search list.
+
+    Each thread row is drawn as a single flowing card spanning the full
+    row width (the rigid date/#/from/subject/tags column grid is hidden
+    in card mode):
+
+      line 1:  [thread-count] From ....................... Date
+      line 2:                  Subject .................. [tags]
+
+    The card has a light rounded border so adjacent threads read as
+    distinct groups.  Text colours/fonts come from the same helper the
+    flat view uses (:func:`render_thread_cell`), so unread/flagged
+    boldness, ``search_color_overrides`` and per-column theme colours
+    stay in parity regardless of mode.
+
+    Uses a single full-width column so From/Subject are only elided when
+    they genuinely run out of room (a right-field reserve keeps the date
+    and tags from overlapping) — no premature '...' truncation.
+    """
+
+    margin_h = 6      # gap from the panel edge to the card border
+    pad_h = 8         # inner horizontal padding
+    pad_v = 5         # inner vertical padding
+    line_gap = 2      # vertical gap between the two text lines
+    col_gap = 10      # horizontal gap between left and right text
+    radius = 6        # rounded-corner radius
+    border_alpha = 70 # border opacity for unselected cards
+
+    def sizeHint(self, option: QStyleOptionViewItem,
+                 index: QModelIndex) -> QSize:  # type: ignore[override]
+        fm = QFontMetrics(style.cell_font(
+            settings.search_font, settings.search_font_size))
+        # two lines + vertical padding + 1px border each side
+        h = (2 * self.pad_v + 2 * fm.height() + self.line_gap + 2)
+        return QSize(max(option.rect.width(), 60), h)
+
+    def paint(self, painter: Optional[QPainter],
+              option: QStyleOptionViewItem,
+              index: QModelIndex) -> None:  # type: ignore[override]
+        if painter is None:
+            super().paint(painter, option, index)
+            return
+        model = index.model()
+        if model is None:
+            super().paint(painter, option, index)
+            return
+        thread = cast("SearchModel", model).thread_json(index)
+        if not isinstance(thread, dict):
+            super().paint(painter, option, index)
+            return
+        hide_query: str = getattr(model, 'q', '') or ''
+
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+
+        # ── card geometry ────────────────────────────────────────────
+        rect = option.rect
+        if rect.width() <= 2 * self.margin_h:
+            super().paint(painter, option, index)
+            return
+        outer = rect.adjusted(self.margin_h, 1, -self.margin_h, -1)
+        card = outer.adjusted(1, 1, -1, -1)  # keep border inside the rect
+        inner = card.adjusted(
+            self.pad_h, self.pad_v, -self.pad_h, -self.pad_v)
+
+        fill = (style.theme_color_or('bg_highlight', 'bg')
+                if selected else style.theme_color_or('bg', 'bg'))
+        border = QColor(style.theme_color_or('fg_dim', 'fg'))
+        border.setAlpha(120 if selected else self.border_alpha)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(fill)
+        painter.setPen(QPen(border, 1))
+        painter.drawRoundedRect(card, self.radius, self.radius)
+
+        # ── line 1: [indicator] From ........ Date ──────────────────
+        from_text = render_thread_cell(thread, 'from',
+                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        from_col = render_thread_cell(thread, 'from',
+                                      Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
+        from_font = render_thread_cell(thread, 'from',
+                                       Qt.ItemDataRole.FontRole, hide_query=hide_query)
+        date_text = render_thread_cell(thread, 'date',
+                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        date_col = render_thread_cell(thread, 'date',
+                                      Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
+        date_font = render_thread_cell(thread, 'date',
+                                       Qt.ItemDataRole.FontRole, hide_query=hide_query)
+        ind = render_thread_cell(thread, '#',
+                                 Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+
+        fm_from = QFontMetrics(from_font)
+        fm_date = QFontMetrics(date_font)
+        line_h = max(fm_from.height(), fm_date.height())
+        y1 = inner.top()
+
+        # Reserve a constant width for the thread-count indicator so the
+        # sender (and subject) start at the same x on every card whether
+        # the message is part of a thread or not.  The count is drawn
+        # right-aligned inside its box, so larger counts grow leftward
+        # without shifting the sender.
+        ind_reserved = fm_from.horizontalAdvance(
+            f'{COUNT_GLYPH} 00')
+        left = inner.left() + ind_reserved + self.col_gap
+        right_reserve = fm_date.horizontalAdvance(date_text) + self.col_gap
+        avail_from = max(0, inner.width() - (left - inner.left())
+                         - right_reserve)
+        from_elided = fm_from.elidedText(
+            from_text, Qt.TextElideMode.ElideRight,
+            avail_from if avail_from > 0 else 1)
+
+        if ind:
+            painter.setFont(from_font)
+            painter.setPen(from_col)
+            painter.drawText(QRect(inner.left(), y1, ind_reserved, line_h),
+                             Qt.AlignmentFlag.AlignRight
+                             | Qt.AlignmentFlag.AlignVCenter, ind)
+        painter.setFont(from_font)
+        painter.setPen(from_col)
+        painter.drawText(QRect(left, y1, avail_from, line_h),
+                         Qt.AlignmentFlag.AlignLeft
+                         | Qt.AlignmentFlag.AlignVCenter, from_elided)
+        painter.setFont(date_font)
+        painter.setPen(date_col)
+        painter.drawText(QRect(inner.left(), y1, inner.width(), line_h),
+                         Qt.AlignmentFlag.AlignRight
+                         | Qt.AlignmentFlag.AlignVCenter, date_text)
+
+        # ── line 2: Subject ........ [tags] ────────────────────────
+        subj_text = render_thread_cell(thread, 'subject',
+                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        subj_col = render_thread_cell(thread, 'subject',
+                                      Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
+        subj_font = render_thread_cell(thread, 'subject',
+                                       Qt.ItemDataRole.FontRole, hide_query=hide_query)
+        tags_text = render_thread_cell(thread, 'tags',
+                                       Qt.ItemDataRole.DisplayRole, hide_query=hide_query)
+        tags_col = render_thread_cell(thread, 'tags',
+                                      Qt.ItemDataRole.ForegroundRole, hide_query=hide_query)
+        tags_font = render_thread_cell(thread, 'tags',
+                                       Qt.ItemDataRole.FontRole, hide_query=hide_query)
+
+        fm_subj = QFontMetrics(subj_font)
+        fm_tags = QFontMetrics(tags_font)
+        y2 = inner.top() + line_h + self.line_gap
+        right_reserve = fm_tags.horizontalAdvance(tags_text) + self.col_gap
+        avail_subj = max(0, inner.width() - (left - inner.left())
+                         - right_reserve)
+        subj_elided = fm_subj.elidedText(
+            subj_text, Qt.TextElideMode.ElideRight,
+            avail_subj if avail_subj > 0 else 1)
+
+        painter.setFont(subj_font)
+        painter.setPen(subj_col)
+        painter.drawText(QRect(left, y2, avail_subj, line_h),
+                         Qt.AlignmentFlag.AlignLeft
+                         | Qt.AlignmentFlag.AlignVCenter, subj_elided)
+        painter.setFont(tags_font)
+        painter.setPen(tags_col)
+        painter.drawText(QRect(inner.left(), y2, inner.width(), line_h),
+                         Qt.AlignmentFlag.AlignRight
+                         | Qt.AlignmentFlag.AlignVCenter, tags_text)
+
+        painter.restore()
 
 
 class SearchModel(QAbstractItemModel):
@@ -274,10 +454,73 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             lay.addWidget(self.tree)
         self.tree.doubleClicked.connect(self.open_current_thread)
         self._setup_auto_open(self.tree)
+        # List-mode rendering: 'list' = flat table (default delegate,
+        # restored header); 'card' = two-line card (CardDelegate, header
+        # hidden, single full-width column).
+        self._default_delegate = QStyledItemDelegate(self.tree)
+        self._card_delegate = CardDelegate(self.tree)
+        self._restore_list_mode()
+        self._apply_geometry_and_mode()
         if self.model.rowCount() > 0:
             self.tree.setCurrentIndex(self.model.index(0, 0))
         self.on_data_refresh()
+
+    # -- search list mode (flat table vs. two-row card) -----------------
+
+    def _restore_list_mode(self) -> None:
+        """Apply a persisted ``C-l`` mode override onto the current
+        ``settings.search_list_mode`` default."""
+        conf = QSettings('lazarus', 'lazarus')
+        saved = conf.value('search_list_mode')
+        if saved in (LIST_MODE_FLAT, LIST_MODE_CARD):
+            settings.search_list_mode = saved
+
+    def _apply_geometry_and_mode(self) -> None:
+        """Restore the saved flat-list column layout, then apply the
+        current list mode on top.  ``refresh()``/``set_query()`` restore
+        the flat header geometry (which would otherwise clobber the card
+        single-column setup), so this always re-applies the active mode
+        afterwards — a fresh panel in card mode stays a proper single-
+        column card view, not a card squeezed into every column."""
         self.restore_tree_geometry()
+        self._apply_list_mode()
+
+    def _apply_list_mode(self) -> None:
+        """Reconfigure the tree view for the current list mode."""
+        tree = self.tree
+        header = tree.header()
+        if header is None:
+            return
+        if settings.search_list_mode == LIST_MODE_CARD:
+            tree.setItemDelegate(self._card_delegate)
+            tree.setHeaderHidden(True)
+            for c in range(1, len(columns)):
+                tree.setColumnHidden(c, True)
+            header.setSectionHidden(0, False)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setStretchLastSection(False)
+            tree.setUniformRowHeights(True)
+        else:
+            tree.setItemDelegate(self._default_delegate)
+            tree.setHeaderHidden(False)
+            for c in range(1, len(columns)):
+                tree.setColumnHidden(c, False)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+            header.setStretchLastSection(True)
+            tree.setUniformRowHeights(True)
+
+    def toggle_search_list_mode(self) -> None:
+        """Toggle the current tab between the flat list and the two-row
+        card view (``C-l``).  Persisted so the choice sticks across
+        restarts."""
+        settings.search_list_mode = (
+            LIST_MODE_FLAT if settings.search_list_mode == LIST_MODE_CARD
+            else LIST_MODE_CARD)
+        self._apply_geometry_and_mode()
+        QSettings('lazarus', 'lazarus').setValue(
+            'search_list_mode', settings.search_list_mode)
+        self.app.status_message(f'Search list: {settings.search_list_mode} view')
+
 
     # We want to split dirtyness into title-level and content-level
     # as updating the title data is much cheaper.
@@ -311,7 +554,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         current_id = self.model.thread_id(self.tree.currentIndex())
         current_row = self.tree.currentIndex().row()
         self.model.refresh()
-        self.restore_tree_geometry()
+        self._apply_geometry_and_mode()
         # Restore by thread ID first (precise), fall back to row position
         if current_id and current_id in self.model.threads:
             self.tree.setCurrentIndex(
