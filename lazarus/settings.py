@@ -408,10 +408,11 @@ search_list_mode = 'list'
 
 - ``'list'`` — the classic flat table (date/#/from/subject/tags columns).
 - ``'card'`` — a two-row card per thread (line 1: sender + date;
-  line 2: subject + tags), only used for display.  ``C-l`` toggles the
-  focused tab between the two; the choice is remembered across restarts
-  (a runtime toggle, so it overrides this default until the value is
-  changed here).
+  line 2: subject + tags), only used for display.
+
+This is a **config-only** setting read once at startup: it is not
+changeable in-app and is not persisted to QSettings.  Set it here (or in
+``config.py``) and restart lazarus to switch.
 """
 
 tag_hotkeys: dict[str, str] = {}

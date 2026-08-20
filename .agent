@@ -188,7 +188,7 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 | `thread.py` | 672 | `ThreadPanel` — double-buffered `QWebEngineView` + `_SwapGuard` (newest-load-wins), message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `open_attachments`, `scroll_message` |
 | `mainwindow.py` | 653 | `MainWindow` — splitter + tabs + preview, `WatermarkTabWidget` (low-poly mesh + watermark, `invalidate_mesh()` on theme switch), CommandBar/StatusBar overlay, splitter open-state persistence (`_load_open_splitter_state`), geometry/open-searches persistence |
 | `editor.py` | 617 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images` (file:// → cid:), paste/drag-drop, `formatting_toolbar()` (NerdFont glyphs, synced to cursor format), `toggle_plain()` plaintext mode |
-| `search.py` | 520 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `CardDelegate`; in-place thread refresh; `search_list_mode` 'list'/'card' with `C-l` toggle; `title()` pure (counts via controller batch); `apply_thread_count` |
+| `search.py` | 520 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `CardDelegate`; in-place thread refresh; `search_list_mode` 'list'/'card' (config-only); `title()` pure (counts via controller batch); `apply_thread_count` |
 | `thread_model.py` | 411 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree (O(1) parent via `row_in_parent`), conversation/thread modes, message tagging |
 | `app.py` | 370 | `Dodo(QApplication)` bootstrap — validated config, logging, signals (Ctrl-C pipe), HelpWindow, sync timer, `_warm_webengine`, theme registry build + initial resolve; `main()`/`install_desktop()` |
 | `panel.py` | 364 | `Panel(QWidget)` base — keychord handling (prefix timer, parented QTimers), dirty tracking, 150 ms debounce, `has_refreshed`, `HeaderInsetTreeView` |
@@ -268,7 +268,6 @@ All `global_keymap` keys delegate via `AppController.delegate_to_list` / `delega
 | `T` | Tag browser |
 | `/` | Search bar |
 | `C-/` | Edit current tab query in-place |
-| `C-l` | Toggle search list mode (flat table ↔ two-row card) on the focused tab |
 | `C-r` | Apply filter rules |
 | `M-<` / `M->` | Previous/next theme (Alt — `C-<` collides with the `C-<enter>` chord prefix) |
 
@@ -363,7 +362,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `html_confirm_open_links` / `_trusted_hosts` | `True` / `[]` | Link-open confirmation |
 | `search_font`/`size`, `tag_font`/`size`, `message_font`/`size`, `compose_editor_font`/`size` | DejaVu Sans Mono | Fonts |
 | `search_title_format` | `"{query} [{num_threads}]"` | Tab titles |
-| `search_list_mode` | `'list'` | `'list'` = flat table (default), `'card'` = two-row card per thread. `C-l` toggles the focused tab; choice persisted across restarts |
+| `search_list_mode` | `'list'` | `'list'` = flat table (default), `'card'` = two-row card per thread. **Config-only** (set in `config.py`, not toggleable in-app) |
 | `search_color_overrides` | `{}` | `{tag:{col:color}}` per-column overrides |
 | `message_css` | — | Theme-aware CSS template (`{bg,fg,...}` placeholders) |
 | `message2html_filters` | `[]` | Custom renderers `(msg→HTML\|None)` |
