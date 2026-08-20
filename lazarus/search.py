@@ -51,6 +51,11 @@ LIST_MODE_CARD = 'card'
 # ``render_thread_cell`` for the '#' column).
 COUNT_GLYPH = '\uf086'
 
+# Default column widths (px) used to reset a flat list when a legacy card
+# layout is found in the shared ``search_tree_geometry`` key.  Subject
+# (col 3) is the flexible one — stretchLastSection fills it out.
+_FLAT_WIDTHS = {'date': 90, '#': 44, 'from': 220, 'subject': 520, 'tags': 170}
+
 
 def render_thread_cell(thread_d: dict, col: str, role: int,
                        hide_tags: set | None = None,
@@ -456,34 +461,52 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         self._setup_auto_open(self.tree)
         # List-mode rendering: 'list' = flat table (default delegate,
         # restored header); 'card' = two-line card (CardDelegate, header
-        # hidden, single full-width column).
+        # hidden, single full-width column).  Config-only: decided by
+        # ``settings.search_list_mode``, not toggleable in-app.
         self._default_delegate = QStyledItemDelegate(self.tree)
         self._card_delegate = CardDelegate(self.tree)
-        self._restore_list_mode()
         self._apply_geometry_and_mode()
         if self.model.rowCount() > 0:
             self.tree.setCurrentIndex(self.model.index(0, 0))
         self.on_data_refresh()
 
-    # -- search list mode (flat table vs. two-row card) -----------------
-
-    def _restore_list_mode(self) -> None:
-        """Apply a persisted ``C-l`` mode override onto the current
-        ``settings.search_list_mode`` default."""
-        conf = QSettings('lazarus', 'lazarus')
-        saved = conf.value('search_list_mode')
-        if saved in (LIST_MODE_FLAT, LIST_MODE_CARD):
-            settings.search_list_mode = saved
+    # -- search list mode (config-only) ---------------------------------
 
     def _apply_geometry_and_mode(self) -> None:
-        """Restore the saved flat-list column layout, then apply the
-        current list mode on top.  ``refresh()``/``set_query()`` restore
-        the flat header geometry (which would otherwise clobber the card
-        single-column setup), so this always re-applies the active mode
-        afterwards — a fresh panel in card mode stays a proper single-
-        column card view, not a card squeezed into every column."""
+        """Configure column layout for the current list mode.
+
+        Card mode is a single stretched column, so its column widths are
+        meaningless and must NOT be restored from (or saved to) the shared
+        ``search_tree_geometry`` key — a card panel once persisted a huge
+        date-column geometry there, which later flat-mode panels restored,
+        leaving only the date column filled.  Only flat mode restores/saves
+        the classic column widths.  If an older build already left a card
+        layout (grid hidden) in the key, replace it with sane flat widths.
+        """
+        if settings.search_list_mode == LIST_MODE_CARD:
+            self._apply_list_mode()
+            return
         self.restore_tree_geometry()
+        # Detect a legacy card leftover: a card layout hides the grid (cols
+        # 1-4); flat shows it.  If the restored geometry came back with the
+        # grid hidden, it's card poison — restore is meaningless and wrong
+        # for flat, so use sane flat widths and purge the entry.
+        header = self.tree.header()
+        legacy_card = header is not None and any(
+            header.isSectionHidden(c) for c in range(1, len(columns)))
         self._apply_list_mode()
+        if legacy_card and header is not None:
+            QSettings('lazarus', 'lazarus').remove(self._geometry_key)
+            for c, name in enumerate(columns):
+                header.resizeSection(c, _FLAT_WIDTHS.get(name, 100))
+
+    def save_tree_geometry(self) -> None:
+        """Only flat mode persists column widths; card mode never writes
+        the shared key (its single stretched column has no meaningful widths
+        to remember, and saving it would poison later flat modes)."""
+        if settings.search_list_mode == LIST_MODE_CARD:
+            return
+        super().save_tree_geometry()
 
     def _apply_list_mode(self) -> None:
         """Reconfigure the tree view for the current list mode."""
@@ -508,19 +531,9 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
             header.setStretchLastSection(True)
             tree.setUniformRowHeights(True)
-
-    def toggle_search_list_mode(self) -> None:
-        """Toggle the current tab between the flat list and the two-row
-        card view (``C-l``).  Persisted so the choice sticks across
-        restarts."""
-        settings.search_list_mode = (
-            LIST_MODE_FLAT if settings.search_list_mode == LIST_MODE_CARD
-            else LIST_MODE_CARD)
-        self._apply_geometry_and_mode()
-        QSettings('lazarus', 'lazarus').setValue(
-            'search_list_mode', settings.search_list_mode)
-        self.app.status_message(f'Search list: {settings.search_list_mode} view')
-
+        logger.debug('[list-mode] applied mode=%r rows=%d uniform=%s',
+                     settings.search_list_mode, self.model.rowCount(),
+                     tree.uniformRowHeights())
 
     # We want to split dirtyness into title-level and content-level
     # as updating the title data is much cheaper.

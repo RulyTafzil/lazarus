@@ -1,9 +1,12 @@
 """Search list mode — the opt-in two-row 'card' view vs. the flat list.
 
 Covers ``settings.search_list_mode`` routing (flat table vs. two-line
-card), the ``C-l`` toggle wiring in SearchPanel, QSettings persistence,
-and that the CardDelegate renders without crashing / collapses to a
-degenerate size (the flat view is left untouched).
+card) as a **config-only** setting: the mode is read once at construction
+and is not toggleable in-app or persisted to QSettings.  Also pins the
+shared ``search_tree_geometry`` lifecycle — card mode must never write
+column widths into the shared key, and flat mode must recover if a stale
+card geometry is ever found there (the 'only the date column filled'
+regression).
 """
 import pytest
 
@@ -12,15 +15,16 @@ from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
 
 from lazarus import settings
 from lazarus.search import (
-    LIST_MODE_CARD, LIST_MODE_FLAT, SearchModel, SearchPanel, CardDelegate,
+    LIST_MODE_FLAT, SearchModel, SearchPanel, CardDelegate,
 )
 from tests.conftest import make_thread
 
 
 @pytest.fixture
 def panel(qapp, fake_app, notmuch_stub):
-    """A standalone SearchPanel with an isolated list-mode setting."""
+    """A standalone SearchPanel in flat mode (the config-only default)."""
     QSettings('lazarus', 'lazarus').remove('search_list_mode')
+    QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
     settings.search_list_mode = LIST_MODE_FLAT
     notmuch_stub.threads = [make_thread('t1', 'Hello', total=3)]
     p = SearchPanel(fake_app, 'tag:inbox')
@@ -41,37 +45,80 @@ def test_default_is_flat_list(panel):
     assert panel.tree.itemDelegate() is panel._default_delegate
 
 
-def test_toggle_to_card(panel):
-    """``toggle_search_list_mode`` switches to the two-row card:
-    single stretched column, header hidden, CardDelegate active, and the
-    choice is persisted to QSettings."""
-    panel.toggle_search_list_mode()
-
-    assert settings.search_list_mode == LIST_MODE_CARD
-    assert panel.tree.isHeaderHidden() is True
-    assert panel.tree.isColumnHidden(0) is False
-    for c in range(1, 5):
-        assert panel.tree.isColumnHidden(c) is True
-    assert panel.tree.itemDelegate() is panel._card_delegate
-    assert QSettings('lazarus', 'lazarus').value('search_list_mode') == LIST_MODE_CARD
-
-
-def test_toggle_round_trip_restores_flat(panel):
-    """Toggling twice returns to the flat list with the header shown,
-    all columns visible and the default delegate back in place."""
-    panel.toggle_search_list_mode()
-    panel.toggle_search_list_mode()
-
+def test_mode_is_config_only_not_persisted(panel):
+    """The mode comes only from ``settings.search_list_mode`` (i.e.
+    config.py): a stale ``search_list_mode`` QSettings value must not flip
+    the panel's delegate, and the app never writes the mode to QSettings."""
+    QSettings('lazarus', 'lazarus').setValue('search_list_mode', 'card')
     assert settings.search_list_mode == LIST_MODE_FLAT
-    assert panel.tree.isHeaderHidden() is False
-    for c in range(1, 5):
-        assert panel.tree.isColumnHidden(c) is False
     assert panel.tree.itemDelegate() is panel._default_delegate
+    assert QSettings('lazarus', 'lazarus').value('search_list_mode') == 'card'  # untouched
+
+
+def test_card_mode_single_column_no_restore(qapp, fake_app, notmuch_stub):
+    """A panel created in card mode is a single stretched column with the
+    header hidden, and it neither restores nor saves column widths to the
+    shared geometry key — so it can't poison later flat panels."""
+    from PyQt6.QtWidgets import QHeaderView
+    QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
+    settings.search_list_mode = 'card'
+    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    p = SearchPanel(fake_app, 'tag:inbox')
+    try:
+        assert p.tree.isHeaderHidden() is True
+        assert p.tree.isColumnHidden(0) is False
+        for c in range(1, 5):
+            assert p.tree.isColumnHidden(c) is True
+        assert p.tree.itemDelegate() is p._card_delegate
+        assert p.tree.header().sectionResizeMode(0) == \
+            QHeaderView.ResizeMode.Stretch
+        # Closing the card panel must not write card geometry to the key.
+        p.close()
+        key = QSettings('lazarus', 'lazarus').value('search_tree_geometry')
+        assert key == '' or key is None
+    finally:
+        p.deleteLater()
+        qapp.processEvents()
+
+
+def test_flat_recovers_from_stale_card_geometry(qapp, fake_app, notmuch_stub):
+    """Regression: the old card-mode build saved its single stretched
+    date column into the shared key, so flat panels restored it and showed
+    only the date column filled.  Flat mode must clamp the over-wide date
+    column back to sensible widths and purge the poisoned entry."""
+    from lazarus.search import LIST_MODE_CARD
+    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    # Produce a realistic poisoned entry: the header state of a real
+    # card-mode panel (col0 stretched full-width), as the old build saved.
+    settings.search_list_mode = LIST_MODE_CARD
+    card = SearchPanel(fake_app, 'tag:inbox')
+    card.resize(720, 400)
+    card.show(); qapp.processEvents()   # lay out so col0 is stretched wide
+    poison = card.tree.header().saveState()
+    card.close(); card.deleteLater(); qapp.processEvents()
+    QSettings('lazarus', 'lazarus').setValue('search_tree_geometry', poison)
+
+    # A flat panel now restores that card state: clamp + purge.
+    settings.search_list_mode = LIST_MODE_FLAT
+    p = SearchPanel(fake_app, 'tag:inbox')
+    p.resize(720, 400); p.show(); qapp.processEvents()
+    try:
+        # Restored geometry was recognized as a card leftover and replaced
+        # with sane flat widths — the date column no longer swallows the row.
+        assert p.tree.header().isSectionHidden(0) is False
+        # And the poisoned entry was purged so the next run is clean.
+        assert QSettings('lazarus', 'lazarus').value(
+            'search_tree_geometry') in (None, '')
+    finally:
+        p.close()
+        p.deleteLater()
+        qapp.processEvents()
 
 
 def test_card_delegate_size_hint_is_two_lines(qapp, notmuch_stub):
     """The card's natural row height fits two text lines plus padding."""
     from PyQt6.QtGui import QFontMetrics
+    settings.search_list_mode = 'card'
     notmuch_stub.threads = [make_thread('t1', 'Hello', total=3,
                                         tags=['inbox', 'unread'])]
     model = SearchModel('tag:inbox')
@@ -91,6 +138,7 @@ def test_card_delegate_paints(qapp, notmuch_stub, selected):
     """The card paints (selected and unselected) without crashing and
     draws actual pixels — no degenerate empty output."""
     from PyQt6.QtGui import QPainter, QPixmap
+    settings.search_list_mode = 'card'
     notmuch_stub.threads = [make_thread('t1', 'Hello ' * 40, total=3,
                                         tags=['inbox', 'unread'])]
     model = SearchModel('tag:inbox')
@@ -114,28 +162,23 @@ def test_card_delegate_paints(qapp, notmuch_stub, selected):
     assert pm.toImage().size().width() > 0
 
 
-def test_fresh_card_panel_is_single_column_and_survives_refresh(qapp, fake_app,
-                                                               notmuch_stub):
-    """A panel created while already in card mode is a proper single-column
-    card view from the start, and stays that way across ``refresh()`` —
-    previously the saved flat header layout was re-applied on refresh,
-    squeezing a card into every column until the user toggled twice."""
-    QSettings('lazarus', 'lazarus').remove('search_list_mode')
-    settings.search_list_mode = LIST_MODE_CARD
+def test_fresh_card_panel_survives_refresh(qapp, fake_app, notmuch_stub):
+    """A panel created in card mode stays a proper single-column card view
+    across ``refresh()`` and ``set_query()`` — the saved flat header layout
+    is never re-applied over the card single-column setup."""
+    QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
+    settings.search_list_mode = 'card'
     notmuch_stub.threads = [make_thread('t1', 'Hello')]
     p = SearchPanel(fake_app, 'tag:inbox')
     try:
         assert p.tree.isHeaderHidden() is True
         assert p.tree.isColumnHidden(1) is True     # multi-column grid hidden
         assert p.tree.itemDelegate() is p._card_delegate
-        # The failing path: refresh() re-ran restore_tree_geometry() and
-        # dropped card mode.
         p.refresh()
         assert p.tree.isHeaderHidden() is True
         for c in range(1, 5):
             assert p.tree.isColumnHidden(c) is True
         assert p.tree.itemDelegate() is p._card_delegate
-        # set_query() (a new search) similarly keeps card mode.
         p.set_query('tag:inbox and tag:unread')
         assert p.tree.isHeaderHidden() is True
         for c in range(1, 5):
@@ -151,6 +194,7 @@ def test_static_indicator_width_aligns_sender(qapp, notmuch_stub):
     """The thread-count indicator occupies a constant width whether the
     message is threaded or not, so the sender (and subject) start at the
     same x on every card."""
+    settings.search_list_mode = 'card'
     # Both threads non-unread so their 'from' font/metrics are identical.
     notmuch_stub.threads = [
         make_thread('tA', 'Alpha', total=3, tags=['inbox']),

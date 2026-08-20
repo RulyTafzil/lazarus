@@ -108,7 +108,6 @@ class ThreadList(Protocol):
     def archive_to_local(self) -> None: ...
     def reply(self, to_all: bool = True) -> None: ...
     def forward(self) -> None: ...
-    def toggle_search_list_mode(self) -> None: ...
 
 
 @runtime_checkable
@@ -147,7 +146,7 @@ LIST_METHODS = frozenset((
     'next_thread', 'previous_thread', 'first_thread', 'last_thread',
     'toggle_thread_tag', 'open_current_thread', 'prev_page', 'next_page',
     'archive_thread', 'delete_thread', 'restore_thread_from_trash',
-    'archive_to_local', 'toggle_search_list_mode',
+    'archive_to_local',
 ))
 
 THREAD_METHODS = frozenset((
