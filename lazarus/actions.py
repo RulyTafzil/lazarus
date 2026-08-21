@@ -170,12 +170,16 @@ def check_archive_refused(tags: Set[str]) -> bool:
     return len(tags - {'inbox', 'unread'}) == 0
 
 
-def _mail_file_account(filepath: str) -> Optional[tuple[str, str]]:
+def _mail_file_account(
+        filepath: str,
+        mail_root: Optional[str] = None) -> Optional[tuple[str, str]]:
     """Split a mail file path into (account, rest_of_path).
 
-    Returns None if the path doesn't live under the configured mail root.
+    Returns None if the path doesn't live under the mail root.  Pass
+    *mail_root* explicitly for a pure, deterministic mapping; otherwise
+    it falls back to ``settings.mail_root``.
     """
-    mail_root = os.path.expanduser(settings.mail_root)
+    mail_root = os.path.expanduser(mail_root or settings.mail_root)
     if filepath.startswith(mail_root + '/'):
         rel = filepath[len(mail_root) + 1:]
     elif '/Mail/' in filepath:
@@ -188,12 +192,21 @@ def _mail_file_account(filepath: str) -> Optional[tuple[str, str]]:
     return (parts[0], parts[1])
 
 
+def _trash_dir_path(account: str, mail_root: str) -> str:
+    """Trash cur/ directory for *account* (pure path; not created).
+
+    Prefers the Gmail-style ``[Gmail]/Trash`` folder when it exists,
+    falling back to a plain ``Trash`` folder.
+    """
+    gmail = os.path.join(mail_root, account, '[Gmail]', 'Trash', 'cur')
+    if os.path.isdir(gmail):
+        return gmail
+    return os.path.join(mail_root, account, 'Trash', 'cur')
+
+
 def _find_trash_dir(account: str) -> str:
     """Return the Trash cur/ directory for *account*, creating it if needed."""
-    mail_root = os.path.expanduser(settings.mail_root)
-    trash_dir = os.path.join(mail_root, account, '[Gmail]', 'Trash', 'cur')
-    if not os.path.isdir(trash_dir):
-        trash_dir = os.path.join(mail_root, account, 'Trash', 'cur')
+    trash_dir = _trash_dir_path(account, os.path.expanduser(settings.mail_root))
     os.makedirs(trash_dir, exist_ok=True)
     return trash_dir
 
@@ -285,6 +298,47 @@ def _is_trash_path(path: str) -> bool:
     return '/Trash/' in path or '/[Gmail]/Trash/' in path
 
 
+def plan_trash_moves(files: List[str],
+                     mail_root: str) -> List[Tuple[str, str]]:
+    """Compute ``(src, dst)`` moves to each file's account Trash folder.
+
+    Pure planning: nothing is created, moved, or tagged here.  *files*
+    must already be resolved (see :func:`collect_files`); *mail_root* is
+    passed explicitly so the per-account mapping is deterministic and
+    testable.  Destination directories are computed (not created) by
+    :func:`_trash_dir_path`.
+    """
+    mail_root = os.path.expanduser(mail_root)
+    moves: List[Tuple[str, str]] = []
+    for f in files:
+        result = _mail_file_account(f, mail_root)
+        if result is None:
+            continue
+        account, _ = result
+        trash_dir = _trash_dir_path(account, mail_root)
+        basename = _strip_uid_annotation(os.path.basename(f))
+        moves.append((f, _unique_dest(os.path.join(trash_dir, basename))))
+    return moves
+
+
+def plan_archive_moves(files: List[str],
+                       archive_dir: str) -> List[Tuple[str, str]]:
+    """Compute ``(src, dst)`` moves into ``archive_dir/cur``.
+
+    Pure: no ``mkdir``, no move, no tag.  Files already inside the
+    target folder are skipped.
+    """
+    archive_cur = os.path.join(os.path.expanduser(archive_dir), 'cur')
+    moves: List[Tuple[str, str]] = []
+    for f in files:
+        if f.startswith(archive_cur + os.sep):
+            logger.debug('skip (already in target): %s', os.path.basename(f))
+            continue
+        basename = _strip_uid_annotation(os.path.basename(f))
+        moves.append((f, _unique_dest(os.path.join(archive_cur, basename))))
+    return moves
+
+
 def move_to_trash(notmuch_query: str) -> int:
     """Tag ``+trash`` and move matching files to the Trash folder.
 
@@ -299,22 +353,20 @@ def move_to_trash(notmuch_query: str) -> int:
 
     notmuch.tag('+trash -inbox -unread', notmuch_query, exclude_marked=True)
 
-    moves: List[Tuple[str, str]] = []
+    # Re-resolve after tagging — notmuch.tag may have renamed the file
+    # (synchronize_flags=true renames files when tags change), then hand
+    # the resolved list to the pure planner for per-account mapping.
+    resolved: List[str] = []
     for f in files:
-        # Re-resolve — notmuch.tag may have renamed the file
-        # (synchronize_flags=true renames files when tags change).
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
+        r = _resolve_stale_path(f)
+        if r is None:
             logger.debug('file gone after tagging: %s', os.path.basename(f))
             continue
-        result = _mail_file_account(resolved)
-        if result is None:
-            continue
-        account, _ = result
-        trash_dir = _find_trash_dir(account)
-        basename = _strip_uid_annotation(os.path.basename(resolved))
-        moves.append((resolved, _unique_dest(os.path.join(trash_dir, basename))))
+        resolved.append(r)
 
+    moves = plan_trash_moves(resolved, os.path.expanduser(settings.mail_root))
+    for _, dst in moves:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
     if moves:
         _get_worker().enqueue(moves)
     return len(moves)
@@ -540,24 +592,23 @@ def move_specific_files(files: List[str], target_dir: str) -> int:
 
     :returns: the number of *files moved* (happens asynchronously)
     """
-    target_cur = os.path.join(os.path.expanduser(target_dir), 'cur')
+    target_dir = os.path.expanduser(target_dir)
+    target_cur = os.path.join(target_dir, 'cur')
     os.makedirs(target_cur, exist_ok=True)
 
-    moves: List[Tuple[str, str]] = []
+    # Re-resolve paths — notmuch.tag may have renamed files since
+    # collect_files() ran (synchronize_flags=true renames files on disk
+    # when tags like 'unread' change), then let the pure planner map
+    # them (it skips anything already inside the target).
+    resolved: List[str] = []
     for f in files:
-        # Re-resolve the path — notmuch.tag may have renamed the file
-        # since collect_files() ran (synchronize_flags=true renames
-        # files on disk when tags like 'unread' change).
-        resolved = _resolve_stale_path(f)
-        if resolved is None:
+        r = _resolve_stale_path(f)
+        if r is None:
             logger.debug('file gone after tagging: %s', os.path.basename(f))
             continue
-        if resolved.startswith(target_cur + os.sep):
-            logger.debug('skip (already in target): %s', os.path.basename(resolved))
-            continue
-        basename = _strip_uid_annotation(os.path.basename(resolved))
-        moves.append((resolved, _unique_dest(os.path.join(target_cur, basename))))
+        resolved.append(r)
 
+    moves = plan_archive_moves(resolved, target_dir)
     if moves:
         _get_worker().enqueue(moves)
     return len(moves)
