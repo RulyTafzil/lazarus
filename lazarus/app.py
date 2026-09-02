@@ -92,8 +92,8 @@ class Dodo(QApplication):
                 flags = f'{flags} --force-dark-mode'.strip()
                 os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = flags
 
-        # construct help window
-        self.help_window = helpwindow.HelpWindow()
+        # construct help window lazily on first call to show_help()
+        self.help_window: helpwindow.HelpWindow | None = None
 
         # Theme color map: auto-create ~/.config/lazarus/themes/colormap.py
         # on first run, then apply any per-theme overrides it defines.
@@ -148,14 +148,10 @@ class Dodo(QApplication):
         # is ready by the time the user opens the compose panel.
         address_completer.preload_addresses()
 
-        # Warm the Chromium renderer process so the first email open
-        # doesn't trigger a visible "restart" (GPU/renderer process
-        # spawn, window flicker, or compositor surface recreation).
-        # Uses a persistent hidden view that shares the app's profile
-        # handlers (cid/message schemes) and stays alive for the app
-        # lifetime — a disposable view goes cold again before first open.
+        # Warm the Chromium renderer process in the background on the first
+        # event loop tick so startup is not blocked by process spawning.
         self._warm_view: object | None = None
-        self._warm_webengine()
+        QTimer.singleShot(0, self._warm_webengine)
 
         # Handle Ctrl-C: use a pipe + QSocketNotifier so the Qt event loop
         # wakes up immediately when a Unix signal arrives.
@@ -220,7 +216,9 @@ class Dodo(QApplication):
 
     def show_help(self) -> None:
         """Show help window"""
-
+        if self.help_window is None:
+            from . import helpwindow
+            self.help_window = helpwindow.HelpWindow()
         self.help_window.show()
 
     # -- Dodo-owned app surface ---------------------------------------------
