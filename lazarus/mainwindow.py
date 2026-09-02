@@ -261,6 +261,7 @@ class WatermarkTabWidget(QTabWidget):
 
             # Fade the mesh into solid bg near the tab seam so the texture
             # doesn't visually collide with the last tab's edge.
+            painter.setPen(Qt.PenStyle.NoPen)
             fade = QLinearGradient(QPointF(empty_rect.left(), 0),
                                     QPointF(empty_rect.left() + self._FADE_WIDTH, 0))
             fade.setColorAt(0.0, QColor(settings.theme['bg']))
