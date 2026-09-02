@@ -138,11 +138,16 @@ class WatermarkTabWidget(QTabWidget):
         self._text = "Lazarus"
         self._mesh_cache: list[tuple[QPolygonF, QColor]] | None = None
         self._mesh_cache_size: tuple[int, int] | None = None
+        self._mesh_pixmap: QPixmap | None = None
+        self._mesh_pixmap_size: tuple[int, int] | None = None
 
     def invalidate_mesh(self) -> None:
         """Drop the cached mesh so it's regenerated (with fresh theme
         colors) on the next paint. Call this after a theme change."""
         self._mesh_cache = None
+        self._mesh_cache_size = None
+        self._mesh_pixmap = None
+        self._mesh_pixmap_size = None
         self.update()
 
     def _mesh_palette(self) -> list[str]:
@@ -195,62 +200,91 @@ class WatermarkTabWidget(QTabWidget):
             self._mesh_cache_size = size
         return self._mesh_cache
 
+    def _render_mesh_pixmap(self, full_row_rect: QRect) -> QPixmap | None:
+        """Mesh texture for the entire tab-bar row rendered into a QPixmap.
+
+        Cached on size and regenerated only on resize or theme change.
+        """
+        w, h = full_row_rect.width(), full_row_rect.height()
+        if w <= 0 or h <= 0:
+            return None
+        size = (w, h)
+        if self._mesh_pixmap is not None and self._mesh_pixmap_size == size:
+            return self._mesh_pixmap
+
+        pixmap = QPixmap(w, h)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pixmap)
+        if p.isActive():
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(Qt.PenStyle.NoPen)
+
+            rect_zero = QRect(0, 0, w, h)
+            for poly, color in self._get_mesh(rect_zero):
+                c = QColor(color)
+                c.setAlpha(self._MESH_ALPHA)
+                p.setBrush(c)
+                p.drawPolygon(poly)
+            p.end()
+
+        self._mesh_pixmap = pixmap
+        self._mesh_pixmap_size = size
+        return self._mesh_pixmap
+
     def paintEvent(self, e: QPaintEvent | None) -> None:
-        super().paintEvent(e)          # tabs + base background paint first
+        try:
+            super().paintEvent(e)          # tabs + base background paint first
 
-        bar = self.tabBar()
-        if bar is None:
-            return
-        bar_geo = bar.geometry()
-        # The tab-to-pane connecting border is a 1px line painted by the
-        # base QTabWidget across the *full* widget width, at the very
-        # last row of the tab bar's geometry. Stop our clip 1px short of
-        # the bottom so we never paint over it — otherwise it visibly
-        # fades out wherever our mesh/gradient/text covers that row.
-        border_h = 1
-        row_height = bar_geo.height() - border_h
-        empty_rect = QRect(bar_geo.right(), bar_geo.top(),
-                            self.width() - bar_geo.right(), row_height)
-        if empty_rect.width() <= 0:
-            return                      # tab bar already fills the row
+            bar = self.tabBar()
+            if bar is None:
+                return
+            bar_geo = bar.geometry()
+            border_h = 1
+            row_height = bar_geo.height() - border_h
+            empty_rect = QRect(bar_geo.right(), bar_geo.top(),
+                                self.width() - bar_geo.right(), row_height)
+            if empty_rect.width() <= 0 or row_height <= 0:
+                return                      # tab bar already fills the row
 
-        full_row_rect = QRect(0, bar_geo.top(), self.width(), row_height)
+            full_row_rect = QRect(0, bar_geo.top(), self.width(), row_height)
 
-        painter = QPainter(self)
-        painter.setClipRect(empty_rect)   # never touch the tab pixels
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter = QPainter(self)
+            if not painter.isActive():
+                return
+            painter.setClipRect(empty_rect)   # never touch the tab pixels
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Low-poly mesh texture, built from theme colors. Generated for
-        # the whole row and clipped to the exposed strip, so it's the
-        # same static pattern underneath regardless of tab count.
-        painter.setPen(Qt.PenStyle.NoPen)
-        for poly, color in self._get_mesh(full_row_rect):
-            color.setAlpha(self._MESH_ALPHA)
-            painter.setBrush(color)
-            painter.drawPolygon(poly)
+            # Low-poly mesh texture from cached pixmap
+            mesh_pix = self._render_mesh_pixmap(full_row_rect)
+            if mesh_pix is not None:
+                painter.drawPixmap(0, bar_geo.top(), mesh_pix)
 
-        # Fade the mesh into solid bg near the tab seam so the texture
-        # doesn't visually collide with the last tab's edge.
-        fade = QLinearGradient(QPointF(empty_rect.left(), 0),
-                                QPointF(empty_rect.left() + self._FADE_WIDTH, 0))
-        fade.setColorAt(0.0, QColor(settings.theme['bg']))
-        fade.setColorAt(1.0, QColor(0, 0, 0, 0))
-        painter.setBrush(fade)
-        painter.drawRect(QRect(empty_rect.left(), empty_rect.top(),
-                                self._FADE_WIDTH, empty_rect.height()))
+            # Fade the mesh into solid bg near the tab seam so the texture
+            # doesn't visually collide with the last tab's edge.
+            painter.setPen(Qt.PenStyle.NoPen)
+            fade = QLinearGradient(QPointF(empty_rect.left(), 0),
+                                    QPointF(empty_rect.left() + self._FADE_WIDTH, 0))
+            fade.setColorAt(0.0, QColor(settings.theme['bg']))
+            fade.setColorAt(1.0, QColor(0, 0, 0, 0))
+            painter.setBrush(fade)
+            painter.drawRect(QRect(empty_rect.left(), empty_rect.top(),
+                                    self._FADE_WIDTH, empty_rect.height()))
 
-        # Right-aligned watermark text on top.
-        painter.setOpacity(0.75)
-        painter.setPen(QColor(settings.theme['fg_dim']))
-        font = painter.font()
-        font.setPointSize(font.pointSize() + 6)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(
-            empty_rect.adjusted(0, 0, -12, 0),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            self._text)
-        painter.end()
+            # Right-aligned watermark text on top.
+            painter.setOpacity(0.75)
+            painter.setPen(QColor(settings.theme['fg_dim']))
+            font = painter.font()
+            font.setPointSize(font.pointSize() + 6)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(
+                empty_rect.adjusted(0, 0, -12, 0),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                self._text)
+            painter.end()
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
 class MainWindow(QMainWindow):
     def __init__(self, a: "Dodo | AppController"):

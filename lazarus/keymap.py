@@ -18,8 +18,6 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from typing import Any, Callable, Dict, Tuple
 
-from .protocols import PanelApp
-
 KeyBinding = Tuple[str, Callable[..., Any]]
 Keymap = Dict[str, KeyBinding]
 
@@ -51,8 +49,8 @@ global_keymap: Keymap = {
   'S-<tab>':     ('previous unread', lambda a: a.delegate_to_list('previous_thread', unread=True)),
   'g g':         ('first thread', lambda a: a.delegate_to_list('first_thread')),
   'G':           ('last thread', lambda a: a.delegate_to_list('last_thread')),
-  'M-j':         ('down 20', lambda a: [a.delegate_to_list('next_thread') for _ in range(20)]),
-  'M-k':         ('up 20', lambda a: [a.delegate_to_list('previous_thread') for _ in range(20)]),
+  'M-j':         ('down 20', lambda a: a.delegate_to_list('next_thread', count=20)),
+  'M-k':         ('up 20', lambda a: a.delegate_to_list('previous_thread', count=20)),
   '<pageup>':    ('page up (list)', lambda a: a.delegate_to_list('prev_page')),
   '<pagedown>':  ('page down (list)', lambda a: a.delegate_to_list('next_page')),
   '<enter>':     ('open thread', lambda a: a.delegate_to_list('open_current_thread')),

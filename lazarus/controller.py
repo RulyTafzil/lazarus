@@ -114,7 +114,10 @@ class SyncMailThread(QThread):
         """Spawn ``mbsync -V <acct>`` for every account in parallel."""
         import select
 
-        procs: dict[int, tuple[subprocess.Popen, str]] = {}  # fd → (proc, account)
+        out_map: dict[int, tuple[subprocess.Popen, str]] = {}
+        err_map: dict[int, tuple[subprocess.Popen, str]] = {}
+        err_buffers: dict[str, list[str]] = {acct: [] for acct in accounts}
+
         for acct in accounts:
             self.progress.emit(f'Syncing: {acct}...')
             p = subprocess.Popen(['mbsync', '-V', acct],
@@ -123,73 +126,111 @@ class SyncMailThread(QThread):
                                  start_new_session=True,
                                  universal_newlines=True)
             assert p.stdout is not None
-            procs[p.stdout.fileno()] = (p, acct)
+            assert p.stderr is not None
+            out_map[p.stdout.fileno()] = (p, acct)
+            err_map[p.stderr.fileno()] = (p, acct)
             self._procs.append(p)
 
-        combined_stderr: list[str] = []
         summaries: list[str] = []
-        done_accounts: set[str] = set()
 
-        while procs:
+        while out_map or err_map:
             if self._stopping:
                 break
             try:
-                readable, _, _ = select.select(list(procs), [], [], 0.5)
+                readable, _, _ = select.select(list(out_map) + list(err_map), [], [], 0.5)
             except (ValueError, OSError):
                 break
 
             for fd in readable:
-                proc, acct = procs[fd]
-                assert proc.stdout is not None
-                line = proc.stdout.readline()
-                if not line:
-                    # Process finished
-                    proc.wait()
-                    if proc.returncode != 0 and acct not in done_accounts:
-                        self.sync_rc = proc.returncode
-                    if proc.stderr:
-                        stderr = proc.stderr.read().strip()
-                        if stderr:
-                            combined_stderr.append(f'{acct}: {stderr}')
-                    done_accounts.add(acct)
-                    del procs[fd]
-                    continue
+                if fd in err_map:
+                    proc, acct = err_map[fd]
+                    assert proc.stderr is not None
+                    line = proc.stderr.readline()
+                    if line:
+                        err_buffers[acct].append(line.strip())
+                    else:
+                        del err_map[fd]
+                elif fd in out_map:
+                    proc, acct = out_map[fd]
+                    assert proc.stdout is not None
+                    line = proc.stdout.readline()
+                    if not line:
+                        del out_map[fd]
+                        continue
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('Opening far side box '):
+                        box = line[21:].rstrip('...')
+                        self.progress.emit(f'  {acct}: {box}')
+                    elif line.startswith('Channels:'):
+                        summaries.append(f'{acct}: {line}')
 
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('Opening far side box '):
-                    box = line[21:].rstrip('...')
-                    self.progress.emit(f'  {acct}: {box}')
-                elif line.startswith('Channels:'):
-                    summaries.append(f'{acct}: {line}')
+        combined_stderr: list[str] = []
+        for p in self._procs:
+            p.wait()
+            if p.returncode != 0 and self.sync_rc == 0:
+                self.sync_rc = p.returncode
+
+        for acct in accounts:
+            lines = [l for l in err_buffers.get(acct, []) if l]
+            if lines:
+                combined_stderr.append(f'{acct}: {" ".join(lines)}')
 
         self.sync_stderr = '\n'.join(combined_stderr)
         self.sync_summaries = summaries
 
     def _run_single(self, cmd: str) -> None:
         """Run a single shell sync command (fallback for custom configs)."""
+        import select
+
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE,
                              shell=True, start_new_session=True,
                              universal_newlines=True)
         self._procs = [p]
-        assert p.stdout
-        for line in p.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith('Channel '):
-                self.progress.emit(f'Syncing: {line[8:]}...')
-            elif line.startswith('Opening far side box '):
-                box = line[21:].rstrip('...')
-                self.progress.emit(f'  {box}')
-            elif line.startswith('Channels:'):
-                self.sync_summaries.append(line)
+        assert p.stdout is not None
+        assert p.stderr is not None
+
+        out_fd = p.stdout.fileno()
+        err_fd = p.stderr.fileno()
+        active_fds = {out_fd, err_fd}
+        err_lines: list[str] = []
+
+        while active_fds:
+            if self._stopping:
+                break
+            try:
+                readable, _, _ = select.select(list(active_fds), [], [], 0.5)
+            except (ValueError, OSError):
+                break
+            for fd in readable:
+                if fd == err_fd:
+                    line = p.stderr.readline()
+                    if line:
+                        err_lines.append(line.strip())
+                    else:
+                        active_fds.discard(err_fd)
+                elif fd == out_fd:
+                    line = p.stdout.readline()
+                    if not line:
+                        active_fds.discard(out_fd)
+                        continue
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('Channel '):
+                        self.progress.emit(f'Syncing: {line[8:]}...')
+                    elif line.startswith('Opening far side box '):
+                        box = line[21:].rstrip('...')
+                        self.progress.emit(f'  {box}')
+                    elif line.startswith('Channels:'):
+                        self.sync_summaries.append(line)
+
         p.wait()
         self.sync_rc = p.returncode
-        if p.stderr:
-            self.sync_stderr = p.stderr.read().strip()
+        if err_lines:
+            self.sync_stderr = '\n'.join(l for l in err_lines if l)
 
     def _kill_procs(self) -> None:
         """Kill all running subprocesses and their process groups."""

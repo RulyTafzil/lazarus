@@ -34,7 +34,7 @@ from typing import Callable, Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import (
-    QColor, QFont, QImage, QKeyEvent, QTextBlockFormat, QTextCharFormat,
+    QFont, QImage, QKeyEvent, QTextBlockFormat, QTextCharFormat,
     QTextImageFormat, QTextListFormat, QDragEnterEvent, QDropEvent,
 )
 from PyQt6.QtWidgets import (

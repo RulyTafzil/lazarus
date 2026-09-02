@@ -817,22 +817,9 @@ def _apply_overrides(registry: dict[str, dict],
         _merge_override(name, keys, registry, raw_entries)
 
 
-def build_registry() -> dict[str, dict]:
-    """Assemble the full set of selectable themes:
-
-    1. Hand-written Python themes (this module) -- always win on a name
-       collision, since they're specifically tuned rather than heuristically
-       mapped.
-    2. The bundled JSON pack (`theme_packs/builtin.json`).
-    3. User packs (`~/.config/lazarus/themes/*.json`) -- override same-named
-       bundled entries, so a user can drop in a corrected copy of a theme.
-    4. `settings.theme_overrides`, applied last, per-key, on top of whatever
-       won above.
-
-    Problems (malformed files/entries) are logged as warnings; they never
-    prevent startup -- worst case, some themes are simply unavailable.
-    """
-    registry: dict[str, dict] = {
+def _hand_written_themes() -> dict[str, dict]:
+    """Return the base dictionary of hand-tuned Python themes."""
+    return {
         'nord': nord,
         'solarized_dark': solarized_dark,
         'solarized_light': solarized_light,
@@ -844,7 +831,65 @@ def build_registry() -> dict[str, dict]:
         'gruvbox_dark_hard': gruvbox_dark_hard,
         'gruvbox_dark_soft': gruvbox_dark_soft,
     }
-    builtin_names = set(registry)
+
+
+class _LazyRegistry(dict):
+    """Dictionary holding Lazarus themes that lazily loads external theme packs on demand."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._pack_loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if not self._pack_loaded:
+            self._pack_loaded = True
+            _populate_pack_into(self)
+
+    def __getitem__(self, key: str) -> dict:
+        if not super().__contains__(key) and not self._pack_loaded:
+            self._ensure_loaded()
+        return super().__getitem__(key)
+
+    def __contains__(self, key: object) -> bool:
+        if super().__contains__(key):
+            return True
+        if not self._pack_loaded:
+            self._ensure_loaded()
+            return super().__contains__(key)
+        return False
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if not super().__contains__(key) and not self._pack_loaded:
+            self._ensure_loaded()
+        return super().get(key, default)
+
+    def keys(self) -> Any:
+        self._ensure_loaded()
+        return super().keys()
+
+    def values(self) -> Any:
+        self._ensure_loaded()
+        return super().values()
+
+    def items(self) -> Any:
+        self._ensure_loaded()
+        return super().items()
+
+    def __iter__(self) -> Any:
+        self._ensure_loaded()
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        self._ensure_loaded()
+        return super().__len__()
+
+    def copy(self) -> dict:
+        self._ensure_loaded()
+        return super().copy()
+
+
+def _populate_pack_into(target: dict[str, dict]) -> None:
+    builtin_names = set(_hand_written_themes())
     raw_entries: dict[str, dict] = {}
     heuristic = getattr(_settings, 'default_heuristic', None) or {}
 
@@ -856,7 +901,7 @@ def build_registry() -> dict[str, dict]:
         for name, theme in mapped.items():
             if name in builtin_names:
                 continue  # hand-tuned Python theme wins
-            registry[name] = theme
+            target[name] = theme
             raw_entries[name] = pack_raw[name]
     else:
         logger.warning("bundled theme pack not found at %s", builtin_pack)
@@ -870,11 +915,22 @@ def build_registry() -> dict[str, dict]:
             for name, theme in mapped.items():
                 if name in builtin_names:
                     continue  # hand-tuned Python theme still wins
-                registry[name] = theme
+                target[name] = theme
                 raw_entries[name] = pack_raw[name]
 
-    _apply_overrides(registry, raw_entries)
-    return registry
+    _apply_overrides(target, raw_entries)
+
+
+def create_lazy_registry() -> dict[str, dict]:
+    """Create a new lazy registry containing hand-written themes."""
+    return _LazyRegistry(_hand_written_themes())
+
+
+def build_registry() -> dict[str, dict]:
+    """Build and return the complete theme registry with all packs eagerly loaded."""
+    reg = _LazyRegistry(_hand_written_themes())
+    reg._ensure_loaded()
+    return reg
 
 
 # ---------------------------------------------------------------------------
@@ -1018,11 +1074,10 @@ def load_colormap() -> None:
     _settings.theme_overrides = merged
 
 
-REGISTRY: dict[str, dict] = {}
+REGISTRY: dict[str, dict] = create_lazy_registry()
 """Every selectable theme, by name: hand-written + bundled pack + user
-packs + overrides. Populated by `build_registry()` -- call that once
-config.py has run (so `settings.theme_overrides` is available), and again
-if the user's theme directory changes."""
+packs + overrides. Populated on demand -- call build_registry() to force
+eager loading of all packs."""
 
 
 def apply_theme(theme: dict) -> None:
@@ -1105,6 +1160,10 @@ def _find_name_for(theme: dict, registry: dict[str, dict]) -> str | None:
     """Best-effort reverse lookup: find a REGISTRY name whose dict *is*
     (identity, not equality -- cheap and avoids false positives between
     accidentally-identical themes) the given theme dict."""
+    if isinstance(registry, _LazyRegistry):
+        for name in list(super(_LazyRegistry, registry).keys()):
+            if registry[name] is theme:
+                return name
     for name, t in registry.items():
         if t is theme:
             return name

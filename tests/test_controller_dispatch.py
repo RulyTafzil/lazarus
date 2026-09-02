@@ -16,13 +16,7 @@ from tests.conftest import make_thread
 @pytest.fixture
 def mw(qapp, fake_app, notmuch_stub):
     win = mainwindow.MainWindow(fake_app)
-    win.resize(1000, 700)
-    win.show()
     yield win
-    # Close before the next test — a shown top-level window garbage-
-    # collected mid-paint in a later test segfaults the shared app.
-    win.close()
-    qapp.processEvents()
 
 
 @pytest.fixture
@@ -37,7 +31,7 @@ def test_refresh_tab_titles_batches_one_count(ctl, mw, notmuch_stub, qapp):
         make_thread('t2', 'Subject 2'),
     ]
     for q in ('tag:inbox', 'tag:flagged'):
-        ctl.add_panel(SearchPanel(ctl, q, parent=mw))
+        ctl.open_search(q)
 
     dirty = [mw.tabs.widget(i) for i in range(mw.tabs.count())
              if isinstance(mw.tabs.widget(i), SearchPanel)]
@@ -59,8 +53,7 @@ def test_refresh_tab_titles_batches_one_count(ctl, mw, notmuch_stub, qapp):
 
 def test_refresh_tab_titles_no_batch_when_none_dirty(ctl, mw, notmuch_stub, qapp):
     """With every search tab already clean, the refresh is a cheap no-op."""
-    for q in ('tag:inbox',):
-        ctl.add_panel(SearchPanel(ctl, q, parent=mw))
+    ctl.open_search('tag:inbox')
     # Force the panel deterministically clean (construction may have left
     # it dirty pending an async has_refreshed). No subprocess allowed.
     mw.tabs.widget(0)._dirty_title = False
