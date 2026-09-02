@@ -83,6 +83,8 @@ class Dodo(QApplication):
 
         # Reconfigure logging now that user settings are available.
         self._setup_logging()
+        for w in _warnings:
+            logger.warning(w)
 
         # Apply dark-mode Chromium flag if configured (must be set
         # before any QWebEngineView loads content)

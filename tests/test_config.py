@@ -81,6 +81,16 @@ def test_bad_theme_type():
     assert any('theme must be a dict' in e for e in _validate_settings())
 
 
+def test_theme_in_config_warns_deprecation(monkeypatch, tmp_path):
+    from lazarus.config import load_config
+    cfg = tmp_path / "config.py"
+    cfg.write_text("import lazarus\nlazarus.settings.theme = lazarus.themes.solarized_dark\n")
+    monkeypatch.setattr('lazarus.config._config_path', lambda: (str(cfg), []))
+    _reset()
+    path, warnings = load_config()
+    assert any('deprecated' in w for w in warnings)
+
+
 # -- themes ----------------------------------------------------------------
 
 ALL_THEMES = [

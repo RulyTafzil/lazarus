@@ -40,6 +40,7 @@ import traceback
 from PyQt6.QtCore import QStandardPaths
 
 from . import settings
+from . import themes
 
 
 class ConfigError(RuntimeError):
@@ -176,4 +177,11 @@ def load_config() -> tuple[str, list[str]]:
             f"Config errors in {path}:\n{detail}\nFix them and restart Lazarus."
         )
 
-    return path, []
+    warnings: list[str] = []
+    if settings.theme is not themes.nord:
+        warnings.append(
+            "settings.theme in config.py is deprecated. Theme selection is now "
+            "managed in-app (:theme <name>) and saved in lazarus.conf."
+        )
+
+    return path, warnings
