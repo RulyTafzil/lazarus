@@ -651,11 +651,21 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             query=self.q, num_threads=self.model.num_threads
         )
 
-    def next_thread(self, unread: bool=False) -> None:
-        """Select the next thread in the search
+    def next_thread(self, unread: bool=False, count: int=1) -> None:
+        """Select the next thread in the search (or advance by count).
 
         :param unread: if True, this will jump to the next unread thread
+        :param count: number of rows to advance (when unread is False)
         """
+        if not unread:
+            total = self.model.rowCount()
+            if total > 0:
+                current_row = self.tree.currentIndex().row()
+                target_row = min(current_row + count, total - 1) if current_row >= 0 else 0
+                ix = self.model.index(target_row, 0)
+                if self.model.checkIndex(ix):
+                    self.tree.setCurrentIndex(ix)
+            return
 
         row = self.tree.currentIndex().row()
         while True:
@@ -668,11 +678,21 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
                 self.tree.setCurrentIndex(i)
                 break
 
-    def previous_thread(self, unread: bool=False) -> None:
-        """Select the previous thread in the search
+    def previous_thread(self, unread: bool=False, count: int=1) -> None:
+        """Select the previous thread in the search (or move back by count).
 
         :param unread: if True, this will jump to the previous unread thread
+        :param count: number of rows to move back (when unread is False)
         """
+        if not unread:
+            total = self.model.rowCount()
+            if total > 0:
+                current_row = self.tree.currentIndex().row()
+                target_row = max(current_row - count, 0) if current_row >= 0 else 0
+                ix = self.model.index(target_row, 0)
+                if self.model.checkIndex(ix):
+                    self.tree.setCurrentIndex(ix)
+            return
 
         row = self.tree.currentIndex().row()
         while True:

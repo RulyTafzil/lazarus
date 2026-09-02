@@ -140,6 +140,20 @@ def test_navigate_list_on_search_panel(ctl, mw, qapp, notmuch_stub):
     assert sp.tree.currentIndex().row() == 0
 
 
+def test_navigate_list_with_count(ctl, mw, qapp, notmuch_stub):
+    notmuch_stub.threads = [make_thread(f't{i}', f'Subj {i}') for i in range(30)]
+    ctl.open_search('tag:inbox')
+    sp = mw.tabs.currentWidget()
+    sp.next_thread(count=20)
+    assert sp.tree.currentIndex().row() == 20
+    sp.next_thread(count=20)
+    assert sp.tree.currentIndex().row() == 29  # clamped to total - 1
+    sp.previous_thread(count=20)
+    assert sp.tree.currentIndex().row() == 9
+    sp.previous_thread(count=20)
+    assert sp.tree.currentIndex().row() == 0  # clamped to 0
+
+
 def test_delegate_to_list_unknown_method_warns(ctl, mw, qapp, notmuch_stub, caplog):
     notmuch_stub.threads = [make_thread('t1', 'A')]
     ctl.open_search('tag:inbox')

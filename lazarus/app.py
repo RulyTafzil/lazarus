@@ -103,7 +103,7 @@ class Dodo(QApplication):
         # packs + settings.theme_overrides) now that config.py has run,
         # then prefer a remembered live-switched theme over config.py's
         # default, if one exists and still resolves.
-        themes.REGISTRY = themes.build_registry()
+        themes.REGISTRY = themes.create_lazy_registry()
         resolved_theme = themes.resolve_initial_theme()
 
         # apply theme

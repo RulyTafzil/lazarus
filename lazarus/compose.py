@@ -30,7 +30,6 @@ import tempfile
 import typing
 import os
 
-from . import app
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .controller import AppController
@@ -378,7 +377,12 @@ class ComposePanel(panel.Panel):
         self.status_label.setStyleSheet(
             f'color: {settings.theme["fg"]}; font-style: italic;')
 
-        super().refresh()
+    def before_close(self) -> bool:
+        if not super().before_close():
+            return False
+        if hasattr(self, 'editor') and self.editor is not None:
+            self.editor.cleanup()
+        return True
 
     def _allow_global_key(self, cmd: str) -> bool:
         """Compose is a *closed key surface*: only the allowlisted
@@ -702,6 +706,8 @@ class ComposePanel(panel.Panel):
                 # The panel was closed while the send was in flight —
                 # close_panel skipped deleteLater() to avoid killing the
                 # running thread.  It has finished now, so delete here.
+                if hasattr(self, 'editor') and self.editor is not None:
+                    self.editor.cleanup()
                 self.deleteLater()
                 return
             if success:

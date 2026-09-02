@@ -17,9 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 from __future__ import annotations
-from typing import Optional, List, Set
+from typing import Optional, List, Set, Any
 from PyQt6.QtCore import QSettings, pyqtSignal, QTimer, QRect
-from PyQt6.QtGui import QColor, QFocusEvent, QKeyEvent, QPalette, QResizeEvent, QShowEvent
+from PyQt6.QtGui import QCloseEvent, QColor, QFocusEvent, QKeyEvent, QPalette, QResizeEvent, QShowEvent
 from PyQt6.QtWidgets import (
     QAbstractSlider, QMessageBox, QTreeView, QVBoxLayout, QWidget,
 )
@@ -198,6 +198,22 @@ class Panel(QWidget):
         self._auto_open_timer.setSingleShot(True)
         self._auto_open_timer.setInterval(150)
         self._auto_open_timer.timeout.connect(self._on_auto_open)
+        self.destroyed.connect(self._cleanup_timers)
+
+    def _cleanup_timers(self) -> None:
+        self.is_open = False
+        if hasattr(self, '_auto_open_timer'):
+            self._auto_open_timer.stop()
+            try:
+                self._auto_open_timer.timeout.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        if hasattr(self, '_prefix_timer'):
+            self._prefix_timer.stop()
+            try:
+                self._prefix_timer.timeout.disconnect()
+            except (TypeError, RuntimeError):
+                pass
 
     def _setup_auto_open(self, tree: QTreeView) -> None:
         """Wire *tree* selection changes to auto-open the thread preview.
@@ -206,8 +222,14 @@ class Panel(QWidget):
         """
         sm = tree.selectionModel()
         if sm is not None:
-            sm.currentChanged.connect(
-                lambda _cur, _prev: self._auto_open_timer.start())
+            sm.currentChanged.connect(self._on_selection_changed)
+
+    def _on_selection_changed(self, _cur: Any, _prev: Any) -> None:
+        if not self.is_open:
+            return
+        mw = getattr(self.app, 'main_window', None)
+        if mw is not None and hasattr(mw, 'has_thread_preview') and mw.has_thread_preview():
+            self._auto_open_timer.start()
 
     def _on_auto_open(self) -> None:
         """Called by the debounce timer to open the selected thread.
@@ -216,7 +238,10 @@ class Panel(QWidget):
         has closed it with ``C-<enter>``, ``j``/``k`` navigation stays
         list-only.
         """
-        if not self.app.main_window.has_thread_preview():
+        if not self.is_open:
+            return
+        mw = getattr(self.app, 'main_window', None)
+        if mw is None or not hasattr(mw, 'has_thread_preview') or not mw.has_thread_preview():
             return
         if hasattr(self, 'open_current_thread'):
             self.open_current_thread()
@@ -312,6 +337,8 @@ class Panel(QWidget):
         """
 
         self.save_tree_geometry()
+        self._prefix_timer.stop()
+        self._auto_open_timer.stop()
 
         logger.info('before_close: starting')
         if settings.remove_temp_dirs == 'always':
@@ -329,6 +356,12 @@ class Panel(QWidget):
         self.is_open = False
         logger.info('before_close: end')
         return True
+
+    def closeEvent(self, event: QCloseEvent | None) -> None:
+        self.is_open = False
+        self._prefix_timer.stop()
+        self._auto_open_timer.stop()
+        super().closeEvent(event)
 
     def _allow_global_key(self, cmd: str) -> bool:
         """Whether a *global* keymap binding may fire from this panel.
