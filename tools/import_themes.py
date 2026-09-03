@@ -44,25 +44,25 @@ ANSI_COLOR_NAMES = {
     '15': 'bright white',
 }
 
-# Default heuristic mapping terminal-theme entries onto Lazarus color keys
-DEFAULT_TERMINAL_MAP: dict[str, list[Any]] = {
-    'bg':                    ['background'],
-    'fg':                    ['foreground'],
-    'fg_dim':                [8, 'fg'],
-    'fg_bright':             [15, 7, 'fg'],
-    'fg_good':               [10, 2, 'fg'],
-    'fg_bad':                [9, 1, 'fg'],
-    'fg_link':               [12, 4, 14, 6, 'fg'],
-    'fg_button':             ['foreground'],
-    'bg_highlight':          ['selection-background', 4, 'fg'],
-    'fg_highlight':          ['selection-foreground', 'bg'],
-    'fg_date':               ['fg_dim'],
-    'fg_from':               ['foreground'],
-    'fg_subject':            ['foreground'],
-    'fg_subject_unread':     [14, 6, 12, 4, 'fg'],
-    'fg_subject_irrelevant': ['fg_dim'],
-    'fg_subject_flagged':    [11, 3, 'fg'],
-    'fg_tags':               [12, 4, 14, 6, 'fg'],
+# Default 1-to-1 mapping of terminal-theme entries onto Lazarus semantic keys
+DEFAULT_TERMINAL_MAP: dict[str, Any] = {
+    'bg':                    'background',
+    'fg':                    'foreground',
+    'fg_dim':                8,
+    'fg_bright':             15,
+    'fg_good':               10,
+    'fg_bad':                9,
+    'fg_link':               12,
+    'fg_button':             'foreground',
+    'bg_highlight':          'selection-background',
+    'fg_highlight':          'selection-foreground',
+    'fg_date':               'fg_dim',
+    'fg_from':               'foreground',
+    'fg_subject':            'foreground',
+    'fg_subject_unread':     14,
+    'fg_subject_irrelevant': 'fg_dim',
+    'fg_subject_flagged':    11,
+    'fg_tags':               12,
 }
 
 
@@ -96,7 +96,7 @@ def color_swatch(hex_code: str | None) -> str:
         return '    '
 
 
-def load_mapping_file(map_path: Path) -> dict[str, list[Any]]:
+def load_mapping_file(map_path: Path) -> dict[str, Any]:
     """Load and validate a JSON colormapping file."""
     if not map_path.exists():
         sys.exit(f"Error: Mapping file not found at {map_path}")
@@ -105,10 +105,7 @@ def load_mapping_file(map_path: Path) -> dict[str, list[Any]]:
     for k, v in data.items():
         if k.startswith('_'):
             continue  # comment / help field
-        if isinstance(v, list):
-            mapping[k] = v
-        elif isinstance(v, (str, int)):
-            mapping[k] = [v]
+        mapping[k] = v
     return mapping
 
 
@@ -129,7 +126,7 @@ def resolve_candidate(cand: Any, entry: dict, theme: dict[str, str]) -> str | No
     return None
 
 
-def terminal_theme_to_lazarus(entry: dict, mapping: dict[str, list[Any]] | None = None) -> dict[str, str]:
+def terminal_theme_to_lazarus(entry: dict, mapping: dict[str, Any] | None = None) -> dict[str, str]:
     """Map a raw terminal theme dict to Lazarus's 19 semantic color keys."""
     active_map = mapping if mapping is not None else DEFAULT_TERMINAL_MAP
     fg_default = entry.get('foreground', '#ffffff')
@@ -144,7 +141,8 @@ def terminal_theme_to_lazarus(entry: dict, mapping: dict[str, list[Any]] | None 
     for key in eval_order:
         if key in ('bg_alt', 'bg_button') and key not in active_map:
             continue
-        chain = active_map.get(key, [])
+        rule = active_map.get(key)
+        chain = rule if isinstance(rule, list) else ([rule] if rule is not None else [])
         resolved = None
         for cand in chain:
             res = resolve_candidate(cand, entry, theme)
@@ -217,7 +215,8 @@ def inspect_theme(name: str, entry: dict, mapping: dict[str, list[Any]] | None =
 
         # Describe source origin
         origin = ""
-        chain = active_map.get(lz_key, [])
+        rule = active_map.get(lz_key)
+        chain = rule if isinstance(rule, list) else ([rule] if rule is not None else [])
         for cand in chain:
             res = resolve_candidate(cand, entry, mapped)
             if res == hex_val:
@@ -227,7 +226,7 @@ def inspect_theme(name: str, entry: dict, mapping: dict[str, list[Any]] | None =
                     origin = f"from {cand}"
                 elif cand in THEME_KEYS:
                     origin = f"from {cand}"
-                elif cand.startswith('#'):
+                elif isinstance(cand, str) and cand.startswith('#'):
                     origin = f"exact hex {cand}"
                 break
         if not origin and lz_key in ('bg_alt', 'bg_button'):
@@ -238,7 +237,7 @@ def inspect_theme(name: str, entry: dict, mapping: dict[str, list[Any]] | None =
     print(f"\n\033[1m{'=' * 78}\033[0m\n")
 
 
-def compile_pack(raw_path: Path, output_path: Path, mapping: dict[str, list[Any]] | None = None) -> None:
+def compile_pack(raw_path: Path, output_path: Path, mapping: dict[str, Any] | None = None) -> None:
     """Compile all raw terminal entries into native Lazarus format using the active mapping."""
     entries = load_raw_entries(raw_path)
     compiled_list: list[dict] = []
