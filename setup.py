@@ -26,9 +26,17 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    packages=["lazarus"],
-    package_data={'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json']},
+    packages=["lazarus", "lazarus.server"],
+    package_data={
+        'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json'],
+        'lazarus.server': ['static/*'],
+    },
     install_requires=["PyQt6>=6.2", "PyQt6-WebEngine>=6.2", "bleach>=5.0"],
     python_requires=">=3.10",
-    entry_points={'console_scripts': 'lazarus=lazarus.app:main'},
+    entry_points={
+        'console_scripts': [
+            'lazarus=lazarus.app:main',
+            'lazarus-web=lazarus.server.main:main',
+        ]
+    },
 )

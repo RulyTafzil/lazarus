@@ -8,8 +8,8 @@
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
-- **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons)
-- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` → `app.main()`)
+- **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons); `lazarus-web` (mobile web server + REST API)
+- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` → `app.main()`); `lazarus.server.main:main` (`lazarus-web`)
 - **Config**: `~/.config/lazarus/config.py` (loaded via `lazarus.config.load_config()` — exec + typed validation; see `lazarus/config.py`)
 - **State**: `QSettings('lazarus','lazarus')` — geometry, splitter, open searches
 - **Install**: `pipx install -e ~/Projects/lazarus` (editable)
@@ -82,6 +82,11 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── protocols.py        # PanelApp/ThreadList/ThreadView protocols + method sets
 │   ├── helpwindow.py       # HelpWindow — keybinding HTML
 │   ├── icons/hicolor/*/apps/lazarus.png  # 16-1024px bundled PNGs (package_data)
+│   ├── server/             # Mobile web server & REST API (pure Python stdlib + zero-dep static PWA)
+│   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
+│   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
+│   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
+│   │   └── static/         # Mobile-first web app (index.html, app.css, app.js)
 │   └── theme_packs/
 │       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
 │       └── raw_terminal_themes.json  # Raw terminal palette sources
@@ -220,6 +225,9 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 | `helpwindow.py` | 133 | `HelpWindow` — keybinding HTML |
 | `html_utils.py` | 116 | `linkify`, `colorize_text`, `w3m_html2text`, `html_to_plain` (sig search keys) |
 | `signature.py` | 90 | `config_dir(account)` + per-account `signature`/`signature.html` loader (QStandardPaths) |
+| `server/app.py` | 338 | Threaded HTTP server, route dispatch, authentication, static asset streaming |
+| `server/service.py` | 370 | Pure Python domain logic — search, thread flattening, tag modifications, msmtp delivery |
+| `server/main.py` | 88 | `lazarus-web` CLI launcher with Tailscale detection |
 | `__init__.py` / `__main__.py` | 23/22 | Re-exports; entry point |
 
 ## Icons & Desktop Integration
