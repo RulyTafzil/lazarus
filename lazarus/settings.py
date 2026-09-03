@@ -587,3 +587,13 @@ using the built-in Gruvbox palette:
       }
   }
 """
+
+web_host: str = '127.0.0.1'
+"""Host to bind the Lazarus mobile web server."""
+
+web_port: int = 8080
+"""Port to bind the Lazarus mobile web server."""
+
+web_token: str = ''
+"""Bearer token required for the mobile web API. Empty string means no auth (recommended only if bound strictly to Tailscale/localhost)."""
+

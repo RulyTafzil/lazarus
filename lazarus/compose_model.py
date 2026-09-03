@@ -199,13 +199,29 @@ def build_mailto_seed(msg: dict) -> ComposeSeed:
 
 def build_reply_seed(msg: dict, *, to_all: bool) -> ComposeSeed:
     seed = ComposeSeed()
-    senders = util.get_header_addresses(msg.get('headers', {}), ['From', 'Reply-To'])
+    senders = util.get_header_addresses(msg.get('headers', {}), ['Reply-To', 'From'])
     recipients = util.get_header_addresses(msg.get('headers', {}), ['To', 'Cc'])
-    send_to = [(n, e) for n, e in senders + recipients if not util.email_is_me(e)]
-    if send_to:
-        seed.to_text = email.utils.formataddr(send_to.pop(0))
-        if to_all and send_to:
-            seed.cc_text = ', '.join(email.utils.formataddr(p) for p in send_to)
+
+    if not to_all:
+        external_senders = [(n, e) for n, e in senders if not util.email_is_me(e)]
+        if external_senders:
+            seed.to_text = email.utils.formataddr(external_senders[0])
+        else:
+            external_recipients = [(n, e) for n, e in recipients if not util.email_is_me(e)]
+            if external_recipients:
+                seed.to_text = email.utils.formataddr(external_recipients[0])
+            elif senders:
+                seed.to_text = email.utils.formataddr(senders[0])
+            elif recipients:
+                seed.to_text = email.utils.formataddr(recipients[0])
+    else:
+        send_to = [(n, e) for n, e in senders + recipients if not util.email_is_me(e)]
+        if send_to:
+            seed.to_text = email.utils.formataddr(send_to.pop(0))
+            if send_to:
+                seed.cc_text = ', '.join(email.utils.formataddr(p) for p in send_to)
+        elif senders:
+            seed.to_text = email.utils.formataddr(senders[0])
 
     if 'Subject' in msg.get('headers', {}):
         seed.subject = subject_with_prefix(msg['headers']['Subject'], 'RE')

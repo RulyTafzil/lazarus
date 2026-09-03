@@ -49,12 +49,25 @@ class ConfigError(RuntimeError):
 
 def _config_path() -> tuple[str | None, list[str]]:
     """Return (path or None, searched_locations)."""
-    path = QStandardPaths.locate(
-        QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py'
-    )
-    locs = [os.path.join(d, 'lazarus') for d in
-            QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)]
-    return (path or None, locs)
+    locs: list[str] = []
+    try:
+        path = QStandardPaths.locate(
+            QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py'
+        )
+        locs = [os.path.join(d, 'lazarus') for d in
+                QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)]
+        if path:
+            return (path, locs)
+    except Exception:
+        pass
+
+    xdg_config = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+    candidate = os.path.join(xdg_config, 'lazarus', 'config.py')
+    if os.path.dirname(candidate) not in locs:
+        locs.append(os.path.dirname(candidate))
+    if os.path.exists(candidate):
+        return (candidate, locs)
+    return (None, locs)
 
 
 def _validate_settings() -> list[str]:

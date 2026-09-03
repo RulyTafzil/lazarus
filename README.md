@@ -332,6 +332,61 @@ lazarus.settings.sent_dir = {
 }
 ```
 
+## Mobile web interface (lazarus-web)
+
+Lazarus includes a headless server daemon and mobile-first web interface designed for reading, tagging, and replying to email on a phone or tablet.
+
+### Features
+
+- **Mobile-first UI:** Nord dark theme matching desktop Lazarus, 44px+ touch targets, bottom sheets for replies and tag management, and clean iframe isolation for HTML emails.
+- **Pull down to sync:** Dragging down on the thread list triggers parallel `mbsync` execution across all accounts, runs `notmuch new`, and applies mail filter rules.
+- **One-tap triage:** Dedicated buttons on thread cards for `A` archive (moves mail files to `~/Mail/Archive/cur/`, strips `-inbox -unread`, and updates notmuch) and trash, complete with an undo toast.
+- **Fast tagging:** Dedicated tag sheet for toggling existing tags or creating custom notmuch tags on the fly.
+- **Compose and reply:** Outbound compose and replies with recipient autocomplete from your notmuch address history, multi-file attachment uploads, and account switching.
+- **Signatures:** Per-account plaintext signatures are automatically pre-populated above quoted text. Switching the sending account in the dropdown swaps signatures dynamically without altering your typed text.
+
+### Running the server
+
+Start the web daemon directly from the CLI:
+
+```bash
+lazarus-web --port 8080
+```
+
+By default, the server binds to `127.0.0.1:8080`. You can configure host, port, and bearer token authentication in `~/.config/lazarus/config.py`:
+
+```python
+lazarus.settings.web_host = '127.0.0.1'
+lazarus.settings.web_port = 8080
+lazarus.settings.web_token = 'secret-token'  # optional bearer token
+```
+
+### Secure mobile access via Tailscale
+
+Tailscale provides an encrypted WireGuard mesh network between your host machine and your mobile device, allowing secure access to `lazarus-web` without opening public router ports or exposing mail services to the internet.
+
+1. **Install Tailscale on host:** Install Tailscale on your host computer running Lazarus and authenticate:
+   ```bash
+   tailscale up
+   ```
+2. **Install Tailscale on mobile:** Install the Tailscale app on your phone (iOS App Store or Google Play) and sign into the same account.
+3. **Find your Tailscale IP:** Check your host machine's Tailscale IP address:
+   ```bash
+   tailscale ip -4
+   # Example: 100.82.14.95
+   ```
+   `lazarus-web` detects and displays this IP on startup when present.
+4. **Bind the server:** Launch `lazarus-web` bound to your Tailscale IP (or `0.0.0.0` with a token):
+   ```bash
+   lazarus-web --host 100.82.14.95 --port 8080
+   ```
+5. **Open on your phone:** Open your mobile browser and navigate to `http://100.82.14.95:8080` (or your machine's MagicDNS name, like `http://my-desktop:8080`).
+6. **Install as a web app (PWA):**
+   - **iOS Safari:** Tap the Share button, then tap **Add to Home Screen**.
+   - **Android Chrome:** Tap the menu button (three dots), then tap **Add to Home screen** or **Install app**.
+   This launches Lazarus in full screen without browser toolbars, providing a dedicated email experience.
+
+
 ## Relationship to Dodo
 
 Lazarus started as a personal fork of [Dodo](https://github.com/akissinger/dodo)
