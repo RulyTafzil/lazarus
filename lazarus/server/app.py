@@ -385,7 +385,7 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.OK)
             self.send_header('Content-Type', f"{mime_type}; charset=utf-8" if 'text' in mime_type or 'javascript' in mime_type else mime_type)
             self.send_header('Content-Length', str(len(content)))
-            self.send_header('Cache-Control', 'public, max-age=3600')
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
             self.end_headers()
             self.wfile.write(content)
         except OSError as e:
