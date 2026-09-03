@@ -797,6 +797,9 @@
       el.composeSubject.value = seed.subject || '';
       el.composeBody.value = seed.body || '';
       el.composeInReplyTo.value = seed.in_reply_to || '';
+      if (seed.account && el.composeAccountSelect) {
+        el.composeAccountSelect.value = seed.account;
+      }
       el.composeReferences.value = seed.references || '';
       el.composeBody.focus();
       el.composeBody.setSelectionRange(0, 0);

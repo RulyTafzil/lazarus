@@ -491,11 +491,16 @@ def get_reply_seed(message_id: str, to_all: bool = False) -> dict[str, Any]:
         except OSError:
             pass
 
+    account_idx = compose_model.account_for_message(msg)
+    acct_name = compose_model.account_name(account_idx)
+
     return {
+        'account': acct_name,
         'to': seed.to_text,
         'cc': seed.cc_text,
         'subject': seed.subject,
         'body': seed.body,
+        'quote_anchor': seed.quoted_tail or '',
         'in_reply_to': in_reply_to,
         'references': ' '.join(refs),
     }

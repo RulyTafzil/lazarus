@@ -51,12 +51,14 @@ logger = logging.getLogger(__name__)
 
 
 def config_dir(account: str) -> str:
-    """Return $XDG_CONFIG_HOME/lazarus/ACCOUNT for the given account name.
-
-    Uses the same Qt ``ConfigLocation`` lookup as ``lazarus.app`` uses to
-    find ``config.py``, so this stays consistent across platforms.
-    """
-    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+    """Return $XDG_CONFIG_HOME/lazarus/ACCOUNT for the given account name."""
+    try:
+        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+        if base:
+            return os.path.join(base, 'lazarus', account)
+    except Exception:
+        pass
+    base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
     return os.path.join(base, 'lazarus', account)
 
 
