@@ -197,6 +197,11 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({'accounts': accounts})
             return
 
+        # /api/signatures
+        if path == '/api/signatures':
+            self.send_json(service.get_signatures())
+            return
+
         self.send_error_json("Not found", status=HTTPStatus.NOT_FOUND)
 
     # -----------------------------------------------------------------------

@@ -296,3 +296,22 @@ def test_http_sync_endpoint(running_test_server, monkeypatch):
         assert data['ok'] is True
         assert 'Sync completed' in data['message']
 
+
+def test_signatures(running_test_server, monkeypatch):
+    from lazarus import signature
+    settings.smtp_accounts = ['personal', 'work']
+    monkeypatch.setattr(signature, 'load', lambda acct: (f"Sig for {acct}\n", None))
+
+    data = service.get_signatures()
+    assert data['use_signature'] is True
+    assert data['signatures']['personal'] == 'Sig for personal\n'
+    assert data['signatures']['work'] == 'Sig for work\n'
+
+    # HTTP endpoint test
+    with urllib.request.urlopen(f"{running_test_server}/api/signatures") as resp:
+        assert resp.status == 200
+        http_data = json.loads(resp.read().decode('utf-8'))
+        assert http_data['use_signature'] is True
+        assert http_data['signatures']['personal'] == 'Sig for personal\n'
+
+

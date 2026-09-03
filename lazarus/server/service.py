@@ -42,6 +42,7 @@ from .. import mail_utils
 from .. import mime_builder
 from .. import notmuch
 from .. import settings
+from .. import signature
 
 logger = logging.getLogger(__name__)
 
@@ -493,16 +494,40 @@ def get_reply_seed(message_id: str, to_all: bool = False) -> dict[str, Any]:
 
     account_idx = compose_model.account_for_message(msg)
     acct_name = compose_model.account_name(account_idx)
+    quote_anchor = compose_model.normalize_body(seed.quoted_tail) if seed.quoted_tail else ''
+
+    body = seed.body
+    if getattr(settings, 'use_signature', True) and acct_name:
+        sig_text, _ = signature.load(acct_name)
+        if sig_text:
+            sig_block = compose_model.sig_block_text(sig_text)
+            if quote_anchor:
+                body = '\n\n' + sig_block + '\n' + quote_anchor
+            else:
+                body = '\n\n' + sig_block
 
     return {
         'account': acct_name,
         'to': seed.to_text,
         'cc': seed.cc_text,
         'subject': seed.subject,
-        'body': seed.body,
-        'quote_anchor': seed.quoted_tail or '',
+        'body': body,
+        'quote_anchor': quote_anchor,
         'in_reply_to': in_reply_to,
         'references': ' '.join(refs),
+    }
+
+
+def get_signatures() -> dict[str, Any]:
+    """Return map of account name to plaintext signature and use_signature setting."""
+    use_sig = getattr(settings, 'use_signature', True)
+    sigs: dict[str, str] = {}
+    for acct in settings.smtp_accounts:
+        text, _ = signature.load(acct)
+        sigs[acct] = text or ''
+    return {
+        'use_signature': use_sig,
+        'signatures': sigs,
     }
 
 

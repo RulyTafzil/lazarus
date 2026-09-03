@@ -11,6 +11,10 @@
     limit: 50,
     allTags: [],
     accounts: [],
+    signatures: {},
+    useSignature: true,
+    activeComposeAccount: '',
+    composeQuoteAnchor: '',
     activeModalThreadId: null,
     activeModalTags: new Set(),
     composeAttachments: [],
@@ -225,6 +229,23 @@
     });
 
     el.btnComposeSend.addEventListener('click', handleSend);
+
+    el.composeAccountSelect.addEventListener('change', () => {
+      const newAccount = el.composeAccountSelect.value;
+      const oldAccount = state.activeComposeAccount || newAccount;
+      if (state.useSignature && newAccount !== oldAccount) {
+        const oldSig = state.signatures[oldAccount] || '';
+        const newSig = state.signatures[newAccount] || '';
+        const updated = applySigEdit(
+          el.composeBody.value,
+          oldSig,
+          newSig,
+          state.composeQuoteAnchor
+        );
+        el.composeBody.value = updated;
+      }
+      state.activeComposeAccount = newAccount;
+    });
 
     // Autocomplete on To input
     el.composeTo.addEventListener('input', (e) => {
@@ -773,13 +794,67 @@
     }
   }
 
+  // --- Signatures Helpers ---
+  function sigBlockText(signatureText) {
+    if (!signatureText) return '';
+    return '\n-- \n' + signatureText.replace(/\n+$/, '') + '\n';
+  }
+
+  function applySigEdit(body, oldSig, newSig, quoteAnchor) {
+    const oldBlock = sigBlockText(oldSig);
+    if (oldBlock && body.includes(oldBlock)) {
+      const start = body.indexOf(oldBlock);
+      let end = start + oldBlock.length;
+      if (!newSig) {
+        if (end < body.length && body[end] === '\n') {
+          end += 1;
+        }
+        return body.slice(0, start) + body.slice(end);
+      }
+      return body.slice(0, start) + sigBlockText(newSig) + body.slice(end);
+    }
+
+    if (!newSig) {
+      return body;
+    }
+
+    if (quoteAnchor && body.includes(quoteAnchor)) {
+      const idx = body.indexOf(quoteAnchor);
+      return body.slice(0, idx) + sigBlockText(newSig) + '\n' + body.slice(idx);
+    }
+
+    let pre = '';
+    if (body.length > 0 && !body.endsWith('\n')) {
+      pre = '\n';
+    }
+    return body + pre + sigBlockText(newSig);
+  }
+
   // --- Compose and Replies ---
   function openComposeNew() {
     resetComposeForm();
     el.composeSheetTitle.textContent = 'New message';
+
+    const acct = el.composeAccountSelect.value || (state.accounts[0] || '');
+    state.activeComposeAccount = acct;
+    if (el.composeAccountSelect.value !== acct) {
+      el.composeAccountSelect.value = acct;
+    }
+    state.composeQuoteAnchor = '';
+
+    if (state.useSignature && acct && state.signatures[acct]) {
+      const sig = state.signatures[acct];
+      el.composeBody.value = '\n\n' + sigBlockText(sig);
+    } else {
+      el.composeBody.value = '';
+    }
+
     el.composeBackdrop.classList.remove('hidden');
     el.composeSheet.classList.remove('hidden');
-    setTimeout(() => el.composeSheet.classList.add('open'), 10);
+    setTimeout(() => {
+      el.composeSheet.classList.add('open');
+      el.composeTo.focus();
+    }, 10);
   }
 
   async function openComposeReply(msgId, toAll) {
@@ -795,11 +870,16 @@
       el.composeCc.value = seed.cc || '';
       if (seed.cc) el.composeCcRow.classList.remove('hidden');
       el.composeSubject.value = seed.subject || '';
+
+      const targetAccount = seed.account || el.composeAccountSelect.value || (state.accounts[0] || '');
+      state.activeComposeAccount = targetAccount;
+      if (el.composeAccountSelect) {
+        el.composeAccountSelect.value = targetAccount;
+      }
+      state.composeQuoteAnchor = seed.quote_anchor || '';
+
       el.composeBody.value = seed.body || '';
       el.composeInReplyTo.value = seed.in_reply_to || '';
-      if (seed.account && el.composeAccountSelect) {
-        el.composeAccountSelect.value = seed.account;
-      }
       el.composeReferences.value = seed.references || '';
       el.composeBody.focus();
       el.composeBody.setSelectionRange(0, 0);
@@ -924,8 +1004,14 @@
 
   async function loadAccounts() {
     try {
-      const data = await api('/api/accounts');
-      state.accounts = data.accounts || [];
+      const [accData, sigData] = await Promise.all([
+        api('/api/accounts'),
+        api('/api/signatures').catch(() => ({ use_signature: true, signatures: {} })),
+      ]);
+      state.accounts = accData.accounts || [];
+      state.signatures = sigData.signatures || {};
+      state.useSignature = sigData.use_signature !== false;
+
       el.composeAccountSelect.innerHTML = '';
       state.accounts.forEach(acct => {
         const opt = document.createElement('option');
@@ -938,6 +1024,7 @@
       }
       if (state.accounts.length > 0) {
         el.drawerAccountLabel.textContent = state.accounts[0];
+        state.activeComposeAccount = state.accounts[0];
       }
     } catch (_) {}
   }
