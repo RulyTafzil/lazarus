@@ -210,10 +210,27 @@ class CardDelegate(QStyledItemDelegate):
         inner = card.adjusted(
             self.pad_h, self.pad_v, -self.pad_h, -self.pad_v)
 
-        fill = (style.theme_color_or('bg_highlight', 'bg')
-                if selected else style.theme_color_or('bg', 'bg'))
-        border = QColor(style.theme_color_or('fg_dim', 'fg'))
-        border.setAlpha(120 if selected else self.border_alpha)
+        if selected:
+            hl = QColor(style.theme_color_or('bg_highlight', 'bg'))
+            bg = QColor(style.theme_color_or('bg', 'bg'))
+            # If the theme's highlight background is high contrast compared to bg,
+            # blend it as a 25% tint wash so From, Subject, Date, and Tags remain
+            # distinct and readable without blowing out text contrast.
+            if abs(hl.lightness() - bg.lightness()) > 60:
+                r = int(bg.red() * 0.75 + hl.red() * 0.25)
+                g = int(bg.green() * 0.75 + hl.green() * 0.25)
+                b = int(bg.blue() * 0.75 + hl.blue() * 0.25)
+                fill = QColor(r, g, b)
+                border = QColor(hl)
+                border.setAlpha(200)
+            else:
+                fill = hl
+                border = QColor(style.theme_color_or('fg_dim', 'fg'))
+                border.setAlpha(140)
+        else:
+            fill = QColor(style.theme_color_or('bg', 'bg'))
+            border = QColor(style.theme_color_or('fg_dim', 'fg'))
+            border.setAlpha(self.border_alpha)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
