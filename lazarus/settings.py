@@ -318,14 +318,12 @@ If a link is to a host in this list, it will be opened without confirmation, eve
 
 # visual
 theme = themes.nord
-"""The GUI theme
+"""[DEPRECATED] Initial fallback GUI theme.
 
-A theme is a dictionary mapping a dozen or so named colors to HEX values.
-Several themes are defined in `lazarus.themes`, based on the popular Nord,
-Solarized and Gruvbox color palettes. Hundreds more are available by name
-(e.g. ``themes.REGISTRY['Dracula']``) via the bundled terminal-theme
-library and any packs found in ``~/.config/lazarus/themes/*.json`` -- see
-`lazarus.themes.build_registry`.
+Theme selection is managed in-app via the theme picker
+(:theme <name> in the command bar, or C-t theme cycling) and persisted
+in ~/.config/lazarus/lazarus.conf. Setting this in config.py is deprecated;
+the in-app preference takes precedence.
 """
 
 theme_overrides: Dict[str, Dict[str, str | int]] = {}

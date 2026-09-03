@@ -56,15 +56,18 @@ def test_refresh_thread_noop_when_unchanged(notmuch_stub, qapp):
     assert reset['n'] == 0 and changed['n'] == 0
 
 
-def test_refresh_thread_full_reset_on_drop(notmuch_stub, qapp):
+def test_refresh_thread_row_removed_on_drop(notmuch_stub, qapp):
     notmuch_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'Bye')]
     model = SearchModel('tag:inbox')
+    removed = []
     reset = {'n': 0}
+    model.rowsRemoved.connect(lambda parent, first, last: removed.append((first, last)))
     model.modelReset.connect(lambda: reset.__setitem__('n', reset['n'] + 1))
     # t1 stops matching the query
     notmuch_stub.threads = [make_thread('t2', 'Bye')]
     model.refresh_thread('t1')
-    assert reset['n'] == 1
+    assert removed == [(0, 0)]
+    assert reset['n'] == 0
     assert model.num_threads == 1
 
 

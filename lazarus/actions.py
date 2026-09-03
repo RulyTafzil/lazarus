@@ -86,6 +86,10 @@ class _BulkMoveWorker(QThread):
             if item is None:
                 with self._lock:
                     self._batches_pending -= 1
+                try:
+                    notmuch.new()
+                except Exception as e:
+                    logger.warning('notmuch new failed: %s', e)
                 self.batch_done.emit()
                 continue
             if not isinstance(item, tuple):
@@ -126,15 +130,10 @@ def set_batch_done_listener(fn: Optional[Callable[[], None]]) -> None:
 
 
 def _run_notmuch_new() -> None:
-    """Re-index after a batch of file moves has actually landed on disk.
-
-    Connected to ``_BulkMoveWorker.batch_done`` rather than called right
-    after ``enqueue()`` — the moves happen asynchronously, so calling
-    ``notmuch new`` immediately after enqueueing would usually race ahead
-    of the renames and miss them, silently deferring pickup to the next
-    sync.
+    """Legacy helper maintained for backward compatibility.
+    Re-indexing is performed on the worker thread prior to emitting batch_done.
     """
-    notmuch.new()
+    pass
 
 
 def _get_worker() -> _BulkMoveWorker:
@@ -350,6 +349,8 @@ def move_to_trash(notmuch_query: str) -> int:
     """
     # Search BEFORE tagging — tag changes may alter query matching.
     files = collect_files(notmuch_query)
+    if not files:
+        return 0
 
     notmuch.tag('+trash -inbox -unread', notmuch_query, exclude_marked=True)
 
@@ -397,6 +398,17 @@ class MarkableActionsMixin:
     def _marked_query(self) -> str:
         """Notmuch query matching "marked" threads in this panel's scope."""
         raise NotImplementedError
+
+    def _has_marked_threads(self) -> bool:
+        """Return True if any threads are marked in this panel's scope.
+
+        Default falls back to checking _marked_query, but panels with
+        in-memory rows (e.g. SearchPanel) should override with an instant check.
+        """
+        try:
+            return notmuch.count(self._marked_query()) > 0
+        except Exception:
+            return False
 
     def _current_thread_id(self) -> Optional[str]:
         """Thread id of the currently selected row, or None."""
@@ -456,9 +468,8 @@ class MarkableActionsMixin:
     def archive_thread(self) -> None:
         """Archive (``-inbox -unread``) all marked threads in this
         panel's scope, or the current thread if none are marked."""
-        marked_query = self._marked_query()
-        count = notmuch.count(marked_query)
-        if count > 0:
+        if self._has_marked_threads():
+            marked_query = self._marked_query()
             r = notmuch.tag('-inbox -unread', marked_query, exclude_marked=True)
             if r.returncode != 0:
                 self.app.status_message(
@@ -490,12 +501,13 @@ class MarkableActionsMixin:
     def delete_thread(self) -> None:
         """Move all marked threads in this panel's scope to Trash, or
         the current thread if none are marked."""
-        marked_query = self._marked_query()
-        moved = move_to_trash(marked_query)
-        if moved > 0:
-            self.app.refresh_panels()
-            self.app.status_message('Deleted marked', 'info')
-            return
+        if self._has_marked_threads():
+            marked_query = self._marked_query()
+            moved = move_to_trash(marked_query)
+            if moved > 0:
+                self.app.refresh_panels()
+                self.app.status_message('Deleted marked', 'info')
+                return
 
         self._advance_selection()
         thread_id = self._current_thread_id()
@@ -508,18 +520,18 @@ class MarkableActionsMixin:
     def restore_thread_from_trash(self) -> None:
         """Move the current thread (or all marked threads) from Trash
         back to INBOX, undoing a soft-delete."""
-        marked_query = self._marked_query()
-        count = notmuch.count(f'tag:trash AND ({marked_query})', output='files')
-
-        if count > 0:
+        if self._has_marked_threads():
+            marked_query = self._marked_query()
             moved = restore_from_trash(
                 f'tag:trash AND ({marked_query})')
-            self.app.refresh_panels()
-            self.app.status_message(
-                f'Restored {moved} file{"s" if moved != 1 else ""} '
-                f'from trash', 'info')
-            return
+            if moved > 0:
+                self.app.refresh_panels()
+                self.app.status_message(
+                    f'Restored {moved} file{"s" if moved != 1 else ""} '
+                    f'from trash', 'info')
+                return
 
+        self._advance_selection()
         thread_id = self._current_thread_id()
         if not thread_id:
             return
@@ -537,12 +549,13 @@ class MarkableActionsMixin:
     def archive_to_local(self) -> None:
         """Move all marked threads in this panel's scope to the local
         Archive maildir, or the current thread if none are marked."""
-        marked_query = self._marked_query()
-        moved = move_to_archive(marked_query)
-        if moved > 0:
-            self.app.refresh_panels()
-            self.app.status_message('Archived marked to local', 'info')
-            return
+        if self._has_marked_threads():
+            marked_query = self._marked_query()
+            moved = move_to_archive(marked_query)
+            if moved > 0:
+                self.app.refresh_panels()
+                self.app.status_message('Archived marked to local', 'info')
+                return
 
         thread_id = self._current_thread_id()
         if not thread_id:
@@ -575,6 +588,8 @@ def move_to_archive(notmuch_query: str) -> int:
     # would match nothing, so we move this exact file list rather than
     # re-querying after the tags changed.
     files = collect_files(notmuch_query)
+    if not files:
+        return 0
     notmuch.tag('-inbox -unread', notmuch_query, exclude_marked=True)
     # Errors here are non-fatal — file moves proceed regardless.
 

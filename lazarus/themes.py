@@ -737,6 +737,15 @@ def load_theme_pack(path: Path | str,
         if not isinstance(entry, dict):
             errors.append(f"{path}[{i}]: expected an object")
             continue
+        if 'name' not in entry:
+            errors.append(f"{path}[{i}]: missing required key 'name'")
+            continue
+        # Fast path: entry is already a pre-compiled native Lazarus theme
+        if set(THEME_KEYS) <= set(entry):
+            themes[entry['name']] = {k: entry[k] for k in THEME_KEYS}
+            raw_entries[entry['name']] = entry
+            continue
+        # Fallback for raw terminal-style themes
         entry_errors = _validate_terminal_entry(entry, f"{path}[{i}]")
         if entry_errors:
             errors.extend(entry_errors)
@@ -1182,14 +1191,11 @@ def load_last_theme_name() -> str | None:
 
 
 def resolve_initial_theme() -> dict:
-    """Called once at startup, after `build_registry()` has populated
-    REGISTRY and config.py has run (so `settings.theme` reflects
-    whatever the user's config.py set).
+    """Called once at startup, after REGISTRY is initialized and config.py has run.
 
-    Prefers a remembered theme name (from a previous live switch) over
-    config.py's default, if that name still resolves in the current
-    REGISTRY -- e.g. it survives a Lazarus upgrade unless the theme was
-    actually removed/renamed.
+    Theme selection is managed in-app and persisted in lazarus.conf. If a
+    remembered theme exists, it takes precedence. Otherwise falls back to
+    the initial default (or deprecated settings.theme if set).
     """
     global _current_name
     remembered = load_last_theme_name()
@@ -1198,10 +1204,9 @@ def resolve_initial_theme() -> dict:
         _settings.theme = REGISTRY[remembered]
         return _settings.theme
 
-    # No usable remembered name -- fall back to whatever config.py set,
-    # and try to identify its name (for cycling to start from the right
-    # place) via identity lookup.
-    _current_name = _find_name_for(_settings.theme, REGISTRY)
+    _current_name = _find_name_for(_settings.theme, REGISTRY) or 'nord'
+    if _current_name in REGISTRY:
+        _settings.theme = REGISTRY[_current_name]
     return _settings.theme
 
 
