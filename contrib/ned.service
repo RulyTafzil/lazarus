@@ -1,0 +1,12 @@
+[Unit]
+Description=NED - Notmuch Email Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/ned
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
