@@ -737,6 +737,15 @@ def load_theme_pack(path: Path | str,
         if not isinstance(entry, dict):
             errors.append(f"{path}[{i}]: expected an object")
             continue
+        if 'name' not in entry:
+            errors.append(f"{path}[{i}]: missing required key 'name'")
+            continue
+        # Fast path: entry is already a pre-compiled native Lazarus theme
+        if set(THEME_KEYS) <= set(entry):
+            themes[entry['name']] = {k: entry[k] for k in THEME_KEYS}
+            raw_entries[entry['name']] = entry
+            continue
+        # Fallback for raw terminal-style themes
         entry_errors = _validate_terminal_entry(entry, f"{path}[{i}]")
         if entry_errors:
             errors.extend(entry_errors)

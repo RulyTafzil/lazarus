@@ -507,3 +507,26 @@ def test_load_colormap_merges_heuristic_and_overrides(tmp_path, monkeypatch):
     registry = themes.build_registry()
     assert registry['Dracula']['fg_subject'] == DRACULA_ENTRY['palette']['2']
     assert registry['Dracula']['fg_subject_unread'] == DRACULA_ENTRY['palette']['3']
+
+
+def test_load_theme_pack_native_compiled_format(tmp_path):
+    entry = {'name': 'CustomNative'}
+    for k in themes.THEME_KEYS:
+        entry[k] = '#112233'
+    pack_path = tmp_path / 'native.json'
+    pack_path.write_text(json.dumps([entry]))
+    mapped, errors, _ = themes.load_theme_pack(pack_path)
+    assert not errors
+    assert 'CustomNative' in mapped
+    assert mapped['CustomNative']['bg'] == '#112233'
+
+
+def test_import_themes_tool_inspect():
+    import subprocess
+    import sys
+    cmd = [sys.executable, 'tools/import_themes.py', '--inspect', 'Dracula']
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0
+    assert 'Dracula' in res.stdout
+    assert 'Lazarus Mapped Semantic Variables' in res.stdout
+
