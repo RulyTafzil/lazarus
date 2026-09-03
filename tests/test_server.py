@@ -96,6 +96,8 @@ def test_service_tag_actions(monkeypatch):
         return Result()
 
     monkeypatch.setattr(notmuch, 'tag', mock_tag)
+    from lazarus import actions
+    monkeypatch.setattr(actions, 'collect_files', lambda q: [])
 
     assert service.archive_thread('0000000000001234')
     assert len(recorded_calls) == 1
@@ -103,7 +105,7 @@ def test_service_tag_actions(monkeypatch):
 
     assert service.trash_thread('0000000000001234')
     assert len(recorded_calls) == 2
-    assert recorded_calls[-1] == ('+trash -inbox', 'thread:0000000000001234')
+    assert recorded_calls[-1] == ('+trash -inbox -unread', 'thread:0000000000001234')
 
     assert service.unarchive_thread('0000000000001234')
     assert len(recorded_calls) == 3
@@ -116,6 +118,45 @@ def test_service_tag_actions(monkeypatch):
     assert service.toggle_flag('0000000000001234', True)
     assert len(recorded_calls) == 5
     assert recorded_calls[-1] == ('+flagged', 'thread:0000000000001234')
+
+
+def test_service_archive_moves_to_local_archive(tmp_path, monkeypatch):
+    import os
+    from lazarus import actions
+
+    archive_dir = str(tmp_path / 'Archive')
+    settings.archive_dir = archive_dir
+
+    src_dir = tmp_path / 'Mail' / 'default' / 'Inbox' / 'cur'
+    src_dir.mkdir(parents=True)
+    mail_file = src_dir / '12345.msg,U=10:2,S'
+    mail_file.write_text('From: test@example.com\n\nHello')
+
+    monkeypatch.setattr(notmuch, 'tag', lambda expr, q: None)
+    monkeypatch.setattr(notmuch, 'new', lambda no_hooks=True: None)
+    monkeypatch.setattr(actions, 'collect_files', lambda q: [str(mail_file)])
+
+    assert service.archive_thread('0000000000001234')
+
+    # Source file should be moved into archive cur/
+    dest_cur = tmp_path / 'Archive' / 'cur'
+    assert dest_cur.is_dir()
+    archived_files = list(dest_cur.iterdir())
+    assert len(archived_files) == 1
+    # UID annotation stripped
+    assert ',U=10' not in archived_files[0].name
+
+
+def test_service_sync_mail(monkeypatch):
+    called = []
+    monkeypatch.setattr(notmuch, 'new', lambda: called.append('new'))
+    settings.smtp_accounts = []
+    settings.sync_mail_command = 'echo sync'
+
+    ok, msg = service.sync_mail()
+    assert ok
+    assert 'Sync completed' in msg
+    assert 'new' in called
 
 
 def test_service_get_thread_messages(monkeypatch):
@@ -243,3 +284,15 @@ def test_http_bearer_token_auth(running_test_server):
     req2 = urllib.request.Request(f"{running_test_server}/api/accounts?token=topsecret123")
     with urllib.request.urlopen(req2) as resp:
         assert resp.status == 200
+
+
+def test_http_sync_endpoint(running_test_server, monkeypatch):
+    monkeypatch.setattr(service, 'sync_mail', lambda: (True, 'Sync completed successfully'))
+
+    req = urllib.request.Request(f"{running_test_server}/api/sync", data=b'', method='POST')
+    with urllib.request.urlopen(req) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode('utf-8'))
+        assert data['ok'] is True
+        assert 'Sync completed' in data['message']
+

@@ -29,6 +29,11 @@
     viewDetail: document.getElementById('view-detail'),
     btnLoadMore: document.getElementById('btn-load-more'),
     loadMoreWrap: document.getElementById('load-more-wrap'),
+    btnSyncTop: document.getElementById('btn-sync-top'),
+    pullToSync: document.getElementById('pull-to-sync'),
+    pullIcon: document.querySelector('.pull-icon'),
+    pullSpinner: document.querySelector('.pull-spinner'),
+    pullText: document.querySelector('.pull-text'),
     // Drawer
     btnMenu: document.getElementById('btn-menu'),
     btnCloseDrawer: document.getElementById('btn-close-drawer'),
@@ -262,8 +267,96 @@
       }
     });
 
+    // Top Sync Button
+    if (el.btnSyncTop) {
+      el.btnSyncTop.addEventListener('click', () => syncMail());
+    }
+
+    // Touch gesture: Pull down to sync
+    let touchStartY = 0;
+    let isPulling = false;
+    let isSyncing = false;
+
+    el.threadList.addEventListener('touchstart', (e) => {
+      if (el.threadList.scrollTop <= 0 && !isSyncing) {
+        touchStartY = e.touches[0].clientY;
+        isPulling = true;
+      } else {
+        isPulling = false;
+      }
+    }, { passive: true });
+
+    el.threadList.addEventListener('touchmove', (e) => {
+      if (!isPulling || isSyncing) return;
+      const currentY = e.touches[0].clientY;
+      const diff = currentY - touchStartY;
+      if (diff > 0 && el.threadList.scrollTop <= 0) {
+        const pullDistance = Math.min(diff * 0.45, 75);
+        el.pullToSync.style.height = `${pullDistance}px`;
+        el.pullToSync.style.opacity = `${Math.min(pullDistance / 35, 1)}`;
+        if (pullDistance >= 50) {
+          el.pullIcon.classList.add('release');
+          el.pullText.textContent = 'Release to sync';
+        } else {
+          el.pullIcon.classList.remove('release');
+          el.pullText.textContent = 'Pull down to sync';
+        }
+      }
+    }, { passive: true });
+
+    el.threadList.addEventListener('touchend', async () => {
+      if (!isPulling || isSyncing) return;
+      isPulling = false;
+      const currentHeight = parseInt(el.pullToSync.style.height || '0', 10);
+      if (currentHeight >= 50) {
+        await syncMail();
+      } else {
+        el.pullToSync.style.height = '0px';
+        el.pullToSync.style.opacity = '0';
+        el.pullIcon.classList.remove('release');
+      }
+    });
+
+    el.threadList.addEventListener('touchcancel', () => {
+      isPulling = false;
+      if (!isSyncing) {
+        el.pullToSync.style.height = '0px';
+        el.pullToSync.style.opacity = '0';
+        el.pullIcon.classList.remove('release');
+      }
+    });
+
     // Toast Undo
     el.toastUndo.addEventListener('click', handleUndo);
+  }
+
+  // --- Mail Synchronization ---
+  async function syncMail() {
+    el.pullToSync.style.height = '42px';
+    el.pullToSync.style.opacity = '1';
+    el.pullIcon.classList.add('hidden');
+    el.pullSpinner.classList.remove('hidden');
+    el.pullText.textContent = 'Syncing mail…';
+
+    try {
+      await api('/api/sync', { method: 'POST' });
+      showToast('Mail synchronized');
+      await runSearch(state.currentQuery);
+      await loadTags();
+    } catch (err) {
+      showToast(`Sync failed: ${err.message}`);
+    } finally {
+      setTimeout(() => {
+        el.pullToSync.style.height = '0px';
+        el.pullToSync.style.opacity = '0';
+        setTimeout(() => {
+          el.pullSpinner.classList.add('hidden');
+          el.pullIcon.classList.remove('hidden');
+          el.pullIcon.classList.remove('release');
+          el.pullText.textContent = 'Pull down to sync';
+        }, 150);
+      }, 300);
+    }
   }
 
   // --- Search and Threads ---

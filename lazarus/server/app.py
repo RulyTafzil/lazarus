@@ -257,6 +257,15 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({'ok': ok})
             return
 
+        # /api/sync
+        if path == '/api/sync':
+            ok, msg = service.sync_mail()
+            if ok:
+                self.send_json({'ok': True, 'message': msg})
+            else:
+                self.send_error_json(msg, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
         # /api/send
         if path == '/api/send':
             self._handle_send()

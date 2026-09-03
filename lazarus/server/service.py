@@ -36,6 +36,7 @@ import tempfile
 import threading
 from typing import Any
 
+from .. import actions
 from .. import compose_model
 from .. import mail_utils
 from .. import mime_builder
@@ -301,9 +302,38 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
 
 
 def archive_thread(thread_id: str) -> bool:
-    """Archive thread by stripping inbox and unread tags."""
+    """A archive: tag -inbox -unread, move files to local Archive Maildir, run notmuch new."""
     clean_id = thread_id.removeprefix('thread:')
-    return modify_tags([f"thread:{clean_id}"], add_tags=[], remove_tags=['inbox', 'unread'])
+    query = f"thread:{clean_id}"
+    files = actions.collect_files(query)
+    notmuch.tag('-inbox -unread', query)
+    if not files:
+        return True
+
+    archive_dir = os.path.expanduser(settings.archive_dir)
+    os.makedirs(os.path.join(archive_dir, 'cur'), exist_ok=True)
+
+    resolved: list[str] = []
+    for f in files:
+        r = actions._resolve_stale_path(f)
+        if r:
+            resolved.append(r)
+
+    moves = actions.plan_archive_moves(resolved, archive_dir)
+    for src, dst in moves:
+        if os.path.exists(src):
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.rename(src, dst)
+            except OSError as e:
+                logger.warning('Archive move failed: %s -> %s: %s', src, dst, e)
+
+    try:
+        notmuch.new(no_hooks=True)
+    except Exception as e:
+        logger.warning('notmuch new failed after archive move: %s', e)
+
+    return True
 
 
 def unarchive_thread(thread_id: str) -> bool:
@@ -313,15 +343,88 @@ def unarchive_thread(thread_id: str) -> bool:
 
 
 def trash_thread(thread_id: str) -> bool:
-    """Trash thread by adding trash tag and removing inbox tag."""
+    """Trash thread: tag +trash -inbox -unread, move files to account Trash, run notmuch new."""
     clean_id = thread_id.removeprefix('thread:')
-    return modify_tags([f"thread:{clean_id}"], add_tags=['trash'], remove_tags=['inbox'])
+    query = f"thread:{clean_id}"
+    files = actions.collect_files(query)
+    notmuch.tag('+trash -inbox -unread', query)
+    if not files:
+        return True
+
+    mail_root = os.path.expanduser(settings.mail_root)
+    resolved: list[str] = []
+    for f in files:
+        r = actions._resolve_stale_path(f)
+        if r:
+            resolved.append(r)
+
+    moves = actions.plan_trash_moves(resolved, mail_root)
+    for src, dst in moves:
+        if os.path.exists(src):
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.rename(src, dst)
+            except OSError as e:
+                logger.warning('Trash move failed: %s -> %s: %s', src, dst, e)
+
+    try:
+        notmuch.new(no_hooks=True)
+    except Exception as e:
+        logger.warning('notmuch new failed after trash move: %s', e)
+
+    return True
 
 
 def untrash_thread(thread_id: str) -> bool:
     """Restore thread from trash to inbox."""
     clean_id = thread_id.removeprefix('thread:')
     return modify_tags([f"thread:{clean_id}"], add_tags=['inbox'], remove_tags=['trash'])
+
+
+def sync_mail() -> tuple[bool, str]:
+    """Execute parallel mbsync per account (or sync_mail_command), run notmuch new, apply filter rules."""
+    accounts = settings.smtp_accounts if settings.smtp_accounts else []
+    procs: list[tuple[str, subprocess.Popen[bytes]]] = []
+
+    if accounts:
+        for acct in accounts:
+            try:
+                p = subprocess.Popen(
+                    ['mbsync', '-V', acct],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                procs.append((acct, p))
+            except Exception as e:
+                logger.warning('Failed launching mbsync for %s: %s', acct, e)
+
+        for acct, p in procs:
+            try:
+                p.wait(timeout=120)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                logger.warning('mbsync timed out for %s', acct)
+    elif settings.sync_mail_command:
+        try:
+            subprocess.run(shlex.split(settings.sync_mail_command), timeout=120)
+        except Exception as e:
+            logger.warning('Failed running sync_mail_command: %s', e)
+
+    # notmuch new
+    try:
+        notmuch.new()
+    except Exception as e:
+        logger.warning('notmuch new failed during sync: %s', e)
+
+    # filter rules
+    if settings.filter_rules:
+        try:
+            from .. import rules
+            rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+        except Exception as e:
+            logger.warning('rules.apply_rules failed: %s', e)
+
+    return (True, 'Sync completed successfully')
 
 
 def toggle_flag(thread_id: str, flag: bool) -> bool:

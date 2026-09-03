@@ -27,6 +27,9 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
           </button>
         </div>
+        <button id="btn-sync-top" class="icon-btn" aria-label="Sync mail" title="Sync mail">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+        </button>
         <button id="btn-compose-top" class="icon-btn primary-icon-btn" aria-label="Compose message">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
         </button>
@@ -94,6 +97,13 @@
 
       <!-- View 1: Thread List -->
       <section id="view-list" class="view-panel active-view">
+        <div id="pull-to-sync" class="pull-to-sync">
+          <div class="pull-indicator">
+            <svg class="pull-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <div class="pull-spinner spinner hidden"></div>
+            <span class="pull-text">Pull down to sync</span>
+          </div>
+        </div>
         <div id="thread-list-status" class="list-status hidden"></div>
         <div id="thread-list" class="thread-list">
           <div class="loading-spinner-wrap">

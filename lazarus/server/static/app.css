@@ -260,6 +260,42 @@ button {
   pointer-events: none;
 }
 
+#view-list {
+  overscroll-behavior-y: contain;
+}
+
+/* Pull to Sync */
+.pull-to-sync {
+  overflow: hidden;
+  height: 0;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-surface);
+  transition: height 0.12s ease-out, opacity 0.12s ease-out;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pull-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  padding: 8px 0;
+}
+
+.pull-icon {
+  transition: transform 0.18s ease;
+}
+
+.pull-icon.release {
+  transform: rotate(180deg);
+}
+
 /* Thread List */
 .thread-list {
   flex: 1;
