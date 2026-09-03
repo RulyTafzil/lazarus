@@ -4,6 +4,8 @@
 Inspect source terminal theme palettes with truecolor ANSI previews,
 view how they map onto Lazarus's 19 semantic color keys, and compile
 raw terminal packs into native, pre-computed Lazarus JSON themes.
+
+Zero external dependencies: runs on any standard Python 3.9+ without a venv.
 """
 from __future__ import annotations
 
@@ -12,13 +14,16 @@ import json
 import sys
 from pathlib import Path
 
-# Add project root to sys.path so lazarus modules can be imported
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+# The complete set of 19 semantic keys Lazarus requires for themes
+THEME_KEYS: tuple[str, ...] = (
+    'bg', 'bg_alt', 'bg_button', 'bg_highlight',
+    'fg', 'fg_bad', 'fg_bright', 'fg_button', 'fg_date', 'fg_dim',
+    'fg_from', 'fg_good', 'fg_highlight', 'fg_link', 'fg_subject',
+    'fg_subject_flagged', 'fg_subject_irrelevant', 'fg_subject_unread',
+    'fg_tags',
+)
 
-from lazarus import themes
-
-
+# Standard ANSI terminal color names for indices 0-15
 ANSI_COLOR_NAMES = {
     '0': 'black',
     '1': 'red',
@@ -38,18 +43,95 @@ ANSI_COLOR_NAMES = {
     '15': 'bright white',
 }
 
+# Default heuristic mapping terminal-theme entries onto Lazarus color keys
+DEFAULT_TERMINAL_MAP: dict[str, tuple[tuple[str, str], ...]] = {
+    'bg':                    (('named', 'background'),),
+    'fg':                    (('named', 'foreground'),),
+    'fg_dim':                (('palette', '8'), ('key', 'fg')),
+    'fg_bright':             (('palette', '15'), ('palette', '7'), ('key', 'fg')),
+    'fg_good':               (('palette', '10'), ('palette', '2'), ('key', 'fg')),
+    'fg_bad':                (('palette', '9'), ('palette', '1'), ('key', 'fg')),
+    'fg_link':               (('palette', '12'), ('palette', '4'),
+                              ('palette', '14'), ('palette', '6'), ('key', 'fg')),
+    'fg_button':             (('named', 'foreground'),),
+    'bg_highlight':          (('named', 'selection-background'),
+                              ('palette', '4'), ('key', 'fg')),
+    'fg_highlight':          (('named', 'selection-foreground'), ('key', 'bg')),
+    'fg_date':               (('key', 'fg_dim'),),
+    'fg_from':               (('named', 'foreground'),),
+    'fg_subject':            (('named', 'foreground'),),
+    'fg_subject_unread':     (('palette', '14'), ('palette', '6'),
+                              ('palette', '12'), ('palette', '4'), ('key', 'fg')),
+    'fg_subject_irrelevant': (('key', 'fg_dim'),),
+    'fg_subject_flagged':    (('palette', '11'), ('palette', '3'), ('key', 'fg')),
+    'fg_tags':               (('palette', '12'), ('palette', '4'),
+                              ('palette', '14'), ('palette', '6'), ('key', 'fg')),
+}
+
+
+def hex_to_rgb(hex_code: str) -> tuple[int, int, int]:
+    h = hex_code.lstrip('#')
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
+
+
+def scale_hex(hex_code: str, factor: float) -> str:
+    r, g, b = hex_to_rgb(hex_code)
+    return rgb_to_hex(round(r * factor), round(g * factor), round(b * factor))
+
+
+def hex_lightness(hex_code: str) -> int:
+    r, g, b = hex_to_rgb(hex_code)
+    return (max(r, g, b) + min(r, g, b)) // 2
+
 
 def color_swatch(hex_code: str | None) -> str:
     """Return a 2-space terminal block colored with 24-bit truecolor ANSI."""
     if not hex_code or not hex_code.startswith('#') or len(hex_code) != 7:
         return '    '
     try:
-        r = int(hex_code[1:3], 16)
-        g = int(hex_code[3:5], 16)
-        b = int(hex_code[5:7], 16)
+        r, g, b = hex_to_rgb(hex_code)
         return f"\033[48;2;{r};{g};{b}m  \033[0m"
     except ValueError:
         return '    '
+
+
+def resolve_chain(chain: tuple[tuple[str, str], ...],
+                  entry: dict,
+                  resolved: dict[str, str],
+                  default: str) -> str:
+    palette = entry.get('palette', {})
+    for kind, value in chain:
+        if kind == 'named':
+            c = entry.get(value)
+            if c:
+                return c
+        elif kind == 'palette':
+            if value in palette:
+                return palette[value]
+        elif kind == 'key':
+            if value in resolved:
+                return resolved[value]
+        elif kind == 'hex':
+            return value
+    return default
+
+
+def terminal_theme_to_lazarus(entry: dict) -> dict[str, str]:
+    """Map a raw terminal theme dict to Lazarus's 19 semantic color keys."""
+    fg_default = entry.get('foreground', '#ffffff')
+    theme: dict[str, str] = {}
+    for key, chain in DEFAULT_TERMINAL_MAP.items():
+        theme[key] = resolve_chain(chain, entry, theme, fg_default)
+
+    bg = theme.get('bg', '#000000')
+    is_dark = hex_lightness(bg) < 128
+    theme['bg_alt'] = scale_hex(bg, 1.25) if is_dark else scale_hex(bg, 0.94)
+    theme['bg_button'] = scale_hex(bg, 1.50) if is_dark else scale_hex(bg, 0.89)
+    return theme
 
 
 def load_raw_entries(raw_path: Path) -> dict[str, dict]:
@@ -66,7 +148,7 @@ def load_raw_entries(raw_path: Path) -> dict[str, dict]:
 
 def inspect_theme(name: str, entry: dict) -> None:
     """Print complete source palette and mapped Lazarus variables with color swatches."""
-    mapped = themes.terminal_theme_to_lazarus(entry)
+    mapped = terminal_theme_to_lazarus(entry)
     palette = entry.get('palette', {})
 
     print(f"\n\033[1m{'=' * 78}\033[0m")
@@ -96,7 +178,7 @@ def inspect_theme(name: str, entry: dict) -> None:
         print(f"  {key:<24} {swatch} {val}")
 
     print("\n\033[1m--- Lazarus Mapped Semantic Variables (19 Keys) ---\033[0m")
-    for lz_key in themes.THEME_KEYS:
+    for lz_key in THEME_KEYS:
         hex_val = mapped.get(lz_key, '')
         swatch = color_swatch(hex_val)
 
@@ -105,7 +187,7 @@ def inspect_theme(name: str, entry: dict) -> None:
         if lz_key in ('bg_alt', 'bg_button'):
             origin = "derived from bg"
         else:
-            chain = themes.DEFAULT_TERMINAL_MAP.get(lz_key, ())
+            chain = DEFAULT_TERMINAL_MAP.get(lz_key, ())
             for kind, val in chain:
                 if kind == 'named' and entry.get(val) == hex_val:
                     origin = f"from {val}"
@@ -127,10 +209,10 @@ def compile_pack(raw_path: Path, output_path: Path) -> None:
     entries = load_raw_entries(raw_path)
     compiled_list: list[dict] = []
 
-    print(f"Compiling {len(entries)} themes from {raw_path}...")
+    print(f"Compiling {len(entries)} themes from {raw_path.name}...")
     for name, entry in sorted(entries.items()):
         try:
-            mapped = themes.terminal_theme_to_lazarus(entry)
+            mapped = terminal_theme_to_lazarus(entry)
             item = {'name': name}
             item.update(mapped)
             compiled_list.append(item)
@@ -140,16 +222,17 @@ def compile_pack(raw_path: Path, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(compiled_list, indent=2), encoding='utf-8')
     size_kb = output_path.stat().st_size / 1024
-    print(f"Successfully compiled {len(compiled_list)} themes to {output_path} ({size_kb:.1f} KB)")
+    print(f"Successfully compiled {len(compiled_list)} themes to {output_path.name} ({size_kb:.1f} KB)")
 
 
 def main() -> None:
+    project_root = Path(__file__).resolve().parent.parent
+    default_raw = project_root / 'lazarus' / 'theme_packs' / 'raw_terminal_themes.json'
+    default_out = project_root / 'lazarus' / 'theme_packs' / 'builtin.json'
+
     parser = argparse.ArgumentParser(
         description="Theme inspection and compilation tool for Lazarus email client."
     )
-    default_raw = PROJECT_ROOT / 'lazarus' / 'theme_packs' / 'raw_terminal_themes.json'
-    default_out = PROJECT_ROOT / 'lazarus' / 'theme_packs' / 'builtin.json'
-
     parser.add_argument(
         '-i', '--inspect', metavar='NAME',
         help="Inspect all colors and mapping heuristics for a theme by name."
@@ -191,10 +274,17 @@ def main() -> None:
 
     if args.inspect:
         target = args.inspect
-        # Case-insensitive lookup
         match = next((n for n in raw_entries if n.lower() == target.lower()), None)
         if not match:
-            sys.exit(f"Error: No theme named {target!r} found in {args.raw.name}. Use --list to see all names.")
+            # Check for partial match
+            partials = [n for n in raw_entries if target.lower() in n.lower()]
+            if len(partials) == 1:
+                match = partials[0]
+            elif partials:
+                names = ', '.join(partials[:8])
+                sys.exit(f"Ambiguous name {target!r}. Did you mean: {names}?")
+            else:
+                sys.exit(f"Error: No theme named {target!r} found. Use --list to see all names.")
         inspect_theme(match, raw_entries[match])
         return
 
@@ -203,7 +293,7 @@ def main() -> None:
         match = next((n for n in raw_entries if n.lower() == target.lower()), None)
         if not match:
             sys.exit(f"Error: No theme named {target!r} found in {args.raw.name}.")
-        mapped = themes.terminal_theme_to_lazarus(raw_entries[match])
+        mapped = terminal_theme_to_lazarus(raw_entries[match])
         out_dict = {'name': match, **mapped}
         out_file = args.output if args.output != default_out else Path(f"{match.lower().replace(' ', '_')}.json")
         out_file.write_text(json.dumps(out_dict, indent=2), encoding='utf-8')
