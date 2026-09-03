@@ -315,3 +315,24 @@ def test_signatures(running_test_server, monkeypatch):
         assert http_data['signatures']['personal'] == 'Sig for personal\n'
 
 
+def test_url_encoded_message_id_reply_seed(running_test_server, monkeypatch):
+    recorded_id = []
+
+    def mock_get_reply_seed(mid: str, to_all: bool = False):
+        recorded_id.append(mid)
+        return {'to': 'alice@example.com', 'subject': 'RE: Test'}
+
+    monkeypatch.setattr(service, 'get_reply_seed', mock_get_reply_seed)
+
+    encoded_mid = urllib.parse.quote("msg-123@domain.com")
+    url = f"{running_test_server}/api/messages/{encoded_mid}/reply-seed"
+    with urllib.request.urlopen(url) as resp:
+        assert resp.status == 200
+        data = json.loads(resp.read().decode('utf-8'))
+        assert data['to'] == 'alice@example.com'
+
+    # Verify that unquoted ID was received by service
+    assert recorded_id[0] == "msg-123@domain.com"
+
+
+

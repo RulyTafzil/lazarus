@@ -34,6 +34,7 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import urllib.parse
 from typing import Any
 
 from .. import actions
@@ -151,7 +152,7 @@ def _flatten_messages(node: Any, output: list[dict[str, Any]]) -> None:
 
 def get_thread_messages(thread_id: str) -> dict[str, Any]:
     """Fetch all messages in a thread and extract clean display details."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     try:
         r = notmuch.run(
             'show',
@@ -226,10 +227,11 @@ def get_thread_messages(thread_id: str) -> dict[str, Any]:
 
 def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
     """Retrieve raw bytes for an attachment part."""
+    clean_id = urllib.parse.unquote(message_id).removeprefix('id:').strip('<>')
     try:
-        content = notmuch.show_part(part_id, message_id, decrypt=True)
+        content = notmuch.show_part(part_id, clean_id, decrypt=True)
     except Exception as e:
-        logger.warning('Failed to fetch part %d for message %r: %s', part_id, message_id, e)
+        logger.warning('Failed to fetch part %d for message %r: %s', part_id, clean_id, e)
         return (b'', 'application/octet-stream', f'part-{part_id}')
 
     filename = f'part-{part_id}'
@@ -242,7 +244,7 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
             '--format=json',
             '--decrypt=true',
             '--',
-            f'id:{message_id}',
+            f'id:{clean_id}',
             check=True,
         )
         data = json.loads(r.stdout)
@@ -285,7 +287,7 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
     tag_expr = ' '.join(expr_parts)
     query_parts: list[str] = []
     for item in ids:
-        clean = item.strip()
+        clean = urllib.parse.unquote(item.strip())
         if clean.startswith(('thread:', 'id:')):
             query_parts.append(clean)
         elif len(clean) == 16 and re.fullmatch(r'[0-9a-fA-F]+', clean):
@@ -304,7 +306,7 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
 
 def archive_thread(thread_id: str) -> bool:
     """A archive: tag -inbox -unread, move files to local Archive Maildir, run notmuch new."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     query = f"thread:{clean_id}"
     files = actions.collect_files(query)
     notmuch.tag('-inbox -unread', query)
@@ -339,13 +341,13 @@ def archive_thread(thread_id: str) -> bool:
 
 def unarchive_thread(thread_id: str) -> bool:
     """Restore thread to inbox."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     return modify_tags([f"thread:{clean_id}"], add_tags=['inbox'], remove_tags=[])
 
 
 def trash_thread(thread_id: str) -> bool:
     """Trash thread: tag +trash -inbox -unread, move files to account Trash, run notmuch new."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     query = f"thread:{clean_id}"
     files = actions.collect_files(query)
     notmuch.tag('+trash -inbox -unread', query)
@@ -378,7 +380,7 @@ def trash_thread(thread_id: str) -> bool:
 
 def untrash_thread(thread_id: str) -> bool:
     """Restore thread from trash to inbox."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     return modify_tags([f"thread:{clean_id}"], add_tags=['inbox'], remove_tags=['trash'])
 
 
@@ -430,7 +432,7 @@ def sync_mail() -> tuple[bool, str]:
 
 def toggle_flag(thread_id: str, flag: bool) -> bool:
     """Add or remove flagged tag from thread."""
-    clean_id = thread_id.removeprefix('thread:')
+    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     if flag:
         return modify_tags([f"thread:{clean_id}"], add_tags=['flagged'], remove_tags=[])
     return modify_tags([f"thread:{clean_id}"], add_tags=[], remove_tags=['flagged'])
@@ -450,7 +452,7 @@ def get_all_tags() -> list[dict[str, Any]]:
 
 def get_reply_seed(message_id: str, to_all: bool = False) -> dict[str, Any]:
     """Build pre-populated reply data for a given message ID."""
-    clean_id = message_id.removeprefix('id:').strip('<>')
+    clean_id = urllib.parse.unquote(message_id).removeprefix('id:').strip('<>')
     try:
         r = notmuch.run(
             'show',

@@ -149,7 +149,7 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
         # /api/threads/{thread_id}
         m_thread = re.fullmatch(r'/api/threads/([^/]+)', path)
         if m_thread:
-            thread_id = m_thread.group(1)
+            thread_id = urllib.parse.unquote(m_thread.group(1))
             data = service.get_thread_messages(thread_id)
             self.send_json(data)
             return
@@ -157,7 +157,7 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
         # /api/messages/{message_id}/parts/{part_id}
         m_part = re.fullmatch(r'/api/messages/([^/]+)/parts/(\d+)', path)
         if m_part:
-            msg_id = m_part.group(1)
+            msg_id = urllib.parse.unquote(m_part.group(1))
             part_id = int(m_part.group(2))
             raw_bytes, content_type, filename = service.get_part_data(msg_id, part_id)
             self.send_response(HTTPStatus.OK)
@@ -172,7 +172,7 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
         # /api/messages/{message_id}/reply-seed?to_all=...
         m_seed = re.fullmatch(r'/api/messages/([^/]+)/reply-seed', path)
         if m_seed:
-            msg_id = m_seed.group(1)
+            msg_id = urllib.parse.unquote(m_seed.group(1))
             to_all = qs.get('to_all', ['false'])[0].lower() in ('1', 'true', 'yes')
             seed = service.get_reply_seed(msg_id, to_all=to_all)
             self.send_json(seed)
@@ -228,28 +228,28 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
         # /api/threads/{thread_id}/archive
         m_arch = re.fullmatch(r'/api/threads/([^/]+)/archive', path)
         if m_arch:
-            ok = service.archive_thread(m_arch.group(1))
+            ok = service.archive_thread(urllib.parse.unquote(m_arch.group(1)))
             self.send_json({'ok': ok})
             return
 
         # /api/threads/{thread_id}/unarchive
         m_unarch = re.fullmatch(r'/api/threads/([^/]+)/unarchive', path)
         if m_unarch:
-            ok = service.unarchive_thread(m_unarch.group(1))
+            ok = service.unarchive_thread(urllib.parse.unquote(m_unarch.group(1)))
             self.send_json({'ok': ok})
             return
 
         # /api/threads/{thread_id}/trash
         m_trash = re.fullmatch(r'/api/threads/([^/]+)/trash', path)
         if m_trash:
-            ok = service.trash_thread(m_trash.group(1))
+            ok = service.trash_thread(urllib.parse.unquote(m_trash.group(1)))
             self.send_json({'ok': ok})
             return
 
         # /api/threads/{thread_id}/untrash
         m_untrash = re.fullmatch(r'/api/threads/([^/]+)/untrash', path)
         if m_untrash:
-            ok = service.untrash_thread(m_untrash.group(1))
+            ok = service.untrash_thread(urllib.parse.unquote(m_untrash.group(1)))
             self.send_json({'ok': ok})
             return
 
@@ -258,7 +258,7 @@ class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):
         if m_star:
             data = self._read_json()
             flag = bool(data.get('flag', True))
-            ok = service.toggle_flag(m_star.group(1), flag)
+            ok = service.toggle_flag(urllib.parse.unquote(m_star.group(1)), flag)
             self.send_json({'ok': ok})
             return
 
