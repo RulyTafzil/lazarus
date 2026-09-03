@@ -156,43 +156,53 @@ re-applied by hand at any time with `C-r`.
 <img src=images/catppucin.webp> <img src=images/gruvbox.webp> <img
 src=images/nord.webp>
 
-600+ themes pulled from the
-[iTerm2-Color-Schemes repo](https://github.com/mbadolato/iTerm2-Color-Schemes).
-Honestly, probably way too many. You can cycle through themes in-app with M+<
-and M+>. Alternatively, the hotkey t h will bring up a theme picker. Each theme
-has 16 colors (0-15) specified, along with five named colors (background,
-foreground, cursor-color, selection-background, and selection-foreground). You
-can add custom themes in your ~/.config/lazarus/themes/ folder, and customize
-the colormapping in ~/.config/lazarus/themes/colormap.py
+Lazarus bundles 600+ themes pre-compiled into a native, instant-loading format (<4ms).
 
-Most of the themes look good I haven't checked all 600, some may need manual
-tweaking as to which colors are mapped to what in Lazarus.
+- **Switching Themes**: Press `t h` to open the modal theme picker with autocomplete, or use `M-<` / `M->` to cycle themes live.
+- **Default Theme**: Your selected theme is automatically saved to `~/.config/lazarus/lazarus.conf` as your default (the legacy `settings.theme` in `config.py` is deprecated).
+- **Selection Contrast**: Selected cards use a modern tinted wash over the background, ensuring distinct semantic colors for sender, date, unread subjects, and tags remain vibrant and readable regardless of whether the theme has a subtle or high-contrast highlight.
 
-sample colormap.py:
+#### Theme Inspection & Mapping Tool
 
-```
-default_heuristic = {
-    'bg': 'background',
-    'bg_alt': 'bg',
-    'bg_button': 'bg',
-    'bg_highlight': 'selection-background',
-    'fg': 'foreground',
-    'fg_bad': '9',
-    'fg_bright': '15',
-    'fg_button': 'foreground',
-    'fg_date': '6',
-    'fg_dim': '8',
-    'fg_from': '4',
-    'fg_good': '10',
-    'fg_highlight': 'selection-foreground',
-    'fg_link': '12',
-    'fg_subject': 'foreground',
-    'fg_subject_flagged': '11',
-    'fg_subject_irrelevant': 'fg_dim',
-    'fg_subject_unread': '2',
-    'fg_tags': '13',
-}
-```
+Lazarus includes a standalone CLI tool in `tools/import_themes.py` with zero external dependencies (runs on standard Python 3.9+ without needing a venv).
+
+- **Inspect a theme with truecolor ANSI terminal swatches**:
+  ```bash
+  python tools/import_themes.py --inspect "Gruvbox Material"
+  python tools/import_themes.py --list
+  ```
+  This shows the 16-color ANSI palette, special terminal colors, and how each of Lazarus's 19 semantic keys is mapped with visual color swatches.
+
+- **Global 1-to-1 Colormapping (`tools/mapping.json`)**:
+  All terminal themes map cleanly onto Lazarus's 19 semantic variables via `tools/mapping.json`:
+  ```json
+  {
+    "bg": "background",
+    "fg": "foreground",
+    "fg_dim": 8,
+    "fg_bright": 15,
+    "fg_good": 10,
+    "fg_bad": 9,
+    "fg_link": 12,
+    "fg_button": "foreground",
+    "bg_highlight": "selection-background",
+    "fg_highlight": "selection-foreground",
+    "fg_date": "fg_dim",
+    "fg_from": "foreground",
+    "fg_subject": "foreground",
+    "fg_subject_unread": 14,
+    "fg_subject_irrelevant": "fg_dim",
+    "fg_subject_flagged": 11,
+    "fg_tags": 12
+  }
+  ```
+  Tweak any rule and recompile all 602 bundled themes in ~0.15s:
+  ```bash
+  python tools/import_themes.py --compile
+  ```
+
+- **Adding Custom Themes**:
+  Drop any native 19-key theme JSON into `~/.config/lazarus/themes/` (you can export any theme as a template using `python tools/import_themes.py --export "Dracula"`). Custom themes appear automatically in the in-app picker.
 
 ## Configuration
 

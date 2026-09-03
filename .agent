@@ -82,8 +82,13 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── protocols.py        # PanelApp/ThreadList/ThreadView protocols + method sets
 │   ├── helpwindow.py       # HelpWindow — keybinding HTML
 │   ├── icons/hicolor/*/apps/lazarus.png  # 16-1024px bundled PNGs (package_data)
-│   └── theme_packs/builtin.json          # 602 terminal-style themes
-├── tests/                  # 326 tests (pytest, offscreen Qt, notmuch stubbed)
+│   └── theme_packs/
+│       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
+│       └── raw_terminal_themes.json  # Raw terminal palette sources
+├── tools/
+│   ├── import_themes.py          # Zero-dep CLI for theme inspection, truecolor swatches, compilation, and export
+│   └── mapping.json              # Clean 1-to-1 mapping from terminal/ANSI properties to Lazarus's 19 semantic keys
+├── tests/                  # 352 tests (pytest, offscreen Qt, notmuch stubbed)
 ├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
 ├── docs/                   # Sphinx (Makefile, make.bat, source/)
 ├── README.md
@@ -120,10 +125,12 @@ live switching, low-poly watermark tab background, hicolor icons.
 ### Class Hierarchy
 ```
 QApplication
- └── Dodo (app.py) — bootstrap-only (~370L): config+logging, signal plumbing, HelpWindow,
-     sync timer, Chromium warm-up view, theme registry build. Keeps only show_help /
-     sync_mail / _cleanup_sync / _restore_open_searches (Qt lifecycle). Panels receive
-     AppController — the SOLE PanelApp implementer.
+ └── Dodo (app.py) — bootstrap-only (~370L): config+logging, signal plumbing, lazy
+     HelpWindow on first '?' press, sync timer, deferred Chromium warm-up via
+     QTimer.singleShot(0), theme registry build + initial resolve. Cold launch
+     dropped from ~760ms to ~110ms (~7x speedup). Keeps only show_help / sync_mail /
+     _cleanup_sync / _restore_open_searches (Qt lifecycle). Panels receive AppController
+     — the SOLE PanelApp implementer.
       └── controller.AppController (QObject) — panel registry + SyncMailThread; the single
           PanelApp interface the global keymap and panels dispatch to. app.py imports no
           panel modules (cycle broken at runtime); actions._BulkMoveWorker wired via
@@ -182,15 +189,16 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `themes.py` | 1177 | Hand-written palettes + terminal-style theme import (`DEFAULT_TERMINAL_MAP` heuristic → 19 `THEME_KEYS`), `load_theme_pack`, `build_registry` (hand-written > bundled pack > user packs > overrides), `REGISTRY`, `apply_theme()` global QSS builder, live switching (`set_theme`/`cycle_theme`/`ordered_names`, QSettings `last_theme_name`), colormap.py template generation |
+| `themes.py` | 1242 | Hand-written palettes + pre-compiled native theme loader (fast O(1) path for 19 `THEME_KEYS`, ~4ms load) + legacy terminal pack heuristic fallback, `load_theme_pack`, `build_registry` (hand-written > bundled pack > user packs > overrides), `REGISTRY`, `apply_theme()` global QSS builder, live switching (`set_theme`/`cycle_theme`/`ordered_names`, QSettings `last_theme_name`); `settings.theme` in config.py is deprecated in favor of in-app choice |
 | `compose.py` | 804 | `ComposePanel` — compose/reply/forward; labeled field rows (hidden Cc/Bcc via M-c/M-b), From = account dropdown (`_set_account` shared with `[`/`]`), PGP/send status, `_insert_signature` (structural placement via `sig_edit`, HTML sigs in rich mode), `SendmailThread` wiring, `RichTextEditor` integration |
 | `controller.py` | 737 | `AppController(QObject)` — panel registry, `open_*`, `delegate_*`, `refresh_panels`, `refresh_tab_titles` (batched `count --batch`), `sync_mail` + `SyncMailThread`, theme switching, `close_panel` (deleteLater + in-flight-send guard). Sole `PanelApp` implementer |
 | `thread.py` | 672 | `ThreadPanel` — double-buffered `QWebEngineView` + `_SwapGuard` (newest-load-wins), message list, `toggle_html`/`toggle_remote_content`/`toggle_list_mode`, `open_attachments`, `scroll_message` |
 | `mainwindow.py` | 653 | `MainWindow` — splitter + tabs + preview, `WatermarkTabWidget` (low-poly mesh + watermark, `invalidate_mesh()` on theme switch), CommandBar/StatusBar overlay, splitter open-state persistence (`_load_open_splitter_state`), geometry/open-searches persistence |
 | `editor.py` | 617 | `RichTextEditor(QTextEdit)` — temp dir for inline images, `insert_image_from_file/data`, `body_html/text`, `collect_inline_images` (file:// → cid:), paste/drag-drop, `formatting_toolbar()` (NerdFont glyphs, synced to cursor format), `toggle_plain()` plaintext mode |
-| `search.py` | 520 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `CardDelegate`; in-place thread refresh; `search_list_mode` 'list'/'card' (config-only); `title()` pure (counts via controller batch); `apply_thread_count` |
+| `search.py` | 550 | `SearchPanel` + `SearchModel` + `render_thread_cell()` + `CardDelegate`; in-place thread refresh with fine-grained `beginRemoveRows`/`endRemoveRows` when threads leave query; modern tinted selection wash (25% blend of `bg_highlight` over `bg` when high-contrast) to keep distinct text colors for From, Subject, Date, Tags; `search_list_mode` 'list'/'card' (config-only); `title()` pure (counts via controller batch) |
 | `thread_model.py` | 411 | `ThreadModel(QAbstractItemModel)` + `ThreadItem` — tree (O(1) parent via `row_in_parent`), conversation/thread modes, message tagging |
-| `app.py` | 370 | `Dodo(QApplication)` bootstrap — validated config, logging, signals (Ctrl-C pipe), HelpWindow, sync timer, `_warm_webengine`, theme registry build + initial resolve; `main()`/`install_desktop()` |
+| `app.py` | 370 | `Dodo(QApplication)` bootstrap — validated config, logging, signals (Ctrl-C pipe), lazy `HelpWindow`, sync timer, deferred Chromium warm-up (`QTimer.singleShot(0)`), theme registry build + initial resolve; `main()`/`install_desktop()` |
+| `tools/import_themes.py` | 362 | Zero-dependency CLI tool — inspect theme colors with truecolor ANSI swatches, compile raw packs to native format, 1-to-1 colormapping via `tools/mapping.json`, export standalone themes |
 | `panel.py` | 364 | `Panel(QWidget)` base — keychord handling (prefix timer, parented QTimers), dirty tracking, 150 ms debounce, `has_refreshed`, `HeaderInsetTreeView` |
 | `commandbar.py` | 363 | `CommandBar(QPlainTextEdit)` — modal overlay (dim + click-away), grow-to-content, tag + theme-name autocomplete, per-mode history; process-wide `_TagStore` owns the bg tag loader (outlives bars) |
 | `address_completer.py` | 250 | `AddressCompleter(QCompleter)` + singleton `_AddressLoader(QThread)` — `notmuch address` preload, MatchContains, min 2 chars |
@@ -330,7 +338,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 ### Key Optional
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `theme` | `themes.nord` | Palette dict; live-switchable (`M-<`/`M->`/`t h`), last choice remembered in QSettings |
+| `theme` | `themes.nord` | **[DEPRECATED in config.py]** In-app picker (`t h`, `M-<`/`M->`) is authoritative, persisted in QSettings (`lazarus.conf`) |
 | `theme_overrides` | `{}` | `{theme_name: {key: value}}` per-theme corrections — hex, source-palette ANSI index, named terminal color, or another Lazarus key |
 | `default_heuristic` | `{}` | Replaces lines of the built-in terminal-theme mapping for every pack theme; `theme_overrides[theme]` wins over it |
 | `colormap.py` | (file) | `~/.config/lazarus/themes/colormap.py` — auto-created, never overwritten, generated from `DEFAULT_TERMINAL_MAP`; defines the above two settings |
@@ -383,7 +391,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
 - **Type check**: `mypy lazarus` (pipx venv) — **must stay at 0 errors**; `disallow_untyped_defs = True`
 - **Lint**: `pyflakes lazarus` — clean apart from intentional re-exports in `__init__.py`/`util.py`
-- **Tests**: 326 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
+- **Tests**: 352 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry the Ruly header. Keep `key_string`, `message_css`, `LOCAL_PROTOCOLS`, and the `lazarus.util` re-exports stable — part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
@@ -403,6 +411,14 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Escape in compose is one-directional** (`escape_focus` = `self.setFocus()`): it exits the editor/fields to the chrome and never re-enters the editor — do not 'restore' the old toggle or the two-mode model breaks.
 - **`notmuch count --batch`** exists (`count_batch`) — prefer it over N subprocesses (TagModel, tab titles).
 - **HTML parity in reply/forward**: `notmuch show` elides `text/html` parts unless `--include-html` is passed. Every call site that produces displayed/quoted body content must pass `--include-html` (+ `--decrypt=true` for parity with the preview) or HTML-only emails reply with an **empty body** — e.g. `search._thread_latest_message` must mirror `thread_model._fetch_full_thread` (pinned by `test_list_reply_quotes_html_only_email`).
+- **No eager imports in `__init__.py`**: Importing submodules like `themes` must not transitively import `app` or PyQt6/WebEngine. CLI developer tools (`tools/import_themes.py`) must remain pure Python stdlib with 0 external dependencies so they run on standard system Python without requiring a venv.
+- **ANSI escape sequences throw off terminal string width padding**: 24-bit truecolor escape codes (`\033[48;2;...m`) have byte length but zero terminal column width. When formatting multi-column CLI outputs, pad the visible text components with fixed widths rather than wrapping the whole colorized string in `<width>`, otherwise columns will be misaligned.
+- **Topological dependency order in theme key resolution**: In `terminal_theme_to_lazarus`, evaluate keys in dependency order (`bg`, `fg`, `fg_dim` before dependent keys like `fg_date` and `fg_subject_irrelevant`).
+- **Contrast in custom item delegates vs standard Qt widgets**: Standard Qt widgets (`TagPanel` / `QTreeView`) automatically invert text to `QPalette.HighlightedText` on selection. Custom item delegates (`CardDelegate` in `search.py`) manually paint text pens; painting an opaque bright `bg_highlight` without inverting text causes an unreadable contrast clash. Use a modern 25% alpha blend wash (`bg_highlight` over `bg` when high-contrast) so distinct column colors (`fg_from`, `fg_subject_unread`, `fg_tags`) stay readable on any theme.
+- **Fine-grained row removals vs model reset**: In `SearchModel.refresh_thread`, use `beginRemoveRows` / `endRemoveRows` when a thread leaves a query rather than `beginResetModel`. Full resets blow away scroll position, delegate state, and cursor focus.
+- **Non-blocking `notmuch new` in bulk thread actions**: Run `notmuch.new()` inside the `_BulkMoveWorker` QThread right after file renames rather than stalling the Qt main thread. Guard destructive actions (`delete_thread`, `archive_thread`) from running redundant shell subprocesses if no threads are marked.
+- **Lazy initialization of secondary windows & WebEngine warmup**: Never instantiate dialogs (`HelpWindow`) during `app.py` bootstrap. Defer Chromium warmup to `QTimer.singleShot(0, self._warm_webengine)` to drop cold startup from ~760ms to ~110ms.
+- **1-to-1 mapping vs convoluted fallback chains**: Multi-item fallback chains (`[14, 6, 12, 4, 'fg']`) were relics of 8-color vs 16-color VT100 terminals. In modern truecolor Qt GUI apps where 100% of bundled themes define all 16 colors, clean 1-to-1 mappings are vastly clearer and maintainable.
 
 ### Shelved work
 
