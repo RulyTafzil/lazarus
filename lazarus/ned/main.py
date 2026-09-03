@@ -92,11 +92,12 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # Load Lazarus configuration
+    # Load configuration: search ned/config.py first, then lazarus/config.py
     try:
-        config.load_config()
+        cfg_path, _ = config.load_config(app_names=("ned", "lazarus"))
+        logger.info("Loaded configuration from %s", cfg_path)
     except Exception as e:
-        logger.warning("Could not load Lazarus configuration: %s", e)
+        logger.warning("Could not load configuration: %s", e)
 
     # Resolve token override
     if args.token:

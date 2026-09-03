@@ -47,26 +47,30 @@ class ConfigError(RuntimeError):
     """Config file error with a user-friendly message."""
 
 
-def _config_path() -> tuple[str | None, list[str]]:
-    """Return (path or None, searched_locations)."""
+def _config_path(app_names: tuple[str, ...] = ('lazarus',)) -> tuple[str | None, list[str]]:
+    """Return (path or None, searched_locations) across candidate app directories."""
     locs: list[str] = []
-    try:
-        path = QStandardPaths.locate(
-            QStandardPaths.StandardLocation.ConfigLocation, 'lazarus/config.py'
-        )
-        locs = [os.path.join(d, 'lazarus') for d in
-                QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation)]
-        if path:
-            return (path, locs)
-    except Exception:
-        pass
+    for app in app_names:
+        try:
+            path = QStandardPaths.locate(
+                QStandardPaths.StandardLocation.ConfigLocation, f'{app}/config.py'
+            )
+            for d in QStandardPaths.standardLocations(QStandardPaths.StandardLocation.ConfigLocation):
+                loc = os.path.join(d, app)
+                if loc not in locs:
+                    locs.append(loc)
+            if path:
+                return (path, locs)
+        except Exception:
+            pass
 
-    xdg_config = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
-    candidate = os.path.join(xdg_config, 'lazarus', 'config.py')
-    if os.path.dirname(candidate) not in locs:
-        locs.append(os.path.dirname(candidate))
-    if os.path.exists(candidate):
-        return (candidate, locs)
+        xdg_config = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+        candidate = os.path.join(xdg_config, app, 'config.py')
+        if os.path.dirname(candidate) not in locs:
+            locs.append(os.path.dirname(candidate))
+        if os.path.exists(candidate):
+            return (candidate, locs)
+
     return (None, locs)
 
 
@@ -154,18 +158,23 @@ def _validate_settings() -> list[str]:
     return errors
 
 
-def load_config() -> tuple[str, list[str]]:
+def load_config(app_names: tuple[str, ...] = ('lazarus',)) -> tuple[str, list[str]]:
     """Locate and exec ``config.py``, then validate settings.
 
+    :param app_names: tuple of directory names to search under config locations
+        in order of priority (e.g. ('ned', 'lazarus')).
     :returns: (config_path, warnings) — warnings are non-fatal issues
         (empty list means clean).
     :raises ConfigError: on missing file, exec failure, or validation errors.
         The message contains the file path + traceback or the validation errors.
     """
-    path, locs = _config_path()
+    try:
+        path, locs = _config_path(app_names)
+    except TypeError:
+        path, locs = _config_path()  # type: ignore[call-arg]
     if not path:
         raise ConfigError(
-            "No config.py found in:\n" + "\n".join(f"  {d}/lazarus" for d in locs)
+            "No config.py found in:\n" + "\n".join(f"  {d}" for d in locs)
         )
 
     try:

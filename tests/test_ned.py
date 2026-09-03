@@ -168,3 +168,26 @@ def test_ned_sse_events(tmp_path):
         s.close()
     finally:
         daemon.stop()
+
+
+def test_ned_config_cascade(tmp_path, monkeypatch):
+    from lazarus.config import _config_path
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    path, _ = _config_path(("ned", "lazarus"))
+    assert path is None
+
+    # Only lazarus exists -> loads lazarus
+    lazarus_dir = tmp_path / "lazarus"
+    lazarus_dir.mkdir()
+    (lazarus_dir / "config.py").write_text("settings.web_port = 8081\n")
+    path, _ = _config_path(("ned", "lazarus"))
+    assert path == str(lazarus_dir / "config.py")
+
+    # Both exist -> ned takes priority
+    ned_dir = tmp_path / "ned"
+    ned_dir.mkdir()
+    (ned_dir / "config.py").write_text("settings.web_port = 8082\n")
+    path, _ = _config_path(("ned", "lazarus"))
+    assert path == str(ned_dir / "config.py")
+
