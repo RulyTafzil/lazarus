@@ -1,6 +1,38 @@
 # Mobile framework specification for Lazarus
 
-This document defines the requirements, architecture, and implementation plans for extending Lazarus email access to mobile devices. It evaluates two approaches: a mobile web application and a dedicated native mobile application. Both share a common host API service running on the user's primary workstation over Tailscale.
+This document defines the requirements, architecture, and implementation plans for extending Lazarus email access to mobile and remote devices. It evaluates how to evolve Lazarus into a client-server architecture inspired by MPD (Music Player Daemon) while strictly guarding against feature creep and preserving the zero-latency local desktop experience.
+
+## Architectural principles and scope control
+
+Before considering implementation details, the following guardrails govern all mobile and remote development:
+
+1. **Local-first desktop primacy (anti-feature creep):**
+   Over 90% of user interaction happens locally on the desktop client. Mobile and remote access are secondary extensions. The desktop client must never be forced to depend on an external network daemon. When running on a single workstation, Lazarus must remain completely self-contained in-process with zero network overhead.
+
+2. **End-to-end encryption by default:**
+   All communication between clients and the server daemon must be encrypted end-to-end at all times. The daemon will not expose unencrypted HTTP listeners over public or LAN networks.
+
+3. **Additive headless core:**
+   All shared logic lives in `lazarus.core` (file moves, sync engine, search, MIME building). Both the standalone desktop client and the server daemon import this core layer directly, ensuring zero duplicated domain logic without entangling the desktop GUI with remote networking.
+
+## Evaluation: the MPD model for notmuch
+
+### Has this already been done for notmuch?
+In the 15-year history of the Notmuch ecosystem, a dedicated, general-purpose daemon analogous to MPD has never materialized. Instead, the community has relied on two workarounds:
+- **SSH command wrapping:** Configuring local email clients (such as Emacs or Neomutt) to invoke `ssh host notmuch ...` for every search. This approach is brittle, introduces high latency per keypress, and fails to handle background IMAP sync, Maildir file moves, or attachments.
+- **Muchsync:** Replicating the entire Notmuch database and Maildir directory tree to every laptop over SSH. While effective for laptops with large disks, it is completely impractical for mobile devices and requires syncing gigabytes of raw mail.
+
+Building a headless daemon for Notmuch that manages synchronization, indexing, Maildir moves, and multi-client push notifications fills a genuine void in the ecosystem.
+
+### Lessons to adopt from MPD
+MPD provides several proven architectural patterns:
+- **The `idle` event bus:** MPD avoids polling by letting clients issue an `idle` command. The server blocks until an internal subsystem changes (`database`, `playlist`, `player`), then wakes the client with the name of the modified subsystem. For Lazarus, a push event stream broadcasting changes (`mail`, `tags`, `moves`, `sync`) eliminates client-side polling timers.
+- **Centralized side effects:** All background tasks (IMAP sync via `mbsync`, indexing via `notmuch new`, filter rules, and soft-delete/archive file moves) belong exclusively to the daemon. Clients become lightweight views that trigger actions without managing local subprocesses.
+- **Unified multi-device state:** When a thread is archived or tagged on a mobile client, the desktop client receives the change notification and refreshes instantly.
+
+### Where email departs from MPD
+- **Rich document payloads vs control messages:** MPD exchanges tiny key-value strings because audio streams to hardware outputs. Email clients exchange nested JSON conversation trees, HTML bodies, and binary MIME attachments. A modern structured HTTP/REST interface with an event stream is far more appropriate than MPD's line-based Telnet protocol.
+- **View state vs queue state:** MPD manages a shared playback queue. An email client's search query, selected tab, and scroll position are strictly local to that client.
 
 ## Core requirements
 
@@ -25,7 +57,7 @@ Any mobile implementation must satisfy the following functional requirements:
 
 4. **Address autocomplete**
    - Suggest recipient email addresses dynamically as the user types in To, Cc, or Bcc fields.
-   - Mirror the behavior in [address_completer.py](file:///home/rulyt/Projects/lazarus/lazarus/address_completer.py) by querying the host's notmuch address index with substring matching.
+   - Query the host's notmuch address index with substring matching.
 
 5. **Local storage expectations**
    - Offline storage on the mobile device is optional. A live network client operating over Tailscale satisfies the core triage need.
@@ -37,19 +69,22 @@ Both mobile options depend on a lightweight, headless API daemon running on the 
 
 ### Network and security
 
-- **Interface binding:** The server binds strictly to the Tailscale interface (`100.x.y.z`) or listens on `127.0.0.1` behind a reverse proxy bound to Tailscale. It never listens on public interfaces.
-- **Transport security:** Tailscale encrypts all traffic point-to-point via WireGuard.
-- **Authentication:** Requests require an `Authorization: Bearer <token>` header matching a secret stored in the user's Lazarus configuration.
+- **End-to-end encryption by default:** Transport security is enforced via Tailscale WireGuard point-to-point encryption (ChaCha20-Poly1305). All traffic between client and server is encrypted at the network layer.
+- **Interface binding:** The server binds strictly to the Tailscale interface (`100.x.y.z`) or loopback (`127.0.0.1`). It refuses to bind to 0.0.0.0 or unencrypted public interfaces.
+- **TLS termination:** Optional direct HTTPS using Tailscale automated certificates (`tailscale cert`) or reverse proxy TLS.
+- **Authentication:** Requests require an `Authorization: Bearer <token>` header matching a cryptographically secure token stored in the user's Lazarus configuration.
 - **Process management:** Runs as a standard systemd user service (`systemd --user`) so it stays active when the Lazarus desktop GUI is closed.
 
 ### Reused Lazarus modules
 
-The daemon avoids duplicating logic by importing existing pure Python modules from the Lazarus package:
+The daemon avoids duplicating logic by importing pure Python modules from `lazarus.core`:
 
-- [notmuch.py](file:///home/rulyt/Projects/lazarus/lazarus/notmuch.py): Provides CLI wrappers for `search_json`, `count_batch`, `tags`, and `tag`.
-- [mail_utils.py](file:///home/rulyt/Projects/lazarus/lazarus/mail_utils.py): Handles message part decomposition, body extraction, and quoting logic.
-- [mime_builder.py](file:///home/rulyt/Projects/lazarus/lazarus/mime_builder.py): Assembles RFC-compliant multipart MIME messages with attachments.
-- [rules.py](file:///home/rulyt/Projects/lazarus/lazarus/rules.py): Applies automated tag and folder rules if triggered remotely.
+- `lazarus.core.actions`: File move planning, bulk worker, expunge, and restore.
+- `lazarus.core.sync`: Parallel mbsync runner, indexing, and rule evaluation.
+- `lazarus.notmuch`: CLI wrappers for `search_json`, `count_batch`, `tags`, and `tag`.
+- `lazarus.mail_utils`: Message part decomposition, body extraction, and quoting logic.
+- `lazarus.mime_builder`: RFC-compliant multipart MIME construction.
+- `lazarus.rules`: Automated tag and folder filter rules.
 
 ### API specification
 
@@ -130,10 +165,13 @@ A dedicated native mobile application developed in Swift for iOS or Kotlin for A
 | Attachment uploads | Native file input | Native system pickers |
 | Contact autocomplete | Dynamic DOM dropdown | Native suggestion list |
 
-## Implementation recommendation
+## Current status and prudent next steps
 
-The most practical approach is phased:
-
-1. **Phase 1: Build the host API daemon in Lazarus.** Implement the shared endpoints in a new `lazarus/server` package. This delivers immediate utility and defines the data contracts.
-2. **Phase 2: Deploy the Option 1 web interface.** Serve a mobile web interface from the daemon. Test the search, triage, reply, and attachment workflow on mobile over Tailscale.
-3. **Phase 3: Evaluate native client need.** If the mobile web experience meets daily triage and reply needs, stop there. If gesture latency or browser keyboard quirks cause friction, the API daemon is already running and ready to back the Option 2 native client.
+1. **Phase 1 (Completed): Headless domain engine and server daemon.**
+   Implemented `lazarus.core` (zero Qt dependencies, pure background worker, headless sync runner) and `lazarus.server` (REST API and static file router).
+2. **Phase 2 (Completed): Option 1 mobile web application.**
+   Deployed responsive, mobile-first web interface with pull-to-sync, one-tap triage, reply composition, dynamic signatures, and Tailscale WireGuard security.
+3. **Phase 3 (Active hold): Real-world evaluation before further structural changes.**
+   Given that 90% of usage remains on the local desktop client, hold on any further backend or native client rewrites. Use the mobile web interface daily to identify real-world bottlenecks before introducing new abstractions.
+4. **Phase 4 (Optional future): MPD-style event streaming.**
+   If polling overhead or desktop-mobile synchronization friction becomes noticeable in daily use, add a Server-Sent Events (SSE) stream (`/api/events`) to the daemon so clients receive push updates (`changed: mail`, `changed: tags`) modeled on MPD's `idle` architecture.
