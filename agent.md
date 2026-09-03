@@ -84,7 +84,13 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── core/               # Headless domain engine (zero Qt dependencies)
 │   │   ├── actions.py      # Pure file move planners, _BulkMoveWorker(threading.Thread), expunge/restore
 │   │   └── sync.py         # Pure parallel mbsync, notmuch new, rules runner (run_sync, SyncResult)
-│   ├── server/             # Mobile web server & REST API (pure Python stdlib + zero-dep static PWA)
+│   ├── ned/                # Notmuch Email Daemon (NED)
+│   │   ├── concurrency.py  # MutationLock: serialized mutation write queue
+│   │   ├── events.py       # EventBroadcaster: SSE invalidation broadcaster
+│   │   ├── handler.py      # NedRequestHandler: /api/v1/ routes, legacy aliases, SSE, static
+│   │   ├── daemon.py       # NedDaemon: Unix domain socket + TCP listeners + sync scheduler
+│   │   └── main.py         # ned CLI entry point
+│   ├── server/             # Legacy mobile web server & service helpers
 │   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
 │   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
 │   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
