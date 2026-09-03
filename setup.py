@@ -26,7 +26,7 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    packages=["lazarus", "lazarus.server"],
+    packages=["lazarus", "lazarus.core", "lazarus.server"],
     package_data={
         'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json'],
         'lazarus.server': ['static/*'],

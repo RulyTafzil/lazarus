@@ -81,12 +81,14 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── style.py            # Memoised cell_font/theme_color; NerdFont family + glyph_image()
 │   ├── protocols.py        # PanelApp/ThreadList/ThreadView protocols + method sets
 │   ├── helpwindow.py       # HelpWindow — keybinding HTML
-│   ├── icons/hicolor/*/apps/lazarus.png  # 16-1024px bundled PNGs (package_data)
+│   ├── core/               # Headless domain engine (zero Qt dependencies)
+│   │   ├── actions.py      # Pure file move planners, _BulkMoveWorker(threading.Thread), expunge/restore
+│   │   └── sync.py         # Pure parallel mbsync, notmuch new, rules runner (run_sync, SyncResult)
 │   ├── server/             # Mobile web server & REST API (pure Python stdlib + zero-dep static PWA)
 │   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
 │   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
 │   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
-│   │   └── static/         # Mobile-first web app (index.html, app.css, app.js)
+│   │   └── static/         # Mobile-first frontend (Nord theme, PWA ready)
 │   └── theme_packs/
 │       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
 │       └── raw_terminal_themes.json  # Raw terminal palette sources
