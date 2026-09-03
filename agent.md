@@ -45,7 +45,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 ## Project Layout
 ```
 ~/Projects/lazarus/
-├── .agent                  # this file
+├── agent.md                # this file
 ├── lazarus/                # Python package (11.3k LOC)
 │   ├── __init__.py         # re-exports app/themes/settings/keymap/util
 │   ├── __main__.py         # app.main() entry
@@ -427,7 +427,14 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Non-blocking `notmuch new` in bulk thread actions**: Run `notmuch.new()` inside the `_BulkMoveWorker` QThread right after file renames rather than stalling the Qt main thread. Guard destructive actions (`delete_thread`, `archive_thread`) from running redundant shell subprocesses if no threads are marked.
 - **Lazy initialization of secondary windows & WebEngine warmup**: Never instantiate dialogs (`HelpWindow`) during `app.py` bootstrap. Defer Chromium warmup to `QTimer.singleShot(0, self._warm_webengine)` to drop cold startup from ~760ms to ~110ms.
 - **1-to-1 mapping vs convoluted fallback chains**: Multi-item fallback chains (`[14, 6, 12, 4, 'fg']`) were relics of 8-color vs 16-color VT100 terminals. In modern truecolor Qt GUI apps where 100% of bundled themes define all 16 colors, clean 1-to-1 mappings are vastly clearer and maintainable.
+- **URL percent-decoding in REST routes**: Browser clients URL-encode path parameters (e.g. `@` as `%40` in message IDs like `CABsu...%40mail.gmail.com`). Always unquote path segments with `urllib.parse.unquote()` before querying `notmuch show -- id:...` or file actions, otherwise notmuch searches for literal `%40` and fails to find the message.
+- **Headless server independence from Qt**: `lazarus.server` is pure Python stdlib (`http.server`, `socketserver`) with 0 external dependencies. Modules reused by the server (`config.py`, `signature.py`) must maintain standard XDG path resolution fallbacks (`$XDG_CONFIG_HOME` / `~/.config`) when `PyQt6.QtCore.QStandardPaths` is not instantiated.
+- **`A` archive parity on mobile**: In Lazarus, `a` is tag-only (`-inbox -unread`), whereas `A` (`archive_to_local`) removes `-inbox -unread`, moves message files into `~/Mail/Archive/cur/` while stripping UID annotations, and runs `notmuch new`. The mobile interface uses `A` archive for all archive actions.
+- **Pull-down-to-sync gesture on mobile web**: Implemented using passive touch handlers (`touchstart`, `touchmove`, `touchend`) on the thread list when `scrollTop <= 0`. Pulling past the threshold triggers `POST /api/sync`, executing parallel `mbsync -V <account>` processes, running `notmuch new`, and applying filter rules.
+- **Plaintext signature placement and switching**: `sig_edit()` in `compose_model.py` is a pure function. On mobile, signatures are pre-populated above the quote anchor, and switching accounts dynamically replaces the signature block in the `<textarea>` without network round-trips.
+- **No-cache headers on static PWA assets**: Static files (`app.js`, `app.css`) served by `lazarus-web` must use `Cache-Control: no-cache, must-revalidate` so client updates are immediately applied upon browser refresh.
 
 ### Shelved work
 
 None — the previous shelves (compose-pane HTML fidelity `.plan` on `pr/html-replies`) were pruned 2026-08-20.
+
