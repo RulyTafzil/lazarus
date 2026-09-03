@@ -89,7 +89,7 @@ def test_service_search_threads(monkeypatch):
 def test_service_tag_actions(monkeypatch):
     recorded_calls: list[tuple[str, str]] = []
 
-    def mock_tag(expr: str, query: str):
+    def mock_tag(expr: str, query: str, *args, **kwargs):
         recorded_calls.append((expr, query))
         class Result:
             returncode = 0
@@ -132,11 +132,12 @@ def test_service_archive_moves_to_local_archive(tmp_path, monkeypatch):
     mail_file = src_dir / '12345.msg,U=10:2,S'
     mail_file.write_text('From: test@example.com\n\nHello')
 
-    monkeypatch.setattr(notmuch, 'tag', lambda expr, q: None)
+    monkeypatch.setattr(notmuch, 'tag', lambda expr, q, *args, **kwargs: None)
     monkeypatch.setattr(notmuch, 'new', lambda no_hooks=True: None)
     monkeypatch.setattr(actions, 'collect_files', lambda q: [str(mail_file)])
 
     assert service.archive_thread('0000000000001234')
+    actions.get_worker().wait_idle()
 
     # Source file should be moved into archive cur/
     dest_cur = tmp_path / 'Archive' / 'cur'

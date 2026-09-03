@@ -81,12 +81,14 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── style.py            # Memoised cell_font/theme_color; NerdFont family + glyph_image()
 │   ├── protocols.py        # PanelApp/ThreadList/ThreadView protocols + method sets
 │   ├── helpwindow.py       # HelpWindow — keybinding HTML
-│   ├── icons/hicolor/*/apps/lazarus.png  # 16-1024px bundled PNGs (package_data)
+│   ├── core/               # Headless domain engine (zero Qt dependencies)
+│   │   ├── actions.py      # Pure file move planners, _BulkMoveWorker(threading.Thread), expunge/restore
+│   │   └── sync.py         # Pure parallel mbsync, notmuch new, rules runner (run_sync, SyncResult)
 │   ├── server/             # Mobile web server & REST API (pure Python stdlib + zero-dep static PWA)
 │   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
 │   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
 │   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
-│   │   └── static/         # Mobile-first web app (index.html, app.css, app.js)
+│   │   └── static/         # Mobile-first frontend (Nord theme, PWA ready)
 │   └── theme_packs/
 │       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
 │       └── raw_terminal_themes.json  # Raw terminal palette sources
@@ -433,6 +435,28 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Pull-down-to-sync gesture on mobile web**: Implemented using passive touch handlers (`touchstart`, `touchmove`, `touchend`) on the thread list when `scrollTop <= 0`. Pulling past the threshold triggers `POST /api/sync`, executing parallel `mbsync -V <account>` processes, running `notmuch new`, and applying filter rules.
 - **Plaintext signature placement and switching**: `sig_edit()` in `compose_model.py` is a pure function. On mobile, signatures are pre-populated above the quote anchor, and switching accounts dynamically replaces the signature block in the `<textarea>` without network round-trips.
 - **No-cache headers on static PWA assets**: Static files (`app.js`, `app.css`) served by `lazarus-web` must use `Cache-Control: no-cache, must-revalidate` so client updates are immediately applied upon browser refresh.
+- **Zero Qt imports in `lazarus.core`**: The `lazarus.core` package is strictly headless with zero Qt dependencies. Any background threading must use standard library `threading.Thread`, not `QThread`.
+- **`threading.Thread` vs Qt main loop signal marshalling**: When background threads in `core.actions` complete batches, wire desktop listeners through `_QtBatchDoneBridge(QObject)` with a `pyqtSignal()`. Emitting the signal safely marshals the callback onto Qt's main event loop before invoking `app.refresh_panels()`.
+
+### Architecture and roadmap
+
+#### Decoupled domain engine (`lazarus.core`)
+The codebase follows a clear separation between headless domain primitives and presentation layers:
+- `lazarus.core`: Pure Python domain logic (file moves, mail sync, index queries). Zero Qt dependencies.
+- `lazarus.server`: Lightweight mobile web daemon and REST API consuming `lazarus.core`. Zero Qt dependencies.
+- `lazarus` (root): Desktop client in PyQt6/WebEngine consuming `lazarus.core`.
+
+#### Migration roadmap for `core/`
+To prevent massive diff churn and preserve `git blame`, headless modules are migrated incrementally when touched:
+1. Steps 1 & 2 (completed): Decoupled `core.actions` (`_BulkMoveWorker`, move planners) and `core.sync` (`run_sync`, `SyncResult`).
+2. Candidate modules for incremental migration into `core/`:
+   - `core/rules.py` (filter engine)
+   - `core/notmuch.py` (CLI wrapper)
+   - `core/mail_utils.py` (MIME structure & attachment extraction)
+   - `core/compose_model.py` (reply seeds, quote formatting, signature placement)
+   - `core/mime_builder.py` (outbound MIME assembly)
+3. Backward compatibility rule: Whenever a module moves to `core/`, maintain a one-line re-export shim at `lazarus/<module>.py` (e.g. `from .core.rules import Rule, apply_rules`) so user configurations in `~/.config/lazarus/config.py` remain unbroken.
+4. Desktop UI panels (`mainwindow`, `search`, `thread`, `compose`, `editor`, `commandbar`, `tag`) remain at the root package level.
 
 ### Shelved work
 
