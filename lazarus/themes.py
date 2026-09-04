@@ -19,14 +19,19 @@
 from __future__ import annotations
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QStandardPaths
-from PyQt6.QtGui import QPalette, QColor
-from PyQt6.QtWidgets import QApplication
-
-from . import settings as _settings  # for hover blend toward theme fg
+try:
+    from PyQt6.QtCore import QStandardPaths
+    from PyQt6.QtGui import QPalette, QColor
+    from PyQt6.QtWidgets import QApplication
+except ImportError:
+    QStandardPaths = None  # type: ignore
+    QPalette = None  # type: ignore
+    QColor = None  # type: ignore
+    QApplication = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +41,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _is_dark(theme: dict) -> bool:
-    return QColor(theme['bg']).lightness() < 128
+    bg = theme.get('bg', '#000000')
+    if QColor is not None:
+        return QColor(bg).lightness() < 128
+    h = bg.lstrip('#')
+    if len(h) == 6:
+        try:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            return (0.299 * r + 0.587 * g + 0.114 * b) < 128
+        except ValueError:
+            return True
+    return True
 
 
 def _border_color(theme: dict) -> str:
@@ -79,7 +94,7 @@ def _thumb_hover_color(base_hex: str, theme: dict) -> str:
     # dark themes, blending toward fg (which is light) gives good contrast.
     is_dark = _is_dark(theme)
     if is_dark:
-        fg = theme.get('fg', _settings.theme.get('fg', '#ffffff'))
+        fg = theme.get('fg', '#ffffff')
         fg_c = QColor(fg)
         r = int(c.red()   * 0.6 + fg_c.red()   * 0.4)
         g = int(c.green() * 0.6 + fg_c.green() * 0.4)
@@ -705,7 +720,10 @@ def _builtin_pack_path() -> Path:
 
 
 def _user_theme_dir() -> Path:
-    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+    if QStandardPaths is not None:
+        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return Path(base) / 'lazarus' / 'themes'
 
 
@@ -800,6 +818,9 @@ def _merge_override(name: str,
         current[key] = hex_color
     if current != registry[name]:
         registry[name] = current
+
+
+from . import settings as _settings
 
 
 def _apply_overrides(registry: dict[str, dict],

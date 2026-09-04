@@ -152,9 +152,9 @@ class AppController(QObject):
 
     def _init_ned_watcher(self) -> None:
         """Start background SSE listener thread bridging invalidations to Qt."""
-        from .client import get_client, is_ned_active
-        if not is_ned_active():
+        if os.environ.get("LAZARUS_DISABLE_NED") == "1":
             return
+        from .client import get_client
         client = get_client()
         self._ned_stop_event = threading.Event()
         self._ned_bridge = _NedEventBridge()

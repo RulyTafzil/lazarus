@@ -38,13 +38,15 @@ from typing import Any
 import urllib.parse
 
 from .. import settings
-from ..server import service
+from ..core import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "server" / "static"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if not STATIC_DIR.is_dir():
+    STATIC_DIR = Path(__file__).resolve().parent.parent / "server" / "static"
 
 
 class NedRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -176,7 +178,11 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         m_thread = re.match(r"^/api/v1/threads/([^/]+)$", path)
         if m_thread:
             thread_id = urllib.parse.unquote(m_thread.group(1))
-            thread_data = service.get_thread_messages(thread_id)
+            full = qs.get("full", ["true"])[0].lower() in ("true", "1", "yes")
+            try:
+                thread_data = service.get_thread_messages(thread_id, include_bodies=full)
+            except TypeError:
+                thread_data = service.get_thread_messages(thread_id)
             if thread_data is None:
                 self.send_error_json("Thread not found", HTTPStatus.NOT_FOUND)
             else:

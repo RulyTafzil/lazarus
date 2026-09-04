@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import time
@@ -176,22 +177,28 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     assert len(service_calls) == 1
     assert service_calls[-1] == ("tag", ["thread:0000000000001234"], ["starred"], ["unread"])
 
-    # Test archive single thread
+    # Test archive single thread (tag-only: removes inbox, unread)
     panel.archive_thread()
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 2
+    assert service_calls[-1] == ("tag", ["thread:0000000000001234"], [], ["inbox", "unread"])
+
+    # Test archive to local single thread (file move)
+    panel.archive_to_local()
+    assert panel.app.updated_thread == "0000000000001234"
+    assert len(service_calls) == 3
     assert service_calls[-1] == ("archive", "0000000000001234")
 
     # Test trash single thread
     panel.delete_thread()
     assert panel.app.updated_thread == "0000000000001234"
-    assert len(service_calls) == 3
+    assert len(service_calls) == 4
     assert service_calls[-1] == ("trash", "0000000000001234")
 
     # Test untrash single thread
     panel.restore_thread_from_trash()
     assert panel.app.updated_thread == "0000000000001234"
-    assert len(service_calls) == 4
+    assert len(service_calls) == 5
     assert service_calls[-1] == ("untrash", "0000000000001234")
 
     # Test marked batch actions
@@ -201,6 +208,9 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     assert service_calls[-1] == ("tag", ["tag:marked"], ["reviewed"], [])
 
     marked_panel.archive_thread()
+    assert service_calls[-1] == ("tag", ["tag:marked"], [], ["inbox", "unread"])
+
+    marked_panel.archive_to_local()
     assert service_calls[-1] == ("archive", "tag:marked")
 
     marked_panel.delete_thread()
@@ -332,3 +342,40 @@ def test_desktop_sse_bridge_and_cleanup(qapp, running_ned):
     watcher.join(timeout=1.0)
     assert not watcher.is_alive()
     assert time.time() - t0 < 0.8
+
+
+def test_ensure_daemon_spawn_command(monkeypatch, tmp_path):
+    sock_file = str(tmp_path / "test_ned.sock")
+    monkeypatch.setenv("NED_SOCK", sock_file)
+    monkeypatch.delenv("LAZARUS_DISABLE_NED", raising=False)
+
+    call_count = 0
+
+    def mock_is_active():
+        nonlocal call_count
+        call_count += 1
+        return call_count > 1
+
+    monkeypatch.setattr("lazarus.client.is_ned_active", mock_is_active)
+
+    with patch("lazarus.client.subprocess.Popen") as mock_popen:
+        assert ensure_daemon(timeout=1.0) is True
+        mock_popen.assert_called_once()
+        args, kwargs = mock_popen.call_args
+        cmd = args[0]
+        assert cmd == [
+            sys.executable,
+            "-m",
+            "lazarus.ned.main",
+            f"--socket={sock_file}",
+        ]
+        assert kwargs.get("start_new_session") is True
+        assert kwargs.get("close_fds") is True
+
+
+def test_ensure_daemon_disabled(monkeypatch):
+    monkeypatch.setenv("LAZARUS_DISABLE_NED", "1")
+    with patch("lazarus.client.subprocess.Popen") as mock_popen:
+        assert ensure_daemon() is False
+        mock_popen.assert_not_called()
+

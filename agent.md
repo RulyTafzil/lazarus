@@ -86,6 +86,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── helpwindow.py       # HelpWindow — keybinding HTML
 │   ├── core/               # Headless domain engine (zero Qt dependencies)
 │   │   ├── actions.py      # Pure file move planners, _BulkMoveWorker(threading.Thread), expunge/restore
+│   │   ├── service.py      # Headless domain services: queries, thread assembly, tags, contacts, send
 │   │   └── sync.py         # Pure parallel mbsync, notmuch new, rules runner (run_sync, SyncResult)
 │   ├── ned/                # Notmuch Email Daemon (NED)
 │   │   ├── concurrency.py  # MutationLock: serialized mutation write queue
@@ -93,20 +94,21 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   │   ├── handler.py      # NedRequestHandler: /api/v1/ routes, legacy aliases, SSE, static
 │   │   ├── daemon.py       # NedDaemon: Unix domain socket + TCP listeners + sync scheduler
 │   │   ├── client.py       # NedClient: zero-dependency Unix socket & HTTP client library
-│   │   └── main.py         # ned CLI entry point
+│   │   ├── main.py         # ned CLI entry point
+│   │   └── static/         # Mobile PWA web assets served directly by NED
 │   ├── ned_client.py       # Top-level standalone entry point for NedClient
 │   ├── server/             # Legacy mobile web server & service helpers
 │   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
-│   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
+│   │   ├── service.py      # sys.modules alias to lazarus.core.service
 │   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
-│   │   └── static/         # Mobile-first frontend (Nord theme, PWA ready)
+│   │   └── static/         # Legacy static assets
 │   └── theme_packs/
 │       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
 │       └── raw_terminal_themes.json  # Raw terminal palette sources
 ├── tools/
 │   ├── import_themes.py          # Zero-dep CLI for theme inspection, truecolor swatches, compilation, and export
 │   └── mapping.json              # Clean 1-to-1 mapping from terminal/ANSI properties to Lazarus's 19 semantic keys
-├── tests/                  # 352 tests (pytest, offscreen Qt, notmuch stubbed)
+├── tests/                  # 412 tests (pytest, offscreen Qt, notmuch stubbed)
 ├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
 ├── docs/                   # Sphinx (Makefile, make.bat, source/)
 ├── README.md
@@ -238,8 +240,9 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 | `helpwindow.py` | 133 | `HelpWindow` — keybinding HTML |
 | `html_utils.py` | 116 | `linkify`, `colorize_text`, `w3m_html2text`, `html_to_plain` (sig search keys) |
 | `signature.py` | 90 | `config_dir(account)` + per-account `signature`/`signature.html` loader (QStandardPaths) |
+| `core/service.py` | 370 | Headless domain services: queries, thread flattening, tag modifications, msmtp delivery |
 | `server/app.py` | 338 | Threaded HTTP server, route dispatch, authentication, static asset streaming |
-| `server/service.py` | 370 | Pure Python domain logic — search, thread flattening, tag modifications, msmtp delivery |
+| `server/service.py` | 21 | Module alias delegating directly to lazarus.core.service |
 | `server/main.py` | 88 | `lazarus-web` CLI launcher with Tailscale detection |
 | `__init__.py` / `__main__.py` | 23/22 | Re-exports; entry point |
 
@@ -412,7 +415,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
 - **Type check**: `mypy lazarus` (pipx venv) — **must stay at 0 errors**; `disallow_untyped_defs = True`
 - **Lint**: `pyflakes lazarus` — clean apart from intentional re-exports in `__init__.py`/`util.py`
-- **Tests**: 352 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
+- **Tests**: 412 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry the Ruly header. Keep `key_string`, `message_css`, `LOCAL_PROTOCOLS`, and the `lazarus.util` re-exports stable — part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
@@ -450,6 +453,9 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **`threading.Thread` vs Qt main loop signal marshalling**: When background threads in `core.actions` complete batches, wire desktop listeners through `_QtBatchDoneBridge(QObject)` with a `pyqtSignal()`. Emitting the signal safely marshals the callback onto Qt's main event loop before invoking `app.refresh_panels()`.
 - **Non-blocking socket select polling for SSE streams**: On Unix domain sockets, standard blocking `readline()` does not reliably wake up when another thread calls `shutdown()` or `close()`. Using `select.select([raw_sock], [], [], 0.2)` with non-blocking sockets allows event listener threads to check stop events and shut down cleanly within milliseconds without hanging during test teardown.
 - **Cascading config resolution**: NED searches for its own configuration at `~/.config/ned/config.py` first, then falls back to `~/.config/lazarus/config.py`.
+- **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_thread`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
+- **Module aliasing in `sys.modules` for decoupled modules**: When moving domain services to `core/service.py` while maintaining a legacy shim in `server/service.py`, assign `sys.modules[__name__] = _core_service` instead of re-exporting symbols. This ensures test monkeypatches on either module name modify the identical module object in memory.
+- **NED static asset bundling**: NED serves web client assets directly out of `lazarus/ned/static/`. Package data in `setup.py` includes `ned/static/*` so wheel and source distributions ship the web client.
 
 ### Architecture and roadmap
 
@@ -514,15 +520,16 @@ The codebase follows a clear separation between headless domain primitives and p
 
 #### Migration roadmap for `core/`
 To prevent massive diff churn and preserve `git blame`, headless modules are migrated incrementally when touched:
-1. Steps 1 & 2 (completed): Decoupled `core.actions` (`_BulkMoveWorker`, move planners) and `core.sync` (`run_sync`, `SyncResult`).
-2. Candidate modules for incremental migration into `core/`:
+1. Steps 1 and 2 completed: Decoupled `core.actions` and `core.sync`.
+2. Step 3 completed: Decoupled `core.service` with `sys.modules` alias in `server.service`.
+3. Candidate modules for incremental migration into `core/`:
    - `core/rules.py` (filter engine)
    - `core/notmuch.py` (CLI wrapper)
-   - `core/mail_utils.py` (MIME structure & attachment extraction)
+   - `core/mail_utils.py` (MIME structure and attachment extraction)
    - `core/compose_model.py` (reply seeds, quote formatting, signature placement)
    - `core/mime_builder.py` (outbound MIME assembly)
-3. Backward compatibility rule: Whenever a module moves to `core/`, maintain a one-line re-export shim at `lazarus/<module>.py` (e.g. `from .core.rules import Rule, apply_rules`) so user configurations in `~/.config/lazarus/config.py` remain unbroken.
-4. Desktop UI panels (`mainwindow`, `search`, `thread`, `compose`, `editor`, `commandbar`, `tag`) remain at the root package level.
+4. Backward compatibility rule: Whenever a module moves to `core/`, maintain a one-line re-export shim at `lazarus/<module>.py` so user configurations in `~/.config/lazarus/config.py` remain unbroken.
+5. Desktop UI panels (`mainwindow`, `search`, `thread`, `compose`, `editor`, `commandbar`, `tag`) remain at the root package level.
 
 ### Shelved work
 

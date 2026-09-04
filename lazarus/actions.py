@@ -26,11 +26,6 @@ import logging
 import os
 from typing import Callable, List, Literal, Optional, Set, Tuple
 
-from PyQt6.QtCore import QObject, pyqtSignal
-
-from . import notmuch
-from .protocols import PanelApp
-
 from .core.actions import (
     _BulkMoveWorker,
     _get_worker as _core_get_worker,
@@ -58,22 +53,27 @@ from .core.actions import (
 
 logger = logging.getLogger(__name__)
 
+try:
+    from PyQt6.QtCore import QObject, pyqtSignal
 
-# ---------------------------------------------------------------------------
-# Qt Signal Bridge for batch_done
-# ---------------------------------------------------------------------------
+    class _QtBatchDoneBridge(QObject):
+        """Bridge background thread completion into the Qt main event loop."""
+        batch_done = pyqtSignal()
 
-class _QtBatchDoneBridge(QObject):
-    """Bridge background thread completion into the Qt main event loop."""
-    batch_done = pyqtSignal()
+    _bridge: Optional[_QtBatchDoneBridge] = _QtBatchDoneBridge()
+    _core_set_batch_done_listener(_bridge.batch_done.emit)
+except ImportError:
+    _bridge = None
 
-
-_bridge = _QtBatchDoneBridge()
-_core_set_batch_done_listener(_bridge.batch_done.emit)
+from . import notmuch
+from .protocols import PanelApp
 
 
 def set_batch_done_listener(fn: Optional[Callable[[], None]]) -> None:
     """Register or clear the app-level slot run after each completed move batch."""
+    if _bridge is None:
+        _core_set_batch_done_listener(fn)
+        return
     try:
         _bridge.batch_done.disconnect()
     except (TypeError, RuntimeError):
@@ -89,7 +89,8 @@ def _run_notmuch_new() -> None:
 
 def _get_worker() -> _BulkMoveWorker:
     w = _core_get_worker()
-    w.batch_done = _bridge.batch_done  # type: ignore[attr-defined]
+    if _bridge is not None:
+        w.batch_done = _bridge.batch_done  # type: ignore[attr-defined]
     return w
 
 
@@ -218,7 +219,7 @@ class MarkableActionsMixin:
             client = get_client()
             if self._has_marked_threads():
                 marked_query = self._marked_query()
-                ok = client.archive_thread(marked_query)
+                ok = client.modify_tags(marked_query, remove=['inbox', 'unread'])
                 if not ok:
                     self.app.status_message('Archive error', 'error')
                     return
@@ -238,7 +239,7 @@ class MarkableActionsMixin:
                     'warning')
                 return
             self._advance_selection()
-            ok = client.archive_thread(thread_id)
+            ok = client.modify_tags(f'thread:{thread_id}', remove=['inbox', 'unread'])
             if not ok:
                 self.app.status_message('Archive error', 'error')
                 return
@@ -287,15 +288,20 @@ class MarkableActionsMixin:
                 if ok:
                     self.app.refresh_panels()
                     self.app.status_message('Deleted marked', 'info')
-                    return
+                else:
+                    self.app.status_message('Delete error', 'error')
+                return
 
             self._advance_selection()
             thread_id = self._current_thread_id()
             if not thread_id:
                 return
-            client.trash_thread(thread_id)
-            self.app.update_single_thread(thread_id)
-            self.app.status_message('Moved to trash', 'info')
+            ok = client.trash_thread(thread_id)
+            if ok:
+                self.app.update_single_thread(thread_id)
+                self.app.status_message('Moved to trash', 'info')
+            else:
+                self.app.status_message('Delete error', 'error')
             return
 
         if self._has_marked_threads():
@@ -326,15 +332,20 @@ class MarkableActionsMixin:
                 if ok:
                     self.app.refresh_panels()
                     self.app.status_message('Restored from trash', 'info')
-                    return
+                else:
+                    self.app.status_message('Restore error', 'error')
+                return
 
             self._advance_selection()
             thread_id = self._current_thread_id()
             if not thread_id:
                 return
             ok = client.untrash_thread(thread_id)
-            self.app.update_single_thread(thread_id)
-            self.app.status_message('Restored from trash', 'info')
+            if ok:
+                self.app.update_single_thread(thread_id)
+                self.app.status_message('Restored from trash', 'info')
+            else:
+                self.app.status_message('Restore error', 'error')
             return
 
         if self._has_marked_threads():
@@ -375,7 +386,9 @@ class MarkableActionsMixin:
                 if ok:
                     self.app.refresh_panels()
                     self.app.status_message('Archived marked to local', 'info')
-                    return
+                else:
+                    self.app.status_message('Archive error', 'error')
+                return
 
             thread_id = self._current_thread_id()
             if not thread_id:
@@ -389,9 +402,12 @@ class MarkableActionsMixin:
                     'warning')
                 return
             self._advance_selection()
-            client.archive_thread(thread_id)
-            self.app.update_single_thread(thread_id)
-            self.app.status_message('Archived to local', 'info')
+            ok = client.archive_thread(thread_id)
+            if ok:
+                self.app.update_single_thread(thread_id)
+                self.app.status_message('Archived to local', 'info')
+            else:
+                self.app.status_message('Archive error', 'error')
             return
 
         if self._has_marked_threads():

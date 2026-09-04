@@ -416,10 +416,11 @@ class NedClient:
         data = self._request_json("GET", "/api/v1/threads", query_params=params)
         return data if isinstance(data, list) else []
 
-    def get_thread(self, thread_id: str) -> dict[str, Any]:
+    def get_thread(self, thread_id: str, full: bool = True) -> dict[str, Any]:
         """Fetch full thread hierarchy and messages by thread ID."""
         clean_id = urllib.parse.quote(thread_id, safe="")
-        data = self._request_json("GET", f"/api/v1/threads/{clean_id}")
+        params = {"full": "true" if full else "false"}
+        data = self._request_json("GET", f"/api/v1/threads/{clean_id}", query_params=params)
         if not isinstance(data, dict):
             raise NedResponseError(200, "Unexpected thread response format", data)
         return data

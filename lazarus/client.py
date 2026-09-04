@@ -86,9 +86,8 @@ def ensure_daemon(timeout: float = 3.0) -> bool:
     cmd = [
         sys.executable,
         "-m",
-        "lazarus.ned.server",
-        "--daemon",
-        f"--sock={socket_path}",
+        "lazarus.ned.main",
+        f"--socket={socket_path}",
     ]
     logger.info("Spawning NED daemon: %s", " ".join(cmd))
     try:

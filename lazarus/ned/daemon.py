@@ -35,7 +35,7 @@ import time
 from typing import Optional
 
 from .. import settings
-from ..server import service
+from ..core import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 from .handler import NedRequestHandler
