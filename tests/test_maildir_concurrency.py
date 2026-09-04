@@ -156,8 +156,28 @@ def test_worker_resolves_rename_after_planning(maildir):
     renamed = os.path.join(cur, 'msg-7,U=11:2,FS')
     os.rename(src, renamed)
 
-    actions.get_worker().enqueue(moves)
+    from lazarus.core import actions as core_actions
+    core_actions.get_worker().enqueue(moves)
     assert _wait_until(lambda: any('msg-7' in f for f in os.listdir(trash_cur)))
     # Moved with the CURRENT flags, and nothing left in INBOX.
     assert os.path.exists(os.path.join(trash_cur, 'msg-7:2,FS'))
     assert not os.path.exists(renamed)
+
+
+def test_resolve_stale_path_exact_stem_no_wrong_file(maildir, tmp_path):
+    """Stale-path resolution matches the stem EXACTLY — never a prefix.
+
+    A flag-change rename is the same message (`m-plain:2,RS` -> the file
+    `m-plain:2,S` still present); a prefix-sharing sibling with a longer
+    name is a different message and must NOT be claimed.
+    """
+    from lazarus.core.actions import _resolve_stale_path as rsp
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    _write(os.path.join(cur, 'm-plain:2,S'))
+    _write(os.path.join(cur, 'm-plain_extra:2,S'))   # different message
+
+    assert rsp(os.path.join(cur, 'm-plain:2,RS')) == os.path.join(cur, 'm-plain:2,S')
+    # Intended file gone; only the prefix sibling (wrong file!) exists.
+    assert rsp(os.path.join(cur, 'm-plain_extra:2,RS')) == os.path.join(cur, 'm-plain_extra:2,S')
+    # A distinct stem with only a prefix-sharing unrelated file -> gone.
+    assert rsp(os.path.join(cur, 'm-plainX:2,RS')) is None

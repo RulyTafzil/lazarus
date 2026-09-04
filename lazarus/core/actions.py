@@ -286,12 +286,20 @@ def _unique_dest(path: str) -> str:
 
 
 def _resolve_stale_path(f: str) -> Optional[str]:
-    """Resolve a file path that may have changed flags or directory."""
+    """Resolve a file path that may have changed flags or directory.
+
+    Message identity is the maildir *stem* (the name before ``:2,``):
+    read/flag renames (``:2,S``… a notmuch ``maildir.synchronize_flags``
+    side effect) and ``new/``↔``cur/`` moves preserve it.  We compare
+    stems for *exact equality* — never a prefix — so a match is always
+    the same message (unique names are unique per maildir), and a
+    different stem means the file is gone (return ``None``: skip the
+    move, never guess).
+    """
     if os.path.exists(f):
         return f
     parent = os.path.dirname(f)
-    stem = os.path.basename(f)
-    stem_base = stem.rsplit(':2,', 1)[0] if ':2,' in stem else stem
+    stem_base = _stem_of(os.path.basename(f))
 
     candidates = [parent]
     if os.path.basename(parent) in ('new', 'cur'):
@@ -304,11 +312,16 @@ def _resolve_stale_path(f: str) -> Optional[str]:
     for directory in candidates:
         try:
             for entry in os.listdir(directory):
-                if entry.startswith(stem_base):
+                if _stem_of(entry) == stem_base:
                     return os.path.join(directory, entry)
         except OSError:
             pass
     return None
+
+
+def _stem_of(filename: str) -> str:
+    """Maildir stem: the unique name without the ``:2,`` flag suffix."""
+    return filename.rsplit(':2,', 1)[0] if ':2,' in filename else filename
 
 
 # ---------------------------------------------------------------------------
