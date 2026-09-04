@@ -550,3 +550,137 @@ def test_ned_tag_endpoints(tmp_path, monkeypatch):
         conn.close()
     finally:
         daemon.stop()
+
+
+def test_service_maildir_move_actions(monkeypatch):
+    """Test trash, restore, and archive_local in ned.service with unmark flag."""
+    from ned import notmuch, service, actions
+
+    tagged: list[tuple[str, str]] = []
+    trash_moves: list[str] = []
+    restore_moves: list[str] = []
+    archive_moves: list[str] = []
+
+    def mock_tag(expr, query):
+        tagged.append((expr, query))
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr(notmuch, "tag", mock_tag)
+    monkeypatch.setattr(actions, "move_to_trash", lambda q: trash_moves.append(q))
+    monkeypatch.setattr(actions, "restore_from_trash", lambda q: restore_moves.append(q))
+    monkeypatch.setattr(actions, "move_to_archive", lambda q: archive_moves.append(q))
+
+    # 1. trash with unmark
+    service.trash(queries=["tag:marked"], unmark=True)
+    assert tagged[-1] == ("+trash -inbox -unread -marked", "tag:marked")
+    assert trash_moves[-1] == "tag:marked"
+
+    # 2. trash single thread without unmark
+    service.trash(threads=["0000000000001234"])
+    assert tagged[-1] == ("+trash -inbox -unread", "thread:0000000000001234")
+    assert trash_moves[-1] == "thread:0000000000001234"
+
+    # 3. restore with unmark
+    service.restore(queries=["tag:marked"], unmark=True)
+    assert restore_moves[-1] == "tag:trash AND (tag:marked)"
+    assert tagged[-1] == ("+inbox -trash -marked", "tag:marked")
+
+    # 4. restore single message
+    service.restore(messages=["<msg-1@host>"])
+    assert restore_moves[-1] == "tag:trash AND (id:msg-1@host)"
+    assert tagged[-1] == ("+inbox -trash", "id:msg-1@host")
+
+    # 5. archive_local with unmark
+    service.archive_local(queries=["tag:marked"], unmark=True)
+    assert tagged[-1] == ("-inbox -unread -marked", "tag:marked")
+    assert archive_moves[-1] == "tag:marked"
+
+
+def test_ned_maildir_move_endpoints(tmp_path, monkeypatch):
+    """Test POST /api/v1/trash, restore, move-archive for batch, threads, and messages."""
+    from ned import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+
+    calls: list[dict] = []
+
+    def mock_trash(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        calls.append({"action": "trash", "queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
+        return True
+
+    def mock_restore(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        calls.append({"action": "restore", "queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
+        return True
+
+    def mock_archive_local(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        calls.append({"action": "archive_local", "queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
+        return True
+
+    monkeypatch.setattr(service, "trash", mock_trash)
+    monkeypatch.setattr(service, "restore", mock_restore)
+    monkeypatch.setattr(service, "archive_local", mock_archive_local)
+
+    try:
+        conn = UnixHTTPConnection(sock_path)
+
+        # Batch trash
+        b_payload = json.dumps({"queries": ["tag:marked"], "unmark": True})
+        conn.request("POST", "/api/v1/trash", body=b_payload, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "trash", "queries": ["tag:marked"], "threads": [], "messages": [], "unmark": True}
+
+        # Batch restore
+        conn.request("POST", "/api/v1/restore", body=b_payload, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "restore", "queries": ["tag:marked"], "threads": [], "messages": [], "unmark": True}
+
+        # Batch move-archive
+        conn.request("POST", "/api/v1/move-archive", body=b_payload, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "archive_local", "queries": ["tag:marked"], "threads": [], "messages": [], "unmark": True}
+
+        # Single thread trash
+        conn.request("POST", "/api/v1/threads/0000000000001234/trash")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "trash", "queries": [], "threads": ["0000000000001234"], "messages": [], "unmark": False}
+
+        # Single thread restore
+        conn.request("POST", "/api/v1/threads/0000000000001234/restore")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "restore", "queries": [], "threads": ["0000000000001234"], "messages": [], "unmark": False}
+
+        # Single thread move-archive
+        conn.request("POST", "/api/v1/threads/0000000000001234/move-archive")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "archive_local", "queries": [], "threads": ["0000000000001234"], "messages": [], "unmark": False}
+
+        # Message trash with thread_id query param
+        conn.request("POST", "/api/v1/messages/m1%40example.com/trash?thread_id=0000000000001234")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "trash", "queries": [], "threads": [], "messages": ["m1@example.com"], "unmark": False}
+
+        # Message restore
+        conn.request("POST", "/api/v1/messages/m1%40example.com/restore?thread_id=0000000000001234")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "restore", "queries": [], "threads": [], "messages": ["m1@example.com"], "unmark": False}
+
+        # Message move-archive
+        conn.request("POST", "/api/v1/messages/m1%40example.com/move-archive?thread_id=0000000000001234")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert calls[-1] == {"action": "archive_local", "queries": [], "threads": [], "messages": ["m1@example.com"], "unmark": False}
+
+        conn.close()
+    finally:
+        daemon.stop()
+

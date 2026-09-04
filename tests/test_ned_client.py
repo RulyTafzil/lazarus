@@ -317,35 +317,63 @@ def test_modify_thread_and_message_tags(mock_tags, running_ned_unix):
     )
 
 
-@patch("ned.service.archive_thread")
-@patch("ned.service.unarchive_thread")
-@patch("ned.service.trash_thread")
-@patch("ned.service.untrash_thread")
+@patch("ned.service.archive_local")
+@patch("ned.service.modify_tags")
+@patch("ned.service.trash")
+@patch("ned.service.restore")
 @patch("ned.service.toggle_flag")
 def test_thread_actions(
-    mock_star, mock_untrash, mock_trash, mock_unarchive, mock_archive, running_ned_unix
+    mock_star, mock_restore, mock_trash, mock_modify, mock_archive, running_ned_unix
 ):
-    """Test thread action endpoints (archive, trash, flag)."""
+    """Test thread and message action endpoints (archive, trash, restore, flag)."""
     _, sock_path = running_ned_unix
     mock_archive.return_value = True
-    mock_unarchive.return_value = True
+    mock_modify.return_value = True
     mock_trash.return_value = True
-    mock_untrash.return_value = True
+    mock_restore.return_value = True
     mock_star.return_value = True
 
     client = NedClient.unix(sock_path)
 
-    assert client.archive_thread("t1") is True
-    mock_archive.assert_called_with("t1")
-
-    assert client.unarchive_thread("t1") is True
-    mock_unarchive.assert_called_with("t1")
+    # Thread actions
+    assert client.archive_thread_to_local("t1") is True
+    mock_archive.assert_called_with(threads=["t1"])
 
     assert client.trash_thread("t1") is True
-    mock_trash.assert_called_with("t1")
+    mock_trash.assert_called_with(threads=["t1"])
+
+    assert client.restore_thread("t1") is True
+    mock_restore.assert_called_with(threads=["t1"])
+
+    # Message actions
+    assert client.trash_message("m1", thread_id="t1") is True
+    mock_trash.assert_called_with(messages=["m1"])
+
+    assert client.restore_message("m1", thread_id="t1") is True
+    mock_restore.assert_called_with(messages=["m1"])
+
+    assert client.archive_message_to_local("m1", thread_id="t1") is True
+    mock_archive.assert_called_with(messages=["m1"])
+
+    # Batch actions with unmark
+    assert client.trash_batch(queries=["tag:marked"], unmark=True) is True
+    mock_trash.assert_called_with(queries=["tag:marked"], threads=[], messages=[], ids=[], unmark=True)
+
+    assert client.restore_batch(queries=["tag:marked"], unmark=True) is True
+    mock_restore.assert_called_with(queries=["tag:marked"], threads=[], messages=[], ids=[], unmark=True)
+
+    assert client.archive_batch_to_local(queries=["tag:marked"], unmark=True) is True
+    mock_archive.assert_called_with(queries=["tag:marked"], threads=[], messages=[], ids=[], unmark=True)
+
+    # Legacy compatibility bridges
+    assert client.archive_thread("t1") is True
+    mock_archive.assert_called_with(threads=["t1"])
 
     assert client.untrash_thread("t1") is True
-    mock_untrash.assert_called_with("t1")
+    mock_restore.assert_called_with(threads=["t1"])
+
+    assert client.unarchive_thread("t1") is True
+    mock_modify.assert_called_with(threads=["t1"], add_tags=["inbox"], remove_tags=[])
 
     assert client.toggle_flag("t1", flag=True) is True
     assert client.star_thread("t1", star=False) is True

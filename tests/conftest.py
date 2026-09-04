@@ -275,9 +275,29 @@ class ClientStub:
                                   else ','.join(thread_or_query))
         return True
 
+    def archive_thread_to_local(self, thread_id: str) -> bool:
+        self.archive_calls.append(thread_id)
+        return True
+
+    def archive_message_to_local(self, message_id: str, thread_id=None) -> bool:
+        self.archive_calls.append(f"id:{message_id}")
+        return True
+
+    def archive_batch_to_local(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
+        self.archive_calls.extend(queries)
+        return True
+
     def trash_thread(self, thread_or_query) -> bool:
         self.trash_calls.append(thread_or_query if isinstance(thread_or_query, str)
                                 else ','.join(thread_or_query))
+        return True
+
+    def trash_message(self, message_id: str, thread_id=None) -> bool:
+        self.trash_calls.append(f"id:{message_id}")
+        return True
+
+    def trash_batch(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
+        self.trash_calls.extend(queries)
         return True
 
     def unarchive_thread(self, thread_or_query) -> bool:
@@ -286,6 +306,18 @@ class ClientStub:
     def untrash_thread(self, thread_or_query) -> bool:
         self.untrash_calls.append(thread_or_query if isinstance(thread_or_query, str)
                                   else ','.join(thread_or_query))
+        return True
+
+    def restore_thread(self, thread_id: str) -> bool:
+        self.untrash_calls.append(thread_id)
+        return True
+
+    def restore_message(self, message_id: str, thread_id=None) -> bool:
+        self.untrash_calls.append(f"id:{message_id}")
+        return True
+
+    def restore_batch(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
+        self.untrash_calls.extend(queries)
         return True
 
     def expunge_trash(self) -> int:

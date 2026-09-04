@@ -568,73 +568,150 @@ class NedClient:
             return [int(c) for c in res["counts"]]
         return [0] * len(queries)
 
-    def archive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Archive a thread or query (removes inbox/unread and moves Maildir files)."""
-        if isinstance(thread_or_query, list):
-            res = self._request_json(
-                "POST", "/api/v1/threads/archive", json_body={"queries": thread_or_query}
-            )
-            return bool(isinstance(res, dict) and res.get("status") == "ok")
-        clean = thread_or_query.strip()
-        if " " in clean or ":" in clean:
-            res = self._request_json(
-                "POST", "/api/v1/threads/archive", json_body={"query": clean}
-            )
-        else:
-            clean_id = urllib.parse.quote(clean, safe="")
-            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/archive")
+    def trash_thread(self, thread_id: Union[list[str], str]) -> bool:
+        """Move a thread to trash folder and tag as trash."""
+        if isinstance(thread_id, list):
+            return self.trash_batch(queries=thread_id)
+        clean = urllib.parse.unquote(thread_id).strip()
+        if clean.startswith("id:"):
+            return self.trash_message(clean.removeprefix("id:"))
+        clean_id = clean.removeprefix("thread:")
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        res = self._request_json("POST", f"/api/v1/threads/{quoted_id}/trash")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def trash_message(self, message_id: str, thread_id: Optional[str] = None) -> bool:
+        """Move a single message to trash folder and tag as trash."""
+        clean_id = urllib.parse.unquote(message_id).strip().removeprefix("id:")
+        if clean_id.startswith("<") and clean_id.endswith(">"):
+            clean_id = clean_id[1:-1]
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        params = {"thread_id": thread_id} if thread_id else None
+        res = self._request_json(
+            "POST", f"/api/v1/messages/{quoted_id}/trash", query_params=params
+        )
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def trash_batch(
+        self,
+        queries: Sequence[str] = (),
+        *,
+        threads: Sequence[str] = (),
+        messages: Sequence[str] = (),
+        unmark: bool = False,
+    ) -> bool:
+        """Trash matching queries, threads, or messages in batch."""
+        payload: dict[str, Any] = {
+            "queries": list(queries),
+            "threads": list(threads),
+            "messages": list(messages),
+            "unmark": unmark,
+        }
+        res = self._request_json("POST", "/api/v1/trash", json_body=payload)
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def restore_thread(self, thread_id: str) -> bool:
+        """Restore a thread from trash back to inbox."""
+        clean_id = urllib.parse.unquote(thread_id).strip().removeprefix("thread:")
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        res = self._request_json("POST", f"/api/v1/threads/{quoted_id}/restore")
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def restore_message(self, message_id: str, thread_id: Optional[str] = None) -> bool:
+        """Restore a single message from trash back to inbox."""
+        clean_id = urllib.parse.unquote(message_id).strip().removeprefix("id:")
+        if clean_id.startswith("<") and clean_id.endswith(">"):
+            clean_id = clean_id[1:-1]
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        params = {"thread_id": thread_id} if thread_id else None
+        res = self._request_json(
+            "POST", f"/api/v1/messages/{quoted_id}/restore", query_params=params
+        )
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def restore_batch(
+        self,
+        queries: Sequence[str] = (),
+        *,
+        threads: Sequence[str] = (),
+        messages: Sequence[str] = (),
+        unmark: bool = False,
+    ) -> bool:
+        """Restore matching queries, threads, or messages from trash in batch."""
+        payload: dict[str, Any] = {
+            "queries": list(queries),
+            "threads": list(threads),
+            "messages": list(messages),
+            "unmark": unmark,
+        }
+        res = self._request_json("POST", "/api/v1/restore", json_body=payload)
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def archive_thread_to_local(self, thread_id: str) -> bool:
+        """Move a thread to the local Archive Maildir."""
+        clean_id = urllib.parse.unquote(thread_id).strip().removeprefix("thread:")
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        res = self._request_json("POST", f"/api/v1/threads/{quoted_id}/move-archive")
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def archive_message_to_local(
+        self, message_id: str, thread_id: Optional[str] = None
+    ) -> bool:
+        """Move a single message to the local Archive Maildir."""
+        clean_id = urllib.parse.unquote(message_id).strip().removeprefix("id:")
+        if clean_id.startswith("<") and clean_id.endswith(">"):
+            clean_id = clean_id[1:-1]
+        quoted_id = urllib.parse.quote(clean_id, safe="")
+        params = {"thread_id": thread_id} if thread_id else None
+        res = self._request_json(
+            "POST", f"/api/v1/messages/{quoted_id}/move-archive", query_params=params
+        )
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def archive_batch_to_local(
+        self,
+        queries: Sequence[str] = (),
+        *,
+        threads: Sequence[str] = (),
+        messages: Sequence[str] = (),
+        unmark: bool = False,
+    ) -> bool:
+        """Move matching queries, threads, or messages to local Archive in batch."""
+        payload: dict[str, Any] = {
+            "queries": list(queries),
+            "threads": list(threads),
+            "messages": list(messages),
+            "unmark": unmark,
+        }
+        res = self._request_json("POST", "/api/v1/move-archive", json_body=payload)
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def archive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
+        """Compatibility bridge for archive_batch_to_local or archive_thread_to_local."""
+        if isinstance(thread_or_query, list):
+            return self.archive_batch_to_local(queries=thread_or_query)
+        clean = urllib.parse.unquote(thread_or_query).strip()
+        if clean.startswith("id:"):
+            return self.archive_message_to_local(clean.removeprefix("id:"))
+        return self.archive_thread_to_local(clean.removeprefix("thread:"))
 
     def unarchive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Restore an archived thread or query back to inbox."""
+        """Restore thread to inbox."""
         if isinstance(thread_or_query, list):
-            res = self._request_json(
-                "POST", "/api/v1/threads/unarchive", json_body={"queries": thread_or_query}
-            )
-            return bool(isinstance(res, dict) and res.get("status") == "ok")
-        clean = thread_or_query.strip()
-        if " " in clean or ":" in clean:
-            res = self._request_json(
-                "POST", "/api/v1/threads/unarchive", json_body={"query": clean}
-            )
-        else:
-            clean_id = urllib.parse.quote(clean, safe="")
-            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/unarchive")
-        return bool(isinstance(res, dict) and res.get("status") == "ok")
-
-    def trash_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Move a thread or query to trash folder and tag as trash."""
-        if isinstance(thread_or_query, list):
-            res = self._request_json(
-                "POST", "/api/v1/threads/trash", json_body={"queries": thread_or_query}
-            )
-            return bool(isinstance(res, dict) and res.get("status") == "ok")
-        clean = thread_or_query.strip()
-        if " " in clean or ":" in clean:
-            res = self._request_json(
-                "POST", "/api/v1/threads/trash", json_body={"query": clean}
-            )
-        else:
-            clean_id = urllib.parse.quote(clean, safe="")
-            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/trash")
-        return bool(isinstance(res, dict) and res.get("status") == "ok")
+            return self.modify_tags(queries=thread_or_query, add=["inbox"])
+        clean = urllib.parse.unquote(thread_or_query).strip()
+        if clean.startswith("id:"):
+            return self.modify_message_tags(clean.removeprefix("id:"), add=["inbox"])
+        return self.modify_thread_tags(clean.removeprefix("thread:"), add=["inbox"])
 
     def untrash_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Restore a thread or query from trash back to inbox."""
+        """Compatibility bridge for restore_batch or restore_thread."""
         if isinstance(thread_or_query, list):
-            res = self._request_json(
-                "POST", "/api/v1/threads/untrash", json_body={"queries": thread_or_query}
-            )
-            return bool(isinstance(res, dict) and res.get("status") == "ok")
-        clean = thread_or_query.strip()
-        if " " in clean or ":" in clean:
-            res = self._request_json(
-                "POST", "/api/v1/threads/untrash", json_body={"query": clean}
-            )
-        else:
-            clean_id = urllib.parse.quote(clean, safe="")
-            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/untrash")
-        return bool(isinstance(res, dict) and res.get("status") == "ok")
+            return self.restore_batch(queries=thread_or_query)
+        clean = urllib.parse.unquote(thread_or_query).strip()
+        if clean.startswith("id:"):
+            return self.restore_message(clean.removeprefix("id:"))
+        return self.restore_thread(clean.removeprefix("thread:"))
 
     def expunge_trash(self) -> int:
         """Flag every file matching ``tag:trash`` with the Maildir T flag.

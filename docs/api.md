@@ -116,51 +116,132 @@ GET /api/v1/signatures
 (recipients already filtered to exclude the sender's own addresses; body
 includes the quoted original and, when `use_signature`, the signature).
 
-### Mutations (serialized by the daemon's mutation lock)
+### Mutations
 
-#### `POST /api/v1/tags` — modify tags on queries, threads, or messages
+The daemon serializes all mutations under a single write lock. Mutations divide into two distinct operations: index tag mutations and Maildir filesystem moves.
+
+#### Index tag mutations
+
+Index tag mutations modify Notmuch Xapian tags without moving files on disk. Use these for marking read or unread, flagging, custom labels, and inbox zero archiving.
+
+##### `POST /api/v1/tags`
+
+Modify tags across queries, threads, or messages.
+
 ```json
 {
-  "queries": ["tag:marked AND (tag:inbox)", "tag:unread"],
+  "queries": ["tag:marked AND tag:inbox", "tag:unread"],
   "threads": ["0000000000001234"],
   "messages": ["msgid@example.com"],
   "add": ["reviewed"],
   "remove": ["marked"]
 }
 ```
-Accepts optional `queries`, `threads`, and `messages` arrays. At least one target must be provided along with at least one tag in `add` or `remove`. Every item in `queries` is treated strictly as an unparsed Notmuch query. Legacy input forms `ids: [...]` and `query: "<single query>"` are still accepted.
 
-#### `POST /api/v1/threads/{id}/tags` — modify tags on a single thread
+Accepts optional `queries`, `threads`, and `messages` arrays. Provide at least one target and at least one tag in `add` or `remove`. Every item in `queries` is an unparsed Notmuch query string. Threads and messages receive their `thread:` and `id:` prefixes without string guessing. Legacy parameters `ids` and `query` remain supported.
+
+##### `POST /api/v1/threads/{id}/tags`
+
+Modify tags on a single thread.
+
 ```json
 { "add": ["reviewed"], "remove": ["unread"] }
 ```
 
-#### `POST /api/v1/messages/{id}/tags` — modify tags on a single message
+##### `POST /api/v1/messages/{id}/tags`
+
+Modify tags on a single message.
+
 ```json
 { "add": ["replied"], "remove": [] }
 ```
 
-#### `POST /api/v1/threads/{id}/archive|trash|unarchive|untrash`
-| Action | Effect |
-|---|---|
-| `archive` | `-inbox -unread` and move files to local Archive |
-| `trash` | `+trash -inbox -unread` and move files to account Trash |
-| `unarchive` | `+inbox` restore |
-| `untrash` | `-trash` and move files back to INBOX |
+##### `POST /api/v1/threads/{id}/star`
 
-To archive threads by modifying tags only without moving files, use `POST /api/v1/tags` with `remove: ['inbox', 'unread']`.
+Set or clear the flagged tag on a thread.
 
-Batch variants operate on queries: `POST /api/v1/threads/archive` with
-`{"queries": [...]}` (also `trash|unarchive|untrash`).
-
-#### `POST /api/v1/threads/{id}/star` — set/clear flagged
 ```json
 { "flag": true }
-→ 200 { "status": "ok", "starred": true, "ok": true }
 ```
 
-#### `POST /api/v1/expunge` — Maildir `T` flag on every `tag:trash` file
-Irreversible.
+#### Maildir filesystem operations
+
+Maildir moves relocate email files on disk and synchronize Notmuch tags. Each batch operation accepts an optional `unmark` boolean to clear the `marked` tag.
+
+##### `POST /api/v1/trash`
+
+Move matching files to account Trash directories, tag `+trash -inbox -unread`, and optionally remove `marked`.
+
+```json
+{
+  "queries": ["tag:marked AND tag:inbox"],
+  "threads": ["0000000000001234"],
+  "messages": ["msgid@example.com"],
+  "unmark": true
+}
+```
+
+##### `POST /api/v1/threads/{id}/trash`
+
+Move all files in a thread to its account Trash directory and tag `+trash -inbox -unread`.
+
+##### `POST /api/v1/messages/{id}/trash`
+
+Move a single message file to its account Trash directory and tag `+trash -inbox -unread`. Accepts optional query parameter `thread_id` to emit thread-specific cache invalidation.
+
+##### `POST /api/v1/restore`
+
+Restore matching files from Trash back to account INBOX directories, tag `-trash +inbox`, and optionally remove `marked`.
+
+```json
+{
+  "queries": ["tag:marked AND tag:trash"],
+  "threads": ["0000000000001234"],
+  "messages": ["msgid@example.com"],
+  "unmark": true
+}
+```
+
+##### `POST /api/v1/threads/{id}/restore`
+
+Restore thread files from Trash back to INBOX and tag `-trash +inbox`.
+
+##### `POST /api/v1/messages/{id}/restore`
+
+Restore a single message file from Trash back to INBOX and tag `-trash +inbox`. Accepts optional query parameter `thread_id` to emit thread-specific cache invalidation.
+
+##### `POST /api/v1/move-archive`
+
+Move matching files to the local Archive Maildir, tag `-inbox -unread`, and optionally remove `marked`.
+
+```json
+{
+  "queries": ["tag:marked AND tag:inbox"],
+  "threads": ["0000000000001234"],
+  "messages": ["msgid@example.com"],
+  "unmark": true
+}
+```
+
+##### `POST /api/v1/threads/{id}/move-archive`
+
+Move all files in a thread to the local Archive Maildir and tag `-inbox -unread`.
+
+##### `POST /api/v1/messages/{id}/move-archive`
+
+Move a single message file to the local Archive Maildir and tag `-inbox -unread`. Accepts optional query parameter `thread_id` to emit thread-specific cache invalidation.
+
+##### Legacy move aliases
+
+The following legacy endpoints remain available for backwards compatibility:
+- `POST /api/v1/threads/trash` forwards to `POST /api/v1/trash`
+- `POST /api/v1/threads/{id}/untrash` and `POST /api/v1/threads/untrash` forward to `restore`
+- `POST /api/v1/threads/{id}/archive` and `POST /api/v1/threads/archive` forward to `move-archive`
+- `POST /api/v1/threads/{id}/unarchive` and `POST /api/v1/threads/unarchive` restore to inbox by adding tag `inbox`
+
+##### `POST /api/v1/expunge`
+
+Apply the Maildir T flag to every file matching `tag:trash`. Irreversible.
 
 ### Send
 

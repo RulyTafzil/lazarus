@@ -219,7 +219,7 @@ class MarkableActionsMixin:
         client = get_client()
         if self._has_marked_threads():
             marked_query = self._marked_query()
-            ok = client.trash_thread(marked_query)
+            ok = client.trash_batch(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Deleted marked', 'info')
@@ -245,7 +245,7 @@ class MarkableActionsMixin:
         client = get_client()
         if self._has_marked_threads():
             marked_query = self._marked_query()
-            ok = client.untrash_thread(marked_query)
+            ok = client.restore_batch(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Restored from trash', 'info')
@@ -257,7 +257,7 @@ class MarkableActionsMixin:
         thread_id = self._current_thread_id()
         if not thread_id:
             return
-        ok = client.untrash_thread(thread_id)
+        ok = client.restore_thread(thread_id)
         if ok:
             self.app.update_single_thread(thread_id)
             self.app.status_message('Restored from trash', 'info')
@@ -271,7 +271,7 @@ class MarkableActionsMixin:
         client = get_client()
         if self._has_marked_threads():
             marked_query = self._marked_query()
-            ok = client.archive_thread(marked_query)
+            ok = client.archive_batch_to_local(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Archived marked to local', 'info')
@@ -291,7 +291,7 @@ class MarkableActionsMixin:
                 'warning')
             return
         self._advance_selection()
-        ok = client.archive_thread(thread_id)
+        ok = client.archive_thread_to_local(thread_id)
         if ok:
             self.app.update_single_thread(thread_id)
             self.app.status_message('Archived to local', 'info')

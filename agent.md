@@ -457,13 +457,13 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 - **Sync summary is single-sourced**: `SyncMailThread` stores `via_ned`/`sync_message`; when the daemon ran the sync its pre-formatted summary is shown as-is, otherwise `parse_sync_stats()` (core.sync) feeds the status bar. Never re-implement the `Far:` regex in the controller.
 - **SSE invalidations are debounced** (150ms single-shot timer in `AppController`) so a desktop action that mutates via NED — which triggers both the local refresh and a daemon-broadcast invalidation — coalesces into one panel pass.
 - **NED config is ned-only**: NED reads `~/.config/ned/config.py` — never the desktop's `~/.config/lazarus/config.py`. `ned --init-config` generates the file from the lazarus config (rewriting `lazarus.settings` → `ned.settings` and stripping desktop-only settings). The desktop keeps its own `~/.config/lazarus/config.py`; the two may diverge by design.
-- **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_thread`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
-- **Desktop shims wire settings into `ned` helpers**: `lazarus.util`/`lazarus.compose_model` re-export the headless helpers, and — because the desktop process publishes its own `lazarus.settings` — set `ned.util.settings` / `ned.compose_model.settings` to `lazarus.settings` so reply seeds, account matching, and wrapping see the desktop config. The daemon process never imports the shims, so its copy stays on `ned.settings`.
+- **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_batch_to_local` or `archive_thread_to_local`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
+- **Desktop shims wire settings into `ned` helpers**: `lazarus.util`/`lazarus.compose_model` re-export the headless helpers, and because the desktop process publishes its own `lazarus.settings`, set `ned.util.settings` / `ned.compose_model.settings` to `lazarus.settings` so reply seeds, account matching, and wrapping see the desktop config. The daemon process never imports the shims, so its copy stays on `ned.settings`.
 - **NED static asset bundling**: NED serves web client assets directly out of `ned/static/`. Package data in both `setup.py` (lazarus-mail) and `ned/setup.py` includes `static/*` so wheel and source distributions ship the web client.
 - **Forward attachment resolution via NED API**: client-side forward seeds pass `fetch_part=lambda mid, pid: get_client().get_part(mid, pid)` to `build_forward_seed` and `write_attachments`, preventing the desktop GUI process from running local `notmuch` CLI subprocesses.
 - **Embedded image resolution over network**: `EmbeddedImageHandler.set_message(m)` maps CIDs from the message JSON and fetches bytes via `NedClient.get_part`, enabling inline image rendering even when the maildir is not locally accessible.
 - **SendmailThread references fallback**: if the local mail file is absent or moved, `SendmailThread` requests the full references header chain via `NedClient.get_reply_seed(clean_id)`.
-- **Query parsing in `modify_tags`**: `ned.service.modify_tags` accepts arbitrary Notmuch queries, thread IDs, and message IDs. Queries with colons, spaces, parentheses, or `*` must be passed directly to `notmuch tag` without adding `id:`, otherwise batch operations like `t m` or marked archive match zero messages. Batch marked tagging and archiving clear the `marked` tag upon completion.
+- **Clean two-layer API architecture**: Notmuch and Maildir mutations split into pure index tag mutations at `/tags` and Maildir filesystem moves at `/trash`, `/restore`, and `/move-archive`. Queries, thread IDs, and message IDs are explicit targets without string sniffing or heuristic guessing. Batch operations support an `unmark` flag to clear the `marked` tag.
 
 ### Architecture and roadmap
 
@@ -485,28 +485,35 @@ All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/` (
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/threads` | Search threads (`q`, `limit`, `offset`). |
+| `GET` | `/api/v1/threads` | Search threads with `q`, `limit`, and `offset`. |
 | `GET` | `/api/v1/threads/{id}` | Fetch full thread tree with messages and metadata. |
 | `GET` | `/api/v1/messages/{id}/parts/{part_id}` | Download decoded message body part or binary attachment. |
-| `GET` | `/api/v1/messages/{id}` | Fetch one message's raw notmuch-show dict (cheap view refresh). |
-| `POST` | `/api/v1/tags` | Modify tags (`{"queries": [...], "add": [...], "remove": [...]}`; legacy `ids`/`query` tolerated). |
-| `POST` | `/api/v1/threads/{id}/archive` | Archive thread (`-inbox -unread` + move to `Archive/cur/`). |
-| `POST` | `/api/v1/threads/{id}/trash` | Trash thread (`+trash -inbox -unread` + move to `Trash/cur/`). |
-| `POST` | `/api/v1/threads/{id}/unarchive` | Restore archived thread to `inbox`. |
-| `POST` | `/api/v1/threads/{id}/untrash` | Restore trashed thread from `Trash/cur/` to `INBOX/cur/`. |
-| `POST` | `/api/v1/expunge` | Flag every `tag:trash` file with the Maildir `T` flag (irreversible). |
-| `POST` | `/api/v1/rules` | Apply configured filter rules (`C-r` on desktop); returns `matched`. |
-| `POST` | `/api/v1/index` | Run `notmuch new --no-hooks` (sent-mail appends from the desktop). |
-| `POST` | `/api/v1/threads/{id}/star` | Toggle flagged tag (`{"flag": bool}`). |
+| `GET` | `/api/v1/messages/{id}` | Fetch one message raw notmuch-show dict for quick view refresh. |
+| `POST` | `/api/v1/tags` | Modify tags across queries, threads, or messages. |
+| `POST` | `/api/v1/threads/{id}/tags` | Modify tags on a single thread. |
+| `POST` | `/api/v1/messages/{id}/tags` | Modify tags on a single message. |
+| `POST` | `/api/v1/trash` | Batch move matching files to account Trash and tag `+trash -inbox -unread`, optional `unmark` flag. |
+| `POST` | `/api/v1/restore` | Batch restore files from Trash back to INBOX and tag `-trash +inbox`, optional `unmark` flag. |
+| `POST` | `/api/v1/move-archive` | Batch move matching files to local Archive Maildir and tag `-inbox -unread`, optional `unmark` flag. |
+| `POST` | `/api/v1/threads/{id}/trash` | Move thread files to account Trash and tag `+trash -inbox -unread`. |
+| `POST` | `/api/v1/threads/{id}/restore` | Restore thread files from Trash to INBOX and tag `-trash +inbox`. |
+| `POST` | `/api/v1/threads/{id}/move-archive` | Move thread files to local Archive and tag `-inbox -unread`. |
+| `POST` | `/api/v1/messages/{id}/trash` | Move message file to account Trash and tag `+trash -inbox -unread`, optional `thread_id` query parameter. |
+| `POST` | `/api/v1/messages/{id}/restore` | Restore message file from Trash to INBOX and tag `-trash +inbox`, optional `thread_id` query parameter. |
+| `POST` | `/api/v1/messages/{id}/move-archive` | Move message file to local Archive and tag `-inbox -unread`, optional `thread_id` query parameter. |
+| `POST` | `/api/v1/threads/{id}/star` | Toggle flagged tag with `{"flag": bool}`. |
+| `POST` | `/api/v1/expunge` | Flag every `tag:trash` file with the Maildir `T` flag. Irreversible. |
+| `POST` | `/api/v1/rules` | Apply configured filter rules, key `C-r` on desktop; returns `matched`. |
+| `POST` | `/api/v1/index` | Run `notmuch new --no-hooks` for sent-mail appends from the desktop. |
 | `GET` | `/api/v1/tags` | List all known Notmuch tags with thread counts. |
 | `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q`. |
-| `GET` | `/api/v1/accounts` | Sender accounts + identity: `{"accounts": [...], "email": {acct: addr}, "gnupg_keyid": {acct: key\|None}}`. |
-| `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {acct: text}, "signatures_html": {acct: html}}`. |
-| `GET` | `/api/v1/messages/{id}/reply-seed` | Generate reply recipient headers, quoted body, and signature (`?to_all=`). |
-| `POST` | `/api/v1/send` | Send outbound mail via `msmtp` — field/multipart mode (PWA) or **raw mode** (`{"account": ..., "message_b64": <RFC822 bytes>}`) for clients that build rich MIME themselves. |
-| `POST` | `/api/v1/sync` | Trigger IMAP sync + `notmuch new` + filter rules. |
-| `GET` | `/api/v1/events` | Server-Sent Events (SSE) stream for cache invalidation. |
-| `GET` | `/api/v1/openapi.json` | Live OpenAPI 3.0 spec of the running daemon (client authors). |
+| `GET` | `/api/v1/accounts` | Sender accounts and identity mapping. |
+| `GET` | `/api/v1/signatures` | Per-account signature map. |
+| `GET` | `/api/v1/messages/{id}/reply-seed` | Generate reply recipient headers, quoted body, and signature, optional `to_all` query parameter. |
+| `POST` | `/api/v1/send` | Send outbound mail via `msmtp` using multipart mode or raw RFC822 bytes. |
+| `POST` | `/api/v1/sync` | Trigger IMAP sync, `notmuch new`, and filter rules. |
+| `GET` | `/api/v1/events` | Server-Sent Events stream for cache invalidation. |
+| `GET` | `/api/v1/openapi.json` | Live OpenAPI 3.0 specification of the running daemon. |
 | `GET` | `/` | Serves bundled mobile PWA web application. |
 
 #### Invalidation event schema

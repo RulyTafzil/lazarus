@@ -376,13 +376,15 @@ class SearchModel(QAbstractItemModel):
 
         logger.info("Search '%s': refreshing thread %s", self.q, thread_id)
         from .client import get_client
+        clean_q = self.q.strip()
+        q_expr = f'({clean_q}) AND thread:{thread_id}' if clean_q else f'thread:{thread_id}'
         try:
-            contents = get_client().search(f'{self.q} AND thread:{thread_id}', limit=1)
+            contents = get_client().search(q_expr, limit=1)
         except Exception as e:
             self.error_msg = f"ned: {e}"
             return
 
-        if len(contents) == 1 and row < len(self.d):
+        if len(contents) == 1 and contents[0].get('thread') == thread_id and row < len(self.d):
             if contents[0] == self.d[row]:
                 return  # nothing changed
             self.d[row] = contents[0]

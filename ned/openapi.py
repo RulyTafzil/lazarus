@@ -38,13 +38,17 @@ Canonical endpoint names (no aliases):
     GET   /api/v1/ping | /api/v1/health       liveness
     GET   /api/v1/events                      SSE invalidation stream
     GET   /api/v1/openapi.json                this document
-    POST  /api/v1/tags                        modify tags on queries
-    POST  /api/v1/threads/{id}/archive        -inbox -unread and move to Archive
-    POST  /api/v1/threads/{id}/trash          +trash + file move
-    POST  /api/v1/threads/{id}/unarchive      restore to inbox
-    POST  /api/v1/threads/{id}/untrash        restore from trash
+    POST  /api/v1/tags                        modify tags on queries, threads, or messages
+    POST  /api/v1/trash                       move matching files to Trash (batch)
+    POST  /api/v1/restore                     restore files from Trash to INBOX (batch)
+    POST  /api/v1/move-archive                move files to local Archive (batch)
+    POST  /api/v1/threads/{id}/trash          move thread to account Trash
+    POST  /api/v1/threads/{id}/restore        restore thread from Trash to INBOX
+    POST  /api/v1/threads/{id}/move-archive   move thread to local Archive
+    POST  /api/v1/messages/{id}/trash         move message to account Trash
+    POST  /api/v1/messages/{id}/restore       restore message from Trash to INBOX
+    POST  /api/v1/messages/{id}/move-archive  move message to local Archive
     POST  /api/v1/threads/{id}/star           set/clear flagged
-    POST  /api/v1/threads/archive|trash|unarchive|untrash   batch (queries)
     POST  /api/v1/expunge                     Maildir T flag on tag:trash
     POST  /api/v1/rules                       apply filter rules
     POST  /api/v1/index                       notmuch new (no hooks)
@@ -202,8 +206,13 @@ def build_spec() -> dict[str, Any]:
             "/api/v1/openapi.json": {
                 "get": {"summary": "This OpenAPI description", "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}},
             },
+            "/api/v1/trash": {"post": {"summary": "Batch move files matching queries, threads, or messages to Trash", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}, "threads": {"type": "array", "items": {"type": "string"}}, "messages": {"type": "array", "items": {"type": "string"}}, "unmark": {"type": "boolean", "default": False}}}}}}, "responses": {"200": {"description": "{status: ok, ok: true}"}}}},
+            "/api/v1/restore": {"post": {"summary": "Batch restore files from Trash to INBOX", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}, "threads": {"type": "array", "items": {"type": "string"}}, "messages": {"type": "array", "items": {"type": "string"}}, "unmark": {"type": "boolean", "default": False}}}}}}, "responses": {"200": {"description": "{status: ok, ok: true}"}}}},
+            "/api/v1/move-archive": {"post": {"summary": "Batch move files matching queries, threads, or messages to local Archive", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}, "threads": {"type": "array", "items": {"type": "string"}}, "messages": {"type": "array", "items": {"type": "string"}}, "unmark": {"type": "boolean", "default": False}}}}}}, "responses": {"200": {"description": "{status: ok, ok: true}"}}}},
             "/api/v1/threads/{id}/archive": {"post": {"summary": "Archive thread: -inbox -unread and move to Archive", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/trash": {"post": {"summary": "Trash thread (+trash -inbox -unread + move to Trash)", "responses": {"200": {"description": "{status: ok}"}}}},
+            "/api/v1/threads/{id}/restore": {"post": {"summary": "Restore thread from Trash to INBOX", "responses": {"200": {"description": "{status: ok}"}}}},
+            "/api/v1/threads/{id}/move-archive": {"post": {"summary": "Move thread files to local Archive", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/unarchive": {"post": {"summary": "Restore archived thread to inbox", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/untrash": {"post": {"summary": "Restore trashed thread from Trash to INBOX", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/star": {
@@ -221,6 +230,9 @@ def build_spec() -> dict[str, Any]:
                     "responses": {"200": {"description": "{status: ok, ok: true}", "content": {"application/json": {"schema": {"type": "object"}}}}},
                 },
             },
+            "/api/v1/messages/{id}/trash": {"post": {"summary": "Move message files to Trash", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}, "description": "RFC message ID"}, {"name": "thread_id", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "{status: ok, trashed: id, ok: true}"}}}},
+            "/api/v1/messages/{id}/restore": {"post": {"summary": "Restore message files from Trash to INBOX", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}, "description": "RFC message ID"}, {"name": "thread_id", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "{status: ok, restored: id, ok: true}"}}}},
+            "/api/v1/messages/{id}/move-archive": {"post": {"summary": "Move message files to local Archive", "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}, "description": "RFC message ID"}, {"name": "thread_id", "in": "query", "schema": {"type": "string"}}], "responses": {"200": {"description": "{status: ok, archived: id, ok: true}"}}}},
             "/api/v1/threads/archive": {"post": {"summary": "Batch archive several queries", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}}}}}}, "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/trash": {"post": {"summary": "Batch trash several queries", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/unarchive": {"post": {"summary": "Batch unarchive several queries", "responses": {"200": {"description": "{status: ok}"}}}},
