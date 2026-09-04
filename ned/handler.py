@@ -37,6 +37,7 @@ import re
 from typing import Any
 import urllib.parse
 
+from . import openapi
 from . import settings
 from . import service
 from .concurrency import mutation_lock
@@ -164,8 +165,13 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json({"status": "ok", "service": "ned", "version": "1.0"})
             return
 
+        # Live API description (kept in ned/openapi.py, mirrors these routes)
+        if path == "/api/v1/openapi.json":
+            self.send_json(openapi.build_spec())
+            return
+
         # API Routes
-        if path in ("/api/v1/search", "/api/v1/threads"):
+        if path == "/api/v1/threads":
             query = qs.get("q", ["tag:inbox"])[0]
             limit = int(qs.get("limit", ["50"])[0])
             offset = int(qs.get("offset", ["0"])[0])
@@ -184,7 +190,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(thread_data)
             return
 
-        m_part = re.match(r"^/api/v1/messages/([^/]+)/parts?/([^/]+)$", path)
+        m_part = re.match(r"^/api/v1/messages/([^/]+)/parts/([^/]+)$", path)
         if m_part:
             msg_id = urllib.parse.unquote(m_part.group(1))
             part_id = int(m_part.group(2))
@@ -224,12 +230,9 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(matches)
             return
 
-        if path == "/api/v1/reply-seed" or re.match(r"^/api/v1/messages/([^/]+)/reply-seed$", path):
-            m_seed = re.match(r"^/api/v1/messages/([^/]+)/reply-seed$", path)
-            if m_seed:
-                msg_id = urllib.parse.unquote(m_seed.group(1))
-            else:
-                msg_id = qs.get("id", [""])[0]
+        m_seed = re.match(r"^/api/v1/messages/([^/]+)/reply-seed$", path)
+        if m_seed:
+            msg_id = urllib.parse.unquote(m_seed.group(1))
             to_all = qs.get("to_all", ["false"])[0].lower() in ("true", "1", "yes")
             seed = service.get_reply_seed(msg_id, to_all=to_all)
             if seed is None:
@@ -290,7 +293,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # Tag modification
-        if path in ("/api/v1/tag", "/api/v1/tags"):
+        if path == "/api/v1/tags":
             body = self._read_json_body()
             queries = body.get("queries") or body.get("ids") or []
             query = body.get("query")
@@ -425,7 +428,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # Flag / star thread
-        m_star = re.match(r"^/api/v1/threads/([^/]+)/(?:star|flag)$", path)
+        m_star = re.match(r"^/api/v1/threads/([^/]+)/star$", path)
         if m_star:
             thread_id = urllib.parse.unquote(m_star.group(1))
             body = self._read_json_body()
@@ -435,7 +438,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="star")
                 broadcaster.broadcast_invalidate("threads", reason="star")
-                self.send_json({"status": "ok", "starred": flag, "flag": flag, "ok": True})
+                self.send_json({"status": "ok", "starred": flag, "ok": True})
             else:
                 self.send_error_json("Failed toggling flag", HTTPStatus.INTERNAL_SERVER_ERROR)
             return

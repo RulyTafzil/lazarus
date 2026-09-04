@@ -477,7 +477,7 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 - **Systemd service**: Unit file provided at `contrib/ned.service` for user systemd management (`systemctl --user enable --now ned`).
 
 #### API v1 specification
-All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
+All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/` (normalized internally). Full per-endpoint reference with curl examples: `docs/api.md`; the running daemon serves its own spec at `GET /api/v1/openapi.json`. Reads return raw notmuch JSON; mutations return `{status, ok, …}`; errors return `{error}` with a non-2xx status.
 
 | Method | Path | Description |
 |---|---|---|
@@ -485,7 +485,7 @@ All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
 | `GET` | `/api/v1/threads/{id}` | Fetch full thread tree with messages and metadata. |
 | `GET` | `/api/v1/messages/{id}/parts/{part_id}` | Download decoded message body part or binary attachment. |
 | `GET` | `/api/v1/messages/{id}` | Fetch one message's raw notmuch-show dict (cheap view refresh). |
-| `POST` | `/api/v1/tags` / `/api/v1/tag` | Modify tags (`{"queries": [...], "add": [...], "remove": [...]}` or legacy `ids`). |
+| `POST` | `/api/v1/tags` | Modify tags (`{"queries": [...], "add": [...], "remove": [...]}`; legacy `ids`/`query` tolerated). |
 | `POST` | `/api/v1/threads/{id}/archive` | Archive thread (`-inbox -unread` + move to `Archive/cur/`). |
 | `POST` | `/api/v1/threads/{id}/trash` | Trash thread (`+trash -inbox -unread` + move to `Trash/cur/`). |
 | `POST` | `/api/v1/threads/{id}/unarchive` | Restore archived thread to `inbox`. |
@@ -498,10 +498,11 @@ All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
 | `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q`. |
 | `GET` | `/api/v1/accounts` | Sender accounts + identity: `{"accounts": [...], "email": {acct: addr}, "gnupg_keyid": {acct: key\|None}}`. |
 | `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {acct: text}, "signatures_html": {acct: html}}`. |
-| `GET` | `/api/v1/reply-seed` | Generate reply recipient headers, quoted body, and signature. |
+| `GET` | `/api/v1/messages/{id}/reply-seed` | Generate reply recipient headers, quoted body, and signature (`?to_all=`). |
 | `POST` | `/api/v1/send` | Send outbound mail via `msmtp` — field/multipart mode (PWA) or **raw mode** (`{"account": ..., "message_b64": <RFC822 bytes>}`) for clients that build rich MIME themselves. |
 | `POST` | `/api/v1/sync` | Trigger IMAP sync + `notmuch new` + filter rules. |
 | `GET` | `/api/v1/events` | Server-Sent Events (SSE) stream for cache invalidation. |
+| `GET` | `/api/v1/openapi.json` | Live OpenAPI 3.0 spec of the running daemon (client authors). |
 | `GET` | `/` | Serves bundled mobile PWA web application. |
 
 #### Invalidation event schema
