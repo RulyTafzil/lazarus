@@ -70,7 +70,7 @@ This installs four executables in your path:
 - `lazarus`: Desktop GUI application.
 - `ned`: Notmuch Email Daemon.
 - `ned-client`: CLI utility to interact with NED.
-- `lazarus-web`: Legacy mobile web launcher (deprecated in favor of `ned`).
+- `lazarus-web` / `lazarus-server`: Legacy server entry points (deprecated in favor of `ned`).
 
 To install desktop application icons and the `.desktop` launcher file:
 
