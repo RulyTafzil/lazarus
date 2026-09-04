@@ -21,6 +21,7 @@
     autocompleteTimer: null,
     undoTimer: null,
     undoAction: null,
+    eventSource: null,
   };
 
   // --- DOM Elements ---
@@ -111,12 +112,78 @@
     return res.json();
   }
 
+  // --- Server-Sent Events (SSE) Listener ---
+  let refreshTimer = null;
+  function scheduleViewRefresh(affectedThreadId = null) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      refreshTimer = null;
+      if (affectedThreadId && state.currentThread && state.currentThread.thread_id === affectedThreadId) {
+        await reloadThreadDetail(affectedThreadId);
+      } else if (!affectedThreadId && state.currentThread) {
+        await reloadThreadDetail(state.currentThread.thread_id);
+      }
+      await runSearch(state.currentQuery, false, true);
+      await loadTags();
+    }, 150);
+  }
+
+  function initEventSource() {
+    if (typeof window.EventSource === 'undefined') return;
+
+    if (state.eventSource) {
+      try {
+        state.eventSource.close();
+      } catch (_) {}
+      state.eventSource = null;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const eventsUrl = token
+      ? `/api/v1/events?token=${encodeURIComponent(token)}`
+      : '/api/v1/events';
+
+    try {
+      const es = new EventSource(eventsUrl);
+      state.eventSource = es;
+
+      es.addEventListener('invalidate', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (!data) return;
+          const scope = data.scope;
+          const threadId = data.id;
+
+          if (scope === 'thread' && threadId) {
+            scheduleViewRefresh(threadId);
+          } else if (scope === 'threads') {
+            scheduleViewRefresh();
+          }
+        } catch (err) {
+          console.warn('Failed parsing invalidate event data:', err);
+        }
+      });
+
+      es.onerror = () => {
+        if (es.readyState === EventSource.CLOSED) {
+          state.eventSource = null;
+          setTimeout(initEventSource, 3000);
+        }
+      };
+    } catch (err) {
+      console.warn('EventSource initialization failed:', err);
+      setTimeout(initEventSource, 5000);
+    }
+  }
+
   // --- Initialisation ---
   async function init() {
     setupEventListeners();
     await loadAccounts();
     await loadTags();
     runSearch(state.currentQuery, false);
+    initEventSource();
   }
 
   // --- Event Listeners ---
@@ -349,6 +416,16 @@
 
     // Toast Undo
     el.toastUndo.addEventListener('click', handleUndo);
+
+    // Visibility change: auto-reconnect SSE and refresh when returning from background
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) {
+          initEventSource();
+        }
+        scheduleViewRefresh();
+      }
+    });
   }
 
   // --- Mail Synchronization ---
@@ -381,15 +458,18 @@
   }
 
   // --- Search and Threads ---
-  async function runSearch(query, append = false) {
+  async function runSearch(query, append = false, silent = false) {
     state.currentQuery = query;
-    if (!append) {
+    const savedScrollTop = el.threadList ? el.threadList.scrollTop : 0;
+    if (!append && !silent) {
       state.offset = 0;
       el.threadList.innerHTML = `
         <div class="loading-spinner-wrap">
           <div class="spinner"></div>
           <span>Loading threads…</span>
         </div>`;
+    } else if (!append && silent) {
+      state.offset = 0;
     }
 
     try {
@@ -400,6 +480,9 @@
         state.threads.push(...threads);
       }
       renderThreadList(state.threads);
+      if (silent && el.threadList) {
+        el.threadList.scrollTop = savedScrollTop;
+      }
 
       if (threads.length >= state.limit) {
         el.loadMoreWrap.classList.remove('hidden');
@@ -407,7 +490,9 @@
         el.loadMoreWrap.classList.add('hidden');
       }
     } catch (err) {
-      el.threadList.innerHTML = `<div class="empty-hint">Error: ${escapeHtml(err.message)}</div>`;
+      if (!silent) {
+        el.threadList.innerHTML = `<div class="empty-hint">Error: ${escapeHtml(err.message)}</div>`;
+      }
     }
   }
 
@@ -519,6 +604,33 @@
     }
   }
 
+  async function reloadThreadDetail(threadId) {
+    try {
+      const expandedMsgIds = new Set();
+      document.querySelectorAll('#detail-messages-list .message-card:not(.collapsed)').forEach(c => {
+        const msgId = c.getAttribute('data-msg-id');
+        if (msgId) expandedMsgIds.add(msgId);
+      });
+
+      const data = await api(`/api/threads/${encodeURIComponent(threadId)}`);
+      if (state.currentThread && state.currentThread.thread_id === threadId) {
+        state.currentThread = data;
+        renderThreadDetail(data);
+
+        if (expandedMsgIds.size > 0) {
+          document.querySelectorAll('#detail-messages-list .message-card').forEach(c => {
+            const msgId = c.getAttribute('data-msg-id');
+            if (msgId && expandedMsgIds.has(msgId)) {
+              c.classList.remove('collapsed');
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed reloading thread detail:', err);
+    }
+  }
+
   function renderThreadDetail(data) {
     el.detailSubject.textContent = data.subject || '(no subject)';
 
@@ -552,6 +664,7 @@
       const isLast = idx === msgs.length - 1;
       const isUnread = (m.tags || []).includes('unread');
       const card = document.createElement('article');
+      card.setAttribute('data-msg-id', m.id);
       card.className = `message-card ${!isLast && !isUnread ? 'collapsed' : ''}`;
 
       const nameOrAddr = m.from.split('<')[0].trim() || m.from;
