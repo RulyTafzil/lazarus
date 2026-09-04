@@ -7,12 +7,11 @@ from PyQt6.QtWidgets import QLabel
 from lazarus import mainwindow
 from lazarus.controller import AppController
 from lazarus.panel import Panel
-from lazarus.search import SearchPanel
 from tests.conftest import make_thread
 
 
 @pytest.fixture
-def mw(qapp, fake_app, notmuch_stub):
+def mw(qapp, fake_app, client_stub):
     win = mainwindow.MainWindow(fake_app)
     win.resize(1000, 700)
     win.show()
@@ -100,18 +99,18 @@ def test_close_panel_skips_delete_while_sending(ctl, mw, qapp):
     _flush_deferred_deletes()
 
 
-def test_open_search_dedupes(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+def test_open_search_dedupes(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'Hello')]
     ctl.open_search('tag:inbox')
     ctl.open_search('tag:inbox')
     # same query -> same tab, not a duplicate
     assert ctl.num_panels() == 1
 
 
-def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, notmuch_stub):
+def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, client_stub):
     """Dirty search tabs share one ``count --batch`` invocation instead
     of one subprocess per tab."""
-    notmuch_stub.threads = [
+    client_stub.threads = [
         make_thread('t1', 'A'), make_thread('t2', 'B')]  # both tag:inbox
     ctl.open_search('tag:inbox')
     ctl.open_search('tag:flagged')
@@ -119,10 +118,10 @@ def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, notmuch_stub):
     for i in range(mw.tabs.count()):
         mw.tabs.widget(i).dirty = True
 
-    batch_before = sum(1 for c in notmuch_stub.count_calls
+    batch_before = sum(1 for c in client_stub.count_calls
                        if c[0] == '__batch__')
     ctl.refresh_tab_titles()
-    batch_after = sum(1 for c in notmuch_stub.count_calls
+    batch_after = sum(1 for c in client_stub.count_calls
                       if c[0] == '__batch__')
 
     assert batch_after == batch_before + 1       # one batch for both tabs
@@ -130,8 +129,8 @@ def test_refresh_tab_titles_batches_counts(ctl, mw, qapp, notmuch_stub):
     assert mw.tabs.tabText(1) == 'tag:flagged [0]'
 
 
-def test_navigate_list_on_search_panel(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
+def test_navigate_list_on_search_panel(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
     ctl.open_search('tag:inbox')
     sp = mw.tabs.currentWidget()
     ctl.navigate_list('next')
@@ -140,8 +139,8 @@ def test_navigate_list_on_search_panel(ctl, mw, qapp, notmuch_stub):
     assert sp.tree.currentIndex().row() == 0
 
 
-def test_navigate_list_with_count(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread(f't{i}', f'Subj {i}') for i in range(30)]
+def test_navigate_list_with_count(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread(f't{i}', f'Subj {i}') for i in range(30)]
     ctl.open_search('tag:inbox')
     sp = mw.tabs.currentWidget()
     sp.next_thread(count=20)
@@ -154,8 +153,8 @@ def test_navigate_list_with_count(ctl, mw, qapp, notmuch_stub):
     assert sp.tree.currentIndex().row() == 0  # clamped to 0
 
 
-def test_delegate_to_list_unknown_method_warns(ctl, mw, qapp, notmuch_stub, caplog):
-    notmuch_stub.threads = [make_thread('t1', 'A')]
+def test_delegate_to_list_unknown_method_warns(ctl, mw, qapp, client_stub, caplog):
+    client_stub.threads = [make_thread('t1', 'A')]
     ctl.open_search('tag:inbox')
     import logging
     with caplog.at_level(logging.WARNING):
@@ -170,29 +169,29 @@ def test_tag_bar_prefills_plus(ctl, qapp):
     assert bar.textCursor().position() == 1
 
 
-def test_tag_bar_empty_expr_is_noop(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'A')]
+def test_tag_bar_empty_expr_is_noop(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'A')]
     ctl.open_search('tag:inbox')
     ctl.tag_bar('tag')
     ctl.command_bar.accept()
-    assert notmuch_stub.tag_calls == []
+    assert client_stub.modify_tags_calls == []
 
 
-def test_tag_bar_typed_expr_dispatches(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'A')]
+def test_tag_bar_typed_expr_dispatches(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'A')]
     ctl.open_search('tag:inbox')
     ctl.tag_bar('tag')
     ctl.command_bar.setPlainText('+work')
     ctl.command_bar.accept()
-    assert len(notmuch_stub.tag_calls) == 1
-    assert notmuch_stub.tag_calls[0][0] == '+work'
+    assert len(client_stub.modify_tags_calls) == 1
+    assert client_stub.modify_tags_calls[0][1] == ['work']
 
 
-def test_mark_and_advance(ctl, mw, qapp, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
+def test_mark_and_advance(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
     ctl.open_search('tag:inbox')
     ctl.mark_and_advance()
-    assert notmuch_stub.tag_calls[0][0] == '+marked'
+    assert client_stub.modify_tags_calls[0][1] == ['marked']
     assert mw.tabs.currentWidget().tree.currentIndex().row() == 1
 
 

@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import sys
 from unittest.mock import MagicMock
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
@@ -30,6 +28,11 @@ import pytest  # noqa: E402
 from PyQt6.QtCore import QSettings  # noqa: E402
 
 import lazarus.notmuch as notmuch  # noqa: E402
+
+# Captured before any autouse fixture patches it — real-daemon tests
+# (test_desktop_client) re-install this to talk to a live NED.
+from lazarus import client as _client_module  # noqa: E402
+REAL_GET_CLIENT = _client_module.get_client
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +152,145 @@ def notmuch_stub(monkeypatch):
     for name in ('search_json', 'tags', 'count', 'count_batch',
                  'search_files', 'tag', 'new'):
         monkeypatch.setattr(notmuch, name, getattr(stub, name))
+    return stub
+
+
+# ---------------------------------------------------------------------------
+# NED client stubbing (desktop panels are NED-only)
+# ---------------------------------------------------------------------------
+
+class ClientStub:
+    """In-memory stand-in for NedClient, returned via lazarus.client.get_client.
+
+    The desktop is a pure NED client, so panel tests exercise the same
+    client-call surface the real app uses (`search`, `modify_tags`,
+    `trash_thread`, ...) instead of patching `lazarus.notmuch`. Records
+    every call like the old NotmuchStub did.
+    """
+
+    def __init__(self) -> None:
+        self.threads: list[dict] = []        # search results
+        self.tag_list: list[str] = []        # known tags
+        self.message_ids: list[str] | None = None  # search_messages override
+        self.message: dict = {}              # get_thread tree payloads
+        self.thread_trees: dict[str, list] = {}  # thread_id -> tree
+        self.search_calls: list[str] = []
+        self.modify_tags_calls: list[tuple] = []
+        self.trash_calls: list[str] = []
+        self.untrash_calls: list[str] = []
+        self.archive_calls: list[str] = []
+        self.count_calls: list[tuple] = []
+        self.index_new_calls = 0
+        self.sync_result: tuple[bool, str] = (True, 'Sync completed (no new mail)')
+
+    # -- recording helpers ---------------------------------------------
+    def ping(self) -> bool:
+        return True
+
+    def search(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        self.search_calls.append(query)
+        # Fresh dicts: callers compare by content (e.g. refresh_thread
+        # detects a changed row), not by object identity.
+        return [dict(t) for t in _filter_threads(self.threads, query)]
+
+    def search_messages(self, query: str, limit: int = 1000, offset: int = 0) -> list[str]:
+        self.search_calls.append('messages:' + query)
+        if self.message_ids is not None:
+            return list(self.message_ids)
+        return [str(t['thread']) for t in _filter_threads(self.threads, query)]
+
+    def count(self, query: str, output: str = 'threads') -> int:
+        self.count_calls.append((query, output))
+        return len(_filter_threads(self.threads, query))
+
+    def count_batch(self, queries: list[str], output: str = 'threads') -> list[int]:
+        self.count_calls.append(('__batch__', output))
+        return [len(_filter_threads(self.threads, q)) for q in queries]
+
+    def get_tags(self) -> list[dict]:
+        return [{'name': t, 'count': len(_filter_threads(self.threads, f'tag:{t}'))}
+                for t in self.tag_list]
+
+    def get_contacts(self, query: str = '') -> list[dict]:
+        return []
+
+    def get_thread(self, thread_id: str, full: bool = True) -> dict:
+        tree = self.thread_trees.get(thread_id, [])
+        return {'thread_id': thread_id, 'subject': '', 'tags': [],
+                'messages': [], 'tree': tree}
+
+    def get_message(self, msg_id: str) -> dict:
+        return dict(self.message) or {'id': msg_id, 'headers': {},
+                                      'tags': [], 'body': []}
+
+    def get_part(self, msg_id: str, part_id: int) -> bytes:
+        return b'stub-part'
+
+    def modify_tags(self, queries, add=None, remove=None) -> bool:
+        q_list = [queries] if isinstance(queries, str) else list(queries)
+        self.modify_tags_calls.append((q_list, list(add or []), list(remove or [])))
+        return True
+
+    def archive_thread(self, thread_or_query) -> bool:
+        self.archive_calls.append(thread_or_query if isinstance(thread_or_query, str)
+                                  else ','.join(thread_or_query))
+        return True
+
+    def trash_thread(self, thread_or_query) -> bool:
+        self.trash_calls.append(thread_or_query if isinstance(thread_or_query, str)
+                                else ','.join(thread_or_query))
+        return True
+
+    def unarchive_thread(self, thread_or_query) -> bool:
+        return True
+
+    def untrash_thread(self, thread_or_query) -> bool:
+        self.untrash_calls.append(thread_or_query if isinstance(thread_or_query, str)
+                                  else ','.join(thread_or_query))
+        return True
+
+    def expunge_trash(self) -> int:
+        return 0
+
+    def apply_filter_rules(self) -> int:
+        return 1
+
+    def index_new(self) -> bool:
+        self.index_new_calls += 1
+        return True
+
+    def sync_mail(self) -> tuple[bool, str]:
+        return self.sync_result
+
+    def get_reply_seed(self, msg_id: str, to_all: bool = False) -> dict:
+        return {'to': '', 'cc': '', 'subject': 'RE: ', 'body': ''}
+
+    def get_signatures(self) -> dict:
+        return {'signatures': {}}
+
+    def get_accounts(self) -> list[str]:
+        return ['default']
+
+    def send_email(self, *args, **kwargs) -> tuple[bool, str]:
+        return (True, 'Message sent successfully')
+
+    def watch_events(self, *args, **kwargs):
+        import threading as _t
+        return _t.Thread(target=lambda: None, daemon=True)
+
+
+@pytest.fixture(autouse=True)
+def client_stub(monkeypatch):
+    """Every desktop test gets a deterministic fake NedClient.
+
+    The desktop is NED-only, so panel/model tests must never touch a live
+    daemon (a process-wide ``_TagStore`` loader or a stray panel refresh
+    would otherwise read the user's real mailbox). Tests that exercise the
+    real daemon (``tests/test_desktop_client.py``) re-install the real
+    ``get_client`` inside their own fixtures.
+    """
+    stub = ClientStub()
+    monkeypatch.setattr('lazarus.client.get_client', lambda: stub)
     return stub
 
 

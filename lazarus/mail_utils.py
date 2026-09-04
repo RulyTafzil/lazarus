@@ -27,13 +27,11 @@ from __future__ import annotations
 import email.utils
 import os
 import os.path
-import subprocess
 import sys
 import tempfile
 from typing import Iterator, List, Tuple
 
 from .html_utils import html2text
-from . import notmuch
 
 
 def message_parts(m: dict) -> Iterator[dict]:
@@ -166,20 +164,14 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
 
     for part in message_parts(m):
         if is_attachment(part):
-            from .client import get_client, is_ned_active
-            if is_ned_active():
-                try:
-                    content = get_client().get_part(m["id"], int(part["id"]))
-                except Exception:
-                    continue
-            else:
-                try:
-                    content = notmuch.show_part(part["id"], m["id"])
-                except subprocess.CalledProcessError:
-                    continue
+            from .client import get_client
+            try:
+                content = get_client().get_part(m["id"], int(part["id"]))
+            except Exception:
+                continue
             filename = part["filename"]
             if not content:
-                print(f"Ignoring attachment {filename}: Got empty contents from notmuch")
+                print(f"Ignoring attachment {filename}: Got empty contents")
                 continue
 
             p = os.path.join(temp_dir, sanitize_filename(filename))

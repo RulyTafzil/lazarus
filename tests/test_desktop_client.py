@@ -19,27 +19,27 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
-from typing import Any, Optional, Set
-from unittest.mock import MagicMock, patch
+from typing import Optional, Set
+from unittest.mock import patch
 
 from PyQt6.QtCore import QModelIndex
 from PyQt6.QtWidgets import QApplication
 import pytest
 
 from lazarus.actions import MarkableActionsMixin
-from lazarus.client import ensure_daemon, get_client, is_ned_active, reset_client
+from lazarus.client import ensure_daemon, get_client, reset_client
 from lazarus.controller import _NedEventBridge
 from lazarus.ned.daemon import NedDaemon
 from lazarus.ned.events import broadcaster
 from lazarus.search import SearchModel
 from lazarus.core import service
+from tests.conftest import REAL_GET_CLIENT
 
 
 @pytest.fixture(scope="session")
@@ -57,7 +57,7 @@ def temp_ned_socket():
 
 
 @pytest.fixture
-def running_ned(temp_ned_socket):
+def running_ned(temp_ned_socket, monkeypatch):
     daemon = NedDaemon(
         socket_path=temp_ned_socket,
         enable_tcp=False,
@@ -72,6 +72,8 @@ def running_ned(temp_ned_socket):
     os.environ["NED_SOCK"] = temp_ned_socket
     os.environ.pop("LAZARUS_DISABLE_NED", None)
     reset_client()
+    # Opt out of the autouse client_stub: talk to THIS real daemon.
+    monkeypatch.setattr("lazarus.client.get_client", REAL_GET_CLIENT)
     yield daemon, temp_ned_socket
     daemon.stop()
     reset_client()
@@ -85,24 +87,21 @@ def running_ned(temp_ned_socket):
         os.environ.pop("LAZARUS_DISABLE_NED", None)
 
 
-def test_client_singleton_and_disable():
-    old = os.environ.get("LAZARUS_DISABLE_NED")
-    try:
-        reset_client()
-        os.environ["LAZARUS_DISABLE_NED"] = "1"
-        assert not is_ned_active()
-    finally:
-        if old is not None:
-            os.environ["LAZARUS_DISABLE_NED"] = old
-        else:
-            os.environ.pop("LAZARUS_DISABLE_NED", None)
-        reset_client()
+def test_client_singleton_and_disable(monkeypatch):
+    reset_client()
+    monkeypatch.setattr("lazarus.client.get_client", REAL_GET_CLIENT)
+    # With spawning suppressed, ensure_daemon must refuse (no local fallback).
+    monkeypatch.setenv("LAZARUS_DISABLE_NED", "1")
+    assert ensure_daemon() is False
+    monkeypatch.delenv("LAZARUS_DISABLE_NED")
+    reset_client()
 
 
 def test_client_active_with_daemon(running_ned):
-    assert is_ned_active()
     client = get_client()
     assert client.ping()
+    # Search hits the daemon-backed notmuch DB — just assert the shape.
+    assert isinstance(client.search("tag:inbox", limit=5), list)
 
 
 class DummyApp:
@@ -351,12 +350,15 @@ def test_ensure_daemon_spawn_command(monkeypatch, tmp_path):
 
     call_count = 0
 
-    def mock_is_active(force=False):
-        nonlocal call_count
-        call_count += 1
-        return call_count > 1
+    class StartupProbe:
+        """Ping fails while the daemon is still starting, then succeeds."""
+        def ping(self) -> bool:
+            nonlocal call_count
+            call_count += 1
+            return call_count > 1
 
-    monkeypatch.setattr("lazarus.client.is_ned_active", mock_is_active)
+    fake = StartupProbe()
+    monkeypatch.setattr("lazarus.client.get_client", lambda: fake)
 
     with patch("lazarus.client.subprocess.Popen") as mock_popen:
         assert ensure_daemon(timeout=1.0) is True

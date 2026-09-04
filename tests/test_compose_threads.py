@@ -5,7 +5,6 @@ full MIME assembly path runs for real (no network, no msmtp); the
 notmuch layer is stubbed.  ``pgp_sign``/``pgp_encrypt`` are left off —
 python-gnupg is optional.
 """
-import os
 import time
 
 from lazarus import compose_threads, mime_builder, settings
@@ -48,7 +47,7 @@ def _run_send(panel, qapp, timeout=10.0):
     return t
 
 
-def test_send_writes_message_and_saves_sent(tmp_path, qapp, notmuch_stub):
+def test_send_writes_message_and_saves_sent(tmp_path, qapp, client_stub):
     out = tmp_path / 'out.eml'
     sent = tmp_path / 'Sent'
     settings.send_mail_command = f"sh -c 'cat > {out}'"
@@ -66,10 +65,10 @@ def test_send_writes_message_and_saves_sent(tmp_path, qapp, notmuch_stub):
     # Saved to the sent folder (mailbox.Maildir writes to new/) and
     # re-indexed.
     assert list((sent / 'new').iterdir()) or list((sent / 'cur').iterdir())
-    assert notmuch_stub.new_calls == 1
+    assert client_stub.index_new_calls == 1
 
 
-def test_send_failure_sets_error(tmp_path, qapp, notmuch_stub):
+def test_send_failure_sets_error(tmp_path, qapp, client_stub):
     settings.send_mail_command = "sh -c 'exit 1'"
     settings.sent_dir = str(tmp_path / 'Sent')
 
@@ -77,10 +76,10 @@ def test_send_failure_sets_error(tmp_path, qapp, notmuch_stub):
 
     assert not t.send_success
     assert 'exit' in t.send_error
-    assert notmuch_stub.new_calls == 0
+    assert client_stub.index_new_calls == 0
 
 
-def test_reply_sets_references_and_replied_tag(tmp_path, qapp, notmuch_stub):
+def test_reply_sets_references_and_replied_tag(tmp_path, qapp, client_stub):
     # Original message with a References header, as notmuch stores it.
     orig = tmp_path / 'orig.eml'
     orig.write_text(
@@ -100,4 +99,5 @@ def test_reply_sets_references_and_replied_tag(tmp_path, qapp, notmuch_stub):
     content = out.read_text()
     assert 'In-Reply-To: <msg-9>' in content
     assert 'References: <r1> <r2> <msg-9>' in content
-    assert ('+replied', 'id:msg-9') in [c[:2] for c in notmuch_stub.tag_calls]
+    # NED-only: the +replied tag is dispatched to the daemon.
+    assert client_stub.modify_tags_calls[-1] == (['id:msg-9'], ['replied'], [])

@@ -21,12 +21,12 @@ from tests.conftest import make_thread
 
 
 @pytest.fixture
-def panel(qapp, fake_app, notmuch_stub):
+def panel(qapp, fake_app, client_stub):
     """A standalone SearchPanel in flat mode (the config-only default)."""
     QSettings('lazarus', 'lazarus').remove('search_list_mode')
     QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
     settings.search_list_mode = LIST_MODE_FLAT
-    notmuch_stub.threads = [make_thread('t1', 'Hello', total=3)]
+    client_stub.threads = [make_thread('t1', 'Hello', total=3)]
     p = SearchPanel(fake_app, 'tag:inbox')
     yield p
     p.close()
@@ -55,14 +55,14 @@ def test_mode_is_config_only_not_persisted(panel):
     assert QSettings('lazarus', 'lazarus').value('search_list_mode') == 'card'  # untouched
 
 
-def test_card_mode_single_column_no_restore(qapp, fake_app, notmuch_stub):
+def test_card_mode_single_column_no_restore(qapp, fake_app, client_stub):
     """A panel created in card mode is a single stretched column with the
     header hidden, and it neither restores nor saves column widths to the
     shared geometry key — so it can't poison later flat panels."""
     from PyQt6.QtWidgets import QHeaderView
     QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
     settings.search_list_mode = 'card'
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    client_stub.threads = [make_thread('t1', 'Hello')]
     p = SearchPanel(fake_app, 'tag:inbox')
     try:
         assert p.tree.isHeaderHidden() is True
@@ -81,13 +81,13 @@ def test_card_mode_single_column_no_restore(qapp, fake_app, notmuch_stub):
         qapp.processEvents()
 
 
-def test_flat_recovers_from_stale_card_geometry(qapp, fake_app, notmuch_stub):
+def test_flat_recovers_from_stale_card_geometry(qapp, fake_app, client_stub):
     """Regression: the old card-mode build saved its single stretched
     date column into the shared key, so flat panels restored it and showed
     only the date column filled.  Flat mode must clamp the over-wide date
     column back to sensible widths and purge the poisoned entry."""
     from lazarus.search import LIST_MODE_CARD
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    client_stub.threads = [make_thread('t1', 'Hello')]
     # Produce a realistic poisoned entry: the header state of a real
     # card-mode panel (col0 stretched full-width), as the old build saved.
     settings.search_list_mode = LIST_MODE_CARD
@@ -115,11 +115,11 @@ def test_flat_recovers_from_stale_card_geometry(qapp, fake_app, notmuch_stub):
         qapp.processEvents()
 
 
-def test_card_delegate_size_hint_is_two_lines(qapp, notmuch_stub):
+def test_card_delegate_size_hint_is_two_lines(qapp, client_stub):
     """The card's natural row height fits two text lines plus padding."""
     from PyQt6.QtGui import QFontMetrics
     settings.search_list_mode = 'card'
-    notmuch_stub.threads = [make_thread('t1', 'Hello', total=3,
+    client_stub.threads = [make_thread('t1', 'Hello', total=3,
                                         tags=['inbox', 'unread'])]
     model = SearchModel('tag:inbox')
     delegate = CardDelegate()
@@ -134,12 +134,12 @@ def test_card_delegate_size_hint_is_two_lines(qapp, notmuch_stub):
 
 
 @pytest.mark.parametrize('selected', [False, True])
-def test_card_delegate_paints(qapp, notmuch_stub, selected):
+def test_card_delegate_paints(qapp, client_stub, selected):
     """The card paints (selected and unselected) without crashing and
     draws actual pixels — no degenerate empty output."""
     from PyQt6.QtGui import QPainter, QPixmap
     settings.search_list_mode = 'card'
-    notmuch_stub.threads = [make_thread('t1', 'Hello ' * 40, total=3,
+    client_stub.threads = [make_thread('t1', 'Hello ' * 40, total=3,
                                         tags=['inbox', 'unread'])]
     model = SearchModel('tag:inbox')
     delegate = CardDelegate()
@@ -162,13 +162,13 @@ def test_card_delegate_paints(qapp, notmuch_stub, selected):
     assert pm.toImage().size().width() > 0
 
 
-def test_fresh_card_panel_survives_refresh(qapp, fake_app, notmuch_stub):
+def test_fresh_card_panel_survives_refresh(qapp, fake_app, client_stub):
     """A panel created in card mode stays a proper single-column card view
     across ``refresh()`` and ``set_query()`` — the saved flat header layout
     is never re-applied over the card single-column setup."""
     QSettings('lazarus', 'lazarus').remove('search_tree_geometry')
     settings.search_list_mode = 'card'
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+    client_stub.threads = [make_thread('t1', 'Hello')]
     p = SearchPanel(fake_app, 'tag:inbox')
     try:
         assert p.tree.isHeaderHidden() is True
@@ -202,12 +202,12 @@ def test_single_line_normalizes_newlines():
     assert _single_line(123) == '123'
 
 
-def test_card_subject_trailing_newline_does_not_overlap(qapp, notmuch_stub):
+def test_card_subject_trailing_newline_does_not_overlap(qapp, client_stub):
     """Painting a card whose subject carries a trailing newline must keep the
     subject (line 2) from vertically overlapping the From line (line 1)."""
     from PyQt6.QtGui import QColor, QPainter, QPixmap
     settings.search_list_mode = 'card'
-    notmuch_stub.threads = [make_thread(
+    client_stub.threads = [make_thread(
         't1', 'welcome to google ai pro, ruly \U0001F525\n')]
     model = SearchModel('tag:inbox')
     delegate = CardDelegate()
@@ -243,13 +243,13 @@ def test_card_subject_trailing_newline_does_not_overlap(qapp, notmuch_stub):
         assert bands[i][1] < bands[i + 1][0], f'bands overlap: {bands}'
 
 
-def test_static_indicator_width_aligns_sender(qapp, notmuch_stub):
+def test_static_indicator_width_aligns_sender(qapp, client_stub):
     """The thread-count indicator occupies a constant width whether the
     message is threaded or not, so the sender (and subject) start at the
     same x on every card."""
     settings.search_list_mode = 'card'
     # Both threads non-unread so their 'from' font/metrics are identical.
-    notmuch_stub.threads = [
+    client_stub.threads = [
         make_thread('tA', 'Alpha', total=3, tags=['inbox']),
         make_thread('tB', 'Beta', total=1, tags=['inbox']),
     ]

@@ -111,13 +111,12 @@ def test_reflow_caps_at_window_width_and_wraps(mw, bar, qapp):
     assert box.height() > base_h
 
 
-def test_tag_completion_loads_in_background(qapp, fake_app, notmuch_stub):
-    """notmuch.tags() runs on a worker thread; the completer populates
+def test_tag_completion_loads_in_background(qapp, fake_app, client_stub):
+    """NED get_tags() runs on a worker thread; the completer populates
     asynchronously instead of blocking construction."""
     import time
-    import lazarus.notmuch as nm
     from lazarus import mainwindow
-    notmuch_stub.tag_list = ['inbox', 'unread', 'flagged']
+    client_stub.tag_list = ['inbox', 'unread', 'flagged']
     win = mainwindow.MainWindow(fake_app)  # starts the loader with the stub
     model = win.command_bar._tag_model
     assert model.rowCount() == 0  # empty at construction (no blocking)
@@ -128,17 +127,16 @@ def test_tag_completion_loads_in_background(qapp, fake_app, notmuch_stub):
     assert model.rowCount() == 3
 
 
-def test_tag_completion_survives_notmuch_failure(qapp, fake_app, notmuch_stub,
-                                                 monkeypatch):
-    """A failing tags() fetch must not crash construction — empty list."""
+def test_tag_completion_survives_ned_failure(qapp, fake_app, client_stub,
+                                             monkeypatch):
+    """A failing get_tags() fetch must not crash construction — empty list."""
     import time
-    import lazarus.notmuch as nm
     from lazarus import mainwindow
 
     def boom(*a, **k):
-        raise RuntimeError('notmuch missing')
+        raise RuntimeError('NED unreachable')
 
-    monkeypatch.setattr(nm, 'tags', boom)
+    monkeypatch.setattr(client_stub, 'get_tags', boom)
     win = mainwindow.MainWindow(fake_app)
     model = win.command_bar._tag_model
     deadline = time.time() + 5
@@ -149,12 +147,12 @@ def test_tag_completion_survives_notmuch_failure(qapp, fake_app, notmuch_stub,
     assert model.rowCount() == 0
 
 
-def test_completion_leaves_cursor_at_end(qapp, fake_app, notmuch_stub):
+def test_completion_leaves_cursor_at_end(qapp, fake_app, client_stub):
     """After picking a tag from the completer popup, the cursor sits at
     the end (after the trailing space) so the next term can be typed."""
     import time
     from lazarus import mainwindow
-    notmuch_stub.tag_list = ['inbox']
+    client_stub.tag_list = ['inbox']
     win = mainwindow.MainWindow(fake_app)  # starts the loader with the stub
     bar = win.command_bar
     model = bar._tag_model

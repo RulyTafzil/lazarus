@@ -27,8 +27,6 @@ notmuch calls.
 """
 
 from __future__ import annotations
-import subprocess
-import json
 import logging
 from typing import Optional
 
@@ -36,8 +34,6 @@ from PyQt6.QtCore import (
     Qt, QStringListModel, QThread, QObject, pyqtSignal,
 )
 from PyQt6.QtWidgets import QCompleter, QLineEdit
-
-from . import notmuch
 
 logger = logging.getLogger(__name__)
 
@@ -61,67 +57,22 @@ class _AddressLoader(QThread):
         addresses: list[str] = []
         seen: set[str] = set()
 
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            try:
-                contacts = get_client().get_contacts("")
-                for item in contacts:
-                    formatted = item.get('display', '') or item.get('address', '')
-                    if not formatted:
-                        continue
-                    key = formatted.casefold()
-                    if key not in seen:
-                        seen.add(key)
-                        addresses.append(formatted)
-                self.loaded.emit(addresses)
-                return
-            except Exception as e:
-                logger.warning("Failed loading contacts via NED: %s", e)
-                addresses.clear()
-                seen.clear()
-
+        from .client import get_client
         try:
-            r = notmuch.run(
-                'address', '--output=recipients',
-                '--deduplicate=address', '--format=json',
-                '--', '*',
-                timeout=60,
-            )
-        except (OSError, subprocess.TimeoutExpired) as e:
-            logger.warning('notmuch address full load failed: %s', e)
+            contacts = get_client().get_contacts("")
+            for item in contacts:
+                formatted = item.get('display', '') or item.get('address', '')
+                if not formatted:
+                    continue
+                key = formatted.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    addresses.append(formatted)
+            logger.info('Loaded %d addresses from NED', len(addresses))
+        except Exception as e:
+            logger.warning("Failed loading contacts via NED: %s", e)
             self.loaded.emit([])
             return
-
-        if r.returncode != 0:
-            logger.warning('notmuch address returned %d: %s',
-                           r.returncode, r.stderr.strip()[:200])
-            self.loaded.emit([])
-            return
-
-        try:
-            results = json.loads(r.stdout)
-        except json.JSONDecodeError:
-            logger.warning('notmuch address: bad JSON output')
-            self.loaded.emit([])
-            return
-
-        # notmuch --format=json returns:
-        #   [{"name": "...", "address": "...", "name-addr": "..."}, ...]
-        # Use the pre-formatted "name-addr" field directly.
-        addresses = []
-        seen = set()
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            formatted = item.get('name-addr', '') or item.get('address', '')
-            if not formatted:
-                continue
-            key = formatted.casefold()
-            if key not in seen:
-                seen.add(key)
-                addresses.append(formatted)
-
-        logger.info('Loaded %d addresses from notmuch', len(addresses))
         self.loaded.emit(addresses)
 
 

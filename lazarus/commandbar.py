@@ -24,7 +24,6 @@ from PyQt6 import QtCore
 
 from . import util
 from . import keymap
-from . import notmuch
 from .protocols import PanelApp
 
 class _TagLoader(QtCore.QThread):
@@ -38,16 +37,9 @@ class _TagLoader(QtCore.QThread):
     loaded = QtCore.pyqtSignal(list)
 
     def run(self) -> None:
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            try:
-                tags = [t['name'] for t in get_client().get_tags()]
-                self.loaded.emit(tags)
-                return
-            except Exception:
-                pass
+        from .client import get_client
         try:
-            tags = notmuch.tags()
+            tags = [t['name'] for t in get_client().get_tags()]
         except Exception:
             tags = []
         self.loaded.emit(tags)

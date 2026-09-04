@@ -43,6 +43,7 @@ from .. import compose_model
 from .. import mail_utils
 from .. import mime_builder
 from .. import notmuch
+from .. import rules
 from .. import settings
 from .. import signature
 
@@ -256,6 +257,29 @@ def get_thread_messages(thread_id: str, include_bodies: bool = True) -> dict[str
     }
 
 
+def get_message_raw(message_id: str) -> dict[str, Any]:
+    """Return the raw notmuch-show message dict for one message ID.
+
+    Used by the desktop thread model for cheap single-message refreshes
+    (``ThreadModel.refresh_message``). Raises `ValueError` if the message
+    is not found.
+    """
+    clean_id = urllib.parse.unquote(message_id).removeprefix('id:').strip('<>')
+    r = notmuch.run(
+        'show', '--entire-thread=false',
+        '--exclude=false', '--format=json', '--verify',
+        '--include-html', '--decrypt=true',
+        '--', f'id:{clean_id}',
+        check=True,
+    )
+    raw_tree = json.loads(r.stdout)
+    flat: list[dict[str, Any]] = []
+    _flatten_messages(raw_tree, flat)
+    if not flat:
+        raise ValueError(f'Message {clean_id} not found')
+    return flat[0]
+
+
 def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
     """Retrieve raw bytes for an attachment part."""
     clean_id = urllib.parse.unquote(message_id).removeprefix('id:').strip('<>')
@@ -388,6 +412,30 @@ def expunge_trash() -> int:
     of files that were newly flagged.
     """
     return actions.expunge_trash()
+
+
+def apply_filter_rules() -> int:
+    """Apply the configured filter rules (``settings.filter_rules``).
+
+    Scoped by ``settings.filter_scope_query``; tag operations are
+    idempotent so re-running is safe. Returns the number of matched
+    threads, or 0 when no rules are configured.
+    """
+    if not settings.filter_rules:
+        return 0
+    return rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+
+
+def index_new() -> bool:
+    """Run ``notmuch new --no-hooks`` to pick up files that landed on
+    disk outside a sync cycle (e.g. sent-mail appends from the desktop).
+    """
+    try:
+        notmuch.new(no_hooks=True)
+        return True
+    except Exception as e:
+        logger.warning('notmuch new failed: %s', e)
+        return False
 
 def sync_mail() -> tuple[bool, str]:
     """Execute parallel mbsync per account (or sync_mail_command), run notmuch new, apply filter rules."""

@@ -1,14 +1,12 @@
 """address_completer — active-token extraction and popup filtering.
 
-The address book itself is loaded by a background thread (notmuch
-address); the loader is exercised with a stubbed notmuch.run.
+The address book itself is loaded by a background thread (NED
+contacts); the loader is exercised with a stubbed client.
 """
-import json
 import time
 
 from PyQt6.QtWidgets import QLineEdit
 
-import lazarus.notmuch as notmuch
 from lazarus import address_completer as ac
 
 
@@ -100,13 +98,16 @@ def test_programmatic_settext_does_not_trigger_completion(qapp):
         qapp.processEvents()
 
 
-def test_preload_addresses_loads_once(qapp, monkeypatch, notmuch_stub):
-    class R:
-        returncode = 0
-        stdout = json.dumps([{'name-addr': 'Alice <alice@example.com>'}])
-    monkeypatch.setattr(notmuch, 'run', lambda *a, **k: R())
+def test_preload_addresses_loads_once(qapp, monkeypatch, client_stub):
+    class C:
+        contacts = [{'display': 'Alice <alice@example.com>',
+                     'address': 'alice@example.com', 'name': 'Alice'}]
+        def get_contacts(self, query=''):
+            return self.contacts
+
     monkeypatch.setattr(ac, '_shared_loader', None)
     monkeypatch.setattr(ac, '_shared_addresses', [])
+    monkeypatch.setattr('lazarus.client.get_client', lambda: C())
 
     ac.preload_addresses()
     ac.preload_addresses()  # second call must be a no-op (singleton)
