@@ -30,10 +30,6 @@ import tempfile
 import typing
 import os
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from .controller import AppController
-    from .app import Dodo
 from . import panel
 from . import keymap
 from . import settings

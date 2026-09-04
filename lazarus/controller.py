@@ -40,12 +40,10 @@ from __future__ import annotations
 
 import logging
 import os
-import signal
-import subprocess
 import threading
 from typing import TYPE_CHECKING, Optional, Literal, Any
 
-from PyQt6.QtCore import QObject, QSettings, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import settings
@@ -62,7 +60,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-from .core.sync import SyncResult, run_sync
+from .core.sync import SyncResult, run_sync, parse_sync_stats
 
 
 class _NedEventBridge(QObject):
@@ -90,17 +88,22 @@ class SyncMailThread(QThread):
         self.notmuch_stderr: str = ''
         self.notmuch_rc: int = 0
         self.result: SyncResult | None = None
+        # Set when the sync ran through the NED daemon: the daemon already
+        # applied filter rules and returned a pre-formatted summary message.
+        self.via_ned = False
+        self.sync_message: str = ''
 
     def run(self) -> None:
         """Run sync cycle via NED or core.sync."""
         from .client import get_client, is_ned_active
         if is_ned_active():
+            self.via_ned = True
             self.progress.emit("Syncing mail via NED...")
             ok, msg = get_client().sync_mail()
             if ok:
                 self.sync_rc = 0
                 self.notmuch_rc = 0
-                self.sync_summaries = [msg] if msg else []
+                self.sync_message = msg
             else:
                 self.sync_rc = 1
                 self.sync_stderr = msg
@@ -152,14 +155,26 @@ class AppController(QObject):
 
     def _init_ned_watcher(self) -> None:
         """Start background SSE listener thread bridging invalidations to Qt."""
+        if os.environ.get("LAZARUS_DISABLE_NED") == "1":
+            return
         from .client import get_client, is_ned_active
         if not is_ned_active():
+            # No daemon at startup: skip the watcher entirely. Without
+            # this guard, watch_events( reconnect=True) would retry a
+            # failed socket connect every second for the app's lifetime.
+            logger.info("NED not reachable at startup; SSE watcher disabled")
             return
         client = get_client()
         self._ned_stop_event = threading.Event()
         self._ned_bridge = _NedEventBridge()
         self._ned_bridge.invalidate_threads.connect(self._on_ned_invalidate_threads)
         self._ned_bridge.invalidate_thread.connect(self._on_ned_invalidate_thread)
+        # Coalesce bursts of invalidations (e.g. a desktop mutation that
+        # also emits its own refresh) into one panel pass.
+        self._ned_refresh_timer = QTimer(self)
+        self._ned_refresh_timer.setSingleShot(True)
+        self._ned_refresh_timer.setInterval(150)
+        self._ned_refresh_timer.timeout.connect(self._do_ned_refresh)
 
         def _on_event(ev: Any) -> None:
             if ev.scope == "threads":
@@ -179,12 +194,17 @@ class AppController(QObject):
 
     def _on_ned_invalidate_threads(self) -> None:
         logger.info("Received NED invalidation for all threads")
-        self.refresh_panels()
-        self.refresh_tab_titles()
+        if self._ned_refresh_timer is not None:
+            self._ned_refresh_timer.start()
 
     def _on_ned_invalidate_thread(self, thread_id: str) -> None:
         logger.info("Received NED invalidation for thread: %s", thread_id)
+        # Targeted refresh is cheap; keep it immediate for snappy UX.
         self.update_single_thread(thread_id)
+        self._on_ned_invalidate_threads()
+
+    def _do_ned_refresh(self) -> None:
+        self.refresh_panels()
         self.refresh_tab_titles()
 
     # -- panel orchestration (moved from Dodo) ------------------------------
@@ -440,7 +460,10 @@ class AppController(QObject):
         self.app.sync_thread = t
 
         def done() -> None:
-            if t.notmuch_rc == 0 and settings.filter_rules:
+            if not t.via_ned and t.notmuch_rc == 0 and settings.filter_rules:
+                # In NED mode the daemon already applied filter rules as
+                # part of /api/v1/sync; applying them again here would
+                # write to the index outside the daemon's lock.
                 try:
                     rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
                 except Exception as e:
@@ -462,18 +485,13 @@ class AppController(QObject):
                 if t.notmuch_stderr:
                     msg += f': {t.notmuch_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
+            elif t.sync_message:
+                # NED path: the daemon returned a pre-formatted summary
+                # (e.g. "Sync completed (+3 new)").
+                self.status_message(t.sync_message, 'info')
             else:
                 # Aggregate Far: stats across all accounts
-                import re
-                new = flagged = expunged = deleted = 0
-                for summary in t.sync_summaries:
-                    m = re.search(r'Far:\s*\+(\d+)\s*\*(\d+)\s*#(\d+)\s*-(\d+)', summary)
-                    if m:
-                        new += int(m.group(1))
-                        flagged += int(m.group(2))
-                        expunged += int(m.group(3))
-                        deleted += int(m.group(4))
-
+                new, flagged, expunged, deleted = parse_sync_stats(t.sync_summaries)
                 bits = []
                 if new != 0: bits.append(f'+{new} new')
                 if flagged != 0: bits.append(f'*{flagged} flagged')
@@ -530,7 +548,12 @@ class AppController(QObject):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        tagged = actions.expunge_trash()
+        if is_ned_active():
+            # Route through the daemon so the expunge (file flag renames +
+            # index writes) runs inside its single-writer mutation lock.
+            tagged = get_client().expunge_trash()
+        else:
+            tagged = actions.expunge_trash()
         self.refresh_panels()
         if tagged:
             self.status_message(f'{tagged} message{"s" if tagged != 1 else ""} will be expunged on next sync', 'info')

@@ -30,7 +30,6 @@ import http.server
 import json
 import logging
 import mimetypes
-import os
 from pathlib import Path
 import queue
 import re
@@ -38,13 +37,13 @@ from typing import Any
 import urllib.parse
 
 from .. import settings
-from ..server import service
+from ..core import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "server" / "static"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class NedRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -176,7 +175,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         m_thread = re.match(r"^/api/v1/threads/([^/]+)$", path)
         if m_thread:
             thread_id = urllib.parse.unquote(m_thread.group(1))
-            thread_data = service.get_thread_messages(thread_id)
+            full = qs.get("full", ["true"])[0].lower() in ("true", "1", "yes")
+            thread_data = service.get_thread_messages(thread_id, include_bodies=full)
             if thread_data is None:
                 self.send_error_json("Thread not found", HTTPStatus.NOT_FOUND)
             else:
@@ -187,8 +187,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         if m_part:
             msg_id = urllib.parse.unquote(m_part.group(1))
             part_id = int(m_part.group(2))
-            content, filename, content_type = service.get_part_data(msg_id, part_id)
-            if content is None:
+            content, content_type, filename = service.get_part_data(msg_id, part_id)
+            if not content:
                 self.send_error_json("Part not found", HTTPStatus.NOT_FOUND)
                 return
             self.send_response(HTTPStatus.OK)
@@ -425,6 +425,14 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"status": "ok", "starred": flag, "flag": flag, "ok": True})
             else:
                 self.send_error_json("Failed toggling flag", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        # Expunge trash (irreversible: flags matching files with the Maildir T flag)
+        if path == "/api/v1/expunge":
+            with mutation_lock:
+                tagged = service.expunge_trash()
+            broadcaster.broadcast_invalidate("threads", reason="expunge")
+            self.send_json({"status": "ok", "tagged": tagged, "ok": True})
             return
 
         # Mail synchronization

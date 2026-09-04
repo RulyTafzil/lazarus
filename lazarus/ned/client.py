@@ -416,10 +416,11 @@ class NedClient:
         data = self._request_json("GET", "/api/v1/threads", query_params=params)
         return data if isinstance(data, list) else []
 
-    def get_thread(self, thread_id: str) -> dict[str, Any]:
+    def get_thread(self, thread_id: str, full: bool = True) -> dict[str, Any]:
         """Fetch full thread hierarchy and messages by thread ID."""
         clean_id = urllib.parse.quote(thread_id, safe="")
-        data = self._request_json("GET", f"/api/v1/threads/{clean_id}")
+        params = {"full": "true" if full else "false"}
+        data = self._request_json("GET", f"/api/v1/threads/{clean_id}", query_params=params)
         if not isinstance(data, dict):
             raise NedResponseError(200, "Unexpected thread response format", data)
         return data
@@ -433,7 +434,10 @@ class NedClient:
         return payload
 
     def get_part_data(self, msg_id: str, part_id: int) -> tuple[bytes, str, str]:
-        """Retrieve part payload along with filename and content type."""
+        """Retrieve part payload as ``(content, content_type, filename)``.
+
+        Same tuple order as ``lazarus.core.service.get_part_data``.
+        """
         clean_id = urllib.parse.quote(msg_id, safe="")
         _, headers, payload = self._request(
             "GET", f"/api/v1/messages/{clean_id}/part/{part_id}"
@@ -447,7 +451,7 @@ class NedClient:
             if raw_fn:
                 filename = raw_fn
 
-        return payload, filename, content_type
+        return payload, content_type, filename
 
     def modify_tags(
         self,
@@ -482,8 +486,13 @@ class NedClient:
         data = self._request_json("GET", "/api/v1/messages", query_params=params)
         return [str(m) for m in data] if isinstance(data, list) else []
 
-    def count(self, query: str, output: str = "messages") -> int:
-        """Return count of matching messages, threads, or files."""
+    def count(self, query: str, output: str = "threads") -> int:
+        """Return count of matching messages, threads, or files.
+
+        Defaults to threads to mirror ``lazarus.notmuch.count`` so desktop
+        call sites (tab titles, marked-check) have identical semantics in
+        NED and local modes.
+        """
         res = self._request_json(
             "GET", "/api/v1/count", query_params={"q": query, "output": output}
         )
@@ -492,7 +501,7 @@ class NedClient:
         return 0
 
     def count_batch(
-        self, queries: Sequence[str], output: str = "messages"
+        self, queries: Sequence[str], output: str = "threads"
     ) -> list[int]:
         """Return counts for a batch of queries."""
         payload = {"queries": list(queries), "output": output}
@@ -568,6 +577,16 @@ class NedClient:
             clean_id = urllib.parse.quote(clean, safe="")
             res = self._request_json("POST", f"/api/v1/threads/{clean_id}/untrash")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def expunge_trash(self) -> int:
+        """Flag every file matching ``tag:trash`` with the Maildir T flag.
+
+        Irreversible. Returns the number of files newly flagged.
+        """
+        res = self._request_json("POST", "/api/v1/expunge")
+        if isinstance(res, dict) and res.get("status") == "ok":
+            return int(res.get("tagged") or 0)
+        return 0
 
     def toggle_flag(self, thread_id: str, flag: bool = True) -> bool:
         """Toggle star/flag status on a thread."""

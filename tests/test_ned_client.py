@@ -252,16 +252,16 @@ def test_get_thread(mock_get_thread, running_ned_unix):
 def test_get_part_and_part_data(mock_get_part, running_ned_unix):
     """Test downloading message parts and attachments."""
     _, sock_path = running_ned_unix
-    mock_get_part.return_value = (b"Attachment content", "document.pdf", "application/pdf")
+    mock_get_part.return_value = (b"Attachment content", "application/pdf", "document.pdf")
 
     client = NedClient.unix(sock_path)
     part_bytes = client.get_part("msg-456", 2)
     assert part_bytes == b"Attachment content"
 
-    payload, filename, ctype = client.get_part_data("msg-456", 2)
+    payload, ctype, filename = client.get_part_data("msg-456", 2)
     assert payload == b"Attachment content"
-    assert filename == "document.pdf"
     assert ctype == "application/pdf"
+    assert filename == "document.pdf"
 
 
 @patch("lazarus.server.service.modify_tags")

@@ -209,7 +209,7 @@ class ThreadModel(QAbstractItemModel):
         from .client import get_client, is_ned_active
         if is_ned_active():
             try:
-                res = get_client().get_thread(self.thread_id)
+                res = get_client().get_thread(self.thread_id, full=False)
                 tree = res.get('tree')
                 if isinstance(tree, list):
                     return tree

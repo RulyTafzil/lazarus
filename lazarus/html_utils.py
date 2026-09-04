@@ -29,7 +29,10 @@ import re
 import subprocess
 import email.header
 
-from bleach.linkifier import Linker  # type: ignore[import-untyped]
+try:
+    from bleach.linkifier import Linker  # type: ignore[import-untyped]
+except ImportError:
+    Linker = None  # type: ignore[assignment,misc]
 
 
 def w3m_html2text(s: str) -> str:
@@ -49,6 +52,8 @@ def w3m_html2text(s: str) -> str:
 
 def linkify(s: str) -> str:
     """Link URLs and email addresses in *s* to HTML."""
+    if Linker is None:
+        return s
     lnk = Linker()
     lnk_email = Linker(parse_email=True)
     return lnk_email.linkify(lnk.linkify(s))

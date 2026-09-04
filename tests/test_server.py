@@ -150,7 +150,7 @@ def test_service_archive_moves_to_local_archive(tmp_path, monkeypatch):
 
 def test_service_sync_mail(monkeypatch):
     called = []
-    monkeypatch.setattr(notmuch, 'new', lambda: called.append('new'))
+    monkeypatch.setattr(notmuch, 'new', lambda no_hooks=True: called.append('new'))
     settings.smtp_accounts = []
     settings.sync_mail_command = 'echo sync'
 

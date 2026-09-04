@@ -21,6 +21,7 @@
     autocompleteTimer: null,
     undoTimer: null,
     undoAction: null,
+    eventSource: null,
   };
 
   // --- DOM Elements ---
@@ -111,12 +112,78 @@
     return res.json();
   }
 
+  // --- Server-Sent Events (SSE) Listener ---
+  let refreshTimer = null;
+  function scheduleViewRefresh(affectedThreadId = null) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      refreshTimer = null;
+      if (affectedThreadId && state.currentThread && state.currentThread.thread_id === affectedThreadId) {
+        await reloadThreadDetail(affectedThreadId);
+      } else if (!affectedThreadId && state.currentThread) {
+        await reloadThreadDetail(state.currentThread.thread_id);
+      }
+      await runSearch(state.currentQuery, false, true);
+      await loadTags();
+    }, 150);
+  }
+
+  function initEventSource() {
+    if (typeof window.EventSource === 'undefined') return;
+
+    if (state.eventSource) {
+      try {
+        state.eventSource.close();
+      } catch (_) {}
+      state.eventSource = null;
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const eventsUrl = token
+      ? `/api/v1/events?token=${encodeURIComponent(token)}`
+      : '/api/v1/events';
+
+    try {
+      const es = new EventSource(eventsUrl);
+      state.eventSource = es;
+
+      es.addEventListener('invalidate', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (!data) return;
+          const scope = data.scope;
+          const threadId = data.id;
+
+          if (scope === 'thread' && threadId) {
+            scheduleViewRefresh(threadId);
+          } else if (scope === 'threads') {
+            scheduleViewRefresh();
+          }
+        } catch (err) {
+          console.warn('Failed parsing invalidate event data:', err);
+        }
+      });
+
+      es.onerror = () => {
+        if (es.readyState === EventSource.CLOSED) {
+          state.eventSource = null;
+          setTimeout(initEventSource, 3000);
+        }
+      };
+    } catch (err) {
+      console.warn('EventSource initialization failed:', err);
+      setTimeout(initEventSource, 5000);
+    }
+  }
+
   // --- Initialisation ---
   async function init() {
     setupEventListeners();
     await loadAccounts();
     await loadTags();
     runSearch(state.currentQuery, false);
+    initEventSource();
   }
 
   // --- Event Listeners ---
@@ -349,6 +416,16 @@
 
     // Toast Undo
     el.toastUndo.addEventListener('click', handleUndo);
+
+    // Visibility change: auto-reconnect SSE and refresh when returning from background
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) {
+          initEventSource();
+        }
+        scheduleViewRefresh();
+      }
+    });
   }
 
   // --- Mail Synchronization ---
@@ -381,9 +458,15 @@
   }
 
   // --- Search and Threads ---
-  async function runSearch(query, append = false) {
+  async function runSearch(query, append = false, silent = false) {
     state.currentQuery = query;
-    if (!append) {
+    const savedScrollTop = el.threadList ? el.threadList.scrollTop : 0;
+    const fetchLimit = (!append && silent && state.threads.length > state.limit)
+      ? state.threads.length
+      : state.limit;
+    const fetchOffset = (!append) ? 0 : state.offset;
+
+    if (!append && !silent) {
       state.offset = 0;
       el.threadList.innerHTML = `
         <div class="loading-spinner-wrap">
@@ -393,21 +476,28 @@
     }
 
     try {
-      const threads = await api(`/api/search?q=${encodeURIComponent(query)}&limit=${state.limit}&offset=${state.offset}`);
+      const threads = await api(`/api/search?q=${encodeURIComponent(query)}&limit=${fetchLimit}&offset=${fetchOffset}`);
       if (!append) {
         state.threads = threads;
+        state.offset = threads.length;
       } else {
         state.threads.push(...threads);
+        state.offset += threads.length;
       }
       renderThreadList(state.threads);
+      if (silent && el.threadList) {
+        el.threadList.scrollTop = savedScrollTop;
+      }
 
-      if (threads.length >= state.limit) {
+      if (threads.length >= fetchLimit) {
         el.loadMoreWrap.classList.remove('hidden');
       } else {
         el.loadMoreWrap.classList.add('hidden');
       }
     } catch (err) {
-      el.threadList.innerHTML = `<div class="empty-hint">Error: ${escapeHtml(err.message)}</div>`;
+      if (!silent) {
+        el.threadList.innerHTML = `<div class="empty-hint">Error: ${escapeHtml(err.message)}</div>`;
+      }
     }
   }
 
@@ -482,7 +572,9 @@
 
       card.querySelector('.action-star').addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleStar(t.thread, !isStarred);
+        const starSvg = card.querySelector('.star-icon');
+        const isCurrentlyStarred = starSvg ? starSvg.classList.contains('starred') : (t.tags || []).includes('flagged');
+        toggleStar(t.thread, !isCurrentlyStarred);
       });
 
       el.threadList.appendChild(card);
@@ -514,6 +606,33 @@
       }
     } catch (err) {
       el.detailMessagesList.innerHTML = `<div class="empty-hint">Error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function reloadThreadDetail(threadId) {
+    try {
+      const expandedMsgIds = new Set();
+      document.querySelectorAll('#detail-messages-list .message-card:not(.collapsed)').forEach(c => {
+        const msgId = c.getAttribute('data-msg-id');
+        if (msgId) expandedMsgIds.add(msgId);
+      });
+
+      const data = await api(`/api/threads/${encodeURIComponent(threadId)}`);
+      if (state.currentThread && state.currentThread.thread_id === threadId) {
+        state.currentThread = data;
+        renderThreadDetail(data);
+
+        if (expandedMsgIds.size > 0) {
+          document.querySelectorAll('#detail-messages-list .message-card').forEach(c => {
+            const msgId = c.getAttribute('data-msg-id');
+            if (msgId && expandedMsgIds.has(msgId)) {
+              c.classList.remove('collapsed');
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed reloading thread detail:', err);
     }
   }
 
@@ -550,6 +669,7 @@
       const isLast = idx === msgs.length - 1;
       const isUnread = (m.tags || []).includes('unread');
       const card = document.createElement('article');
+      card.setAttribute('data-msg-id', m.id);
       card.className = `message-card ${!isLast && !isUnread ? 'collapsed' : ''}`;
 
       const nameOrAddr = m.from.split('<')[0].trim() || m.from;
@@ -677,11 +797,35 @@
         renderThreadDetail(state.currentThread);
       }
       const card = document.querySelector(`[data-thread-id="${threadId}"]`);
+      const threadObj = (state.threads || []).find(item => item.thread === threadId);
+      if (threadObj) {
+        if (!threadObj.tags) threadObj.tags = [];
+        if (flag) {
+          if (!threadObj.tags.includes('flagged')) threadObj.tags.push('flagged');
+        } else {
+          threadObj.tags = threadObj.tags.filter(tag => tag !== 'flagged');
+        }
+      }
       if (card) {
         const starSvg = card.querySelector('.star-icon');
-        if (flag) starSvg.classList.add('starred');
-        else starSvg.classList.remove('starred');
+        if (starSvg) {
+          if (flag) starSvg.classList.add('starred');
+          else starSvg.classList.remove('starred');
+        }
+        if (threadObj) {
+          const tagsContainer = card.querySelector('.thread-tags');
+          if (tagsContainer) {
+            tagsContainer.innerHTML = threadObj.tags.map(tag => {
+              let tagClass = 'tag-badge';
+              if (tag === 'unread') tagClass += ' tag-unread';
+              if (tag === 'flagged') tagClass += ' tag-flagged';
+              if (tag === 'trash') tagClass += ' tag-trash';
+              return `<span class="${tagClass}">${escapeHtml(tag)}</span>`;
+            }).join('');
+          }
+        }
       }
+      loadTags();
     } catch (err) {
       showToast(`Flag update failed: ${err.message}`);
     }

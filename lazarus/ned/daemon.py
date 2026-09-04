@@ -27,15 +27,13 @@ import http.server
 import logging
 import os
 from pathlib import Path
-import signal
 import socket
 import socketserver
 import threading
-import time
 from typing import Optional
 
 from .. import settings
-from ..server import service
+from ..core import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 from .handler import NedRequestHandler

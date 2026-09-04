@@ -16,8 +16,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-from . import app
-from . import themes
-from . import settings
-from . import keymap
-from . import util
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+__all__ = ["app", "themes", "settings", "keymap", "util"]
+
+
+def __getattr__(name: str) -> Any:
+    if name in __all__:
+        mod = importlib.import_module(f".{name}", __name__)
+        return mod
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+

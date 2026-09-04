@@ -232,3 +232,59 @@ def test_ned_accounts_and_signatures(tmp_path, monkeypatch):
         daemon.stop()
 
 
+def test_ned_get_part_attachment(tmp_path, monkeypatch):
+    from lazarus.core import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+
+    monkeypatch.setattr(
+        service,
+        "get_part_data",
+        lambda msg_id, part_id: (b"PDF_DATA_HERE", "application/pdf", "document.pdf"),
+    )
+
+    try:
+        conn = UnixHTTPConnection(sock_path)
+        conn.request("GET", "/api/v1/messages/msg-123/parts/2")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert resp.getheader("Content-Type") == "application/pdf"
+        assert resp.getheader("Content-Disposition") == 'attachment; filename="document.pdf"'
+        assert resp.read() == b"PDF_DATA_HERE"
+
+        # Test part not found
+        monkeypatch.setattr(
+            service,
+            "get_part_data",
+            lambda msg_id, part_id: (b"", "application/octet-stream", "part-99"),
+        )
+        conn.request("GET", "/api/v1/messages/msg-123/parts/99")
+        resp_404 = conn.getresponse()
+        assert resp_404.status == 404
+        conn.close()
+    finally:
+        daemon.stop()
+
+
+def test_ned_expunge_endpoint(tmp_path, monkeypatch):
+    from lazarus.core import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+
+    expunged: list[int] = []
+    monkeypatch.setattr(service, "expunge_trash", lambda: 3)
+
+    try:
+        conn = UnixHTTPConnection(sock_path)
+        conn.request("POST", "/api/v1/expunge")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data == {"status": "ok", "tagged": 3, "ok": True}
+        conn.close()
+    finally:
+        daemon.stop()

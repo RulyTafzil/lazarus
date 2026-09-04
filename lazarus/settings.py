@@ -34,9 +34,11 @@ defaults, as detailed below.
 """
 
 from __future__ import annotations
+from typing import Literal, Dict, List, Union, Any, TYPE_CHECKING
 from . import themes
-from . import rules
-from typing import Literal, Dict, List, Union, Any
+
+if TYPE_CHECKING:
+    from . import rules
 
 # functional
 email_address: Union[str, Dict[str, str]] = ''

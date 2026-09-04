@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import signal
 import subprocess
 import sys
@@ -133,7 +132,7 @@ def main() -> int:
 
     try:
         daemon.start()
-        print(f"NED (Notmuch Email Daemon) running.")
+        print("NED (Notmuch Email Daemon) running.")
         print(f"  Unix socket: {daemon.socket_path}")
         if not args.no_tcp:
             print(f"  TCP HTTP:    http://{host}:{port}")

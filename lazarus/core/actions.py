@@ -28,6 +28,7 @@ import logging
 import os
 import queue
 import re
+import sys
 import threading
 import time
 from typing import Callable, List, Optional, Set, Tuple
@@ -171,7 +172,6 @@ def get_worker() -> _BulkMoveWorker:
 
 def shutdown_worker() -> None:
     """Call on application shutdown — joins the worker if alive."""
-    global _worker
     if _worker is not None and _worker.is_alive():
         try:
             _worker.shutdown()
@@ -331,9 +331,17 @@ def plan_archive_moves(files: List[str],
     return moves
 
 
-import sys
-
 def _get_collector() -> Callable[[str], list[str]]:
+    """Return the active file collector for a move operation.
+
+    Core move actions resolve the collector through ``lazarus.actions``
+    when it exposes a different ``collect_files`` than this module's own.
+    That is the swappable seam the desktop/tests use to override file
+    collection (e.g. ``monkeypatch.setattr(lazarus.actions, 'collect_files', fn)``
+    in tests, or a future UI-level collector) without changing core
+    semantics. In the headless daemon ``lazarus.actions`` is never
+    imported, so this resolves to the core collector.
+    """
     actions_mod = sys.modules.get('lazarus.actions')
     if actions_mod and hasattr(actions_mod, 'collect_files'):
         fn = getattr(actions_mod, 'collect_files')
