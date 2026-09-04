@@ -623,10 +623,17 @@ class ThreadPanel(panel.Panel):
         for part in util.message_parts(m):
             if not util.is_attachment(part):
                 continue
-            try:
-                content = notmuch.show_part(part['id'], m['id'])
-            except subprocess.CalledProcessError:
-                continue
+            from .client import get_client, is_ned_active
+            if is_ned_active():
+                try:
+                    content = get_client().get_part(m['id'], int(part['id']))
+                except Exception:
+                    continue
+            else:
+                try:
+                    content = notmuch.show_part(part['id'], m['id'])
+                except subprocess.CalledProcessError:
+                    continue
             if not content:
                 continue
             filename = util.sanitize_filename(part.get('filename', 'attachment'))

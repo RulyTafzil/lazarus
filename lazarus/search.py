@@ -346,13 +346,23 @@ class SearchModel(QAbstractItemModel):
         """Refresh the model by (re-) running "notmuch search"."""
         logger.info("Beginning search refresh for '%s'", self.q)
         self.beginResetModel()
-        try:
-            self.json_str = notmuch.search_json(self.q)
-            self.d = json.loads(self.json_str)
-            self.error_msg = None
-        except subprocess.CalledProcessError as e:
-            # We keep the previous data, just add an error message on top.
-            self.error_msg = f"notmuch: {e.stderr}"
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                threads = get_client().search(self.q, limit=1000)
+                self.d = threads
+                self.json_str = json.dumps(threads)
+                self.error_msg = None
+            except Exception as e:
+                self.error_msg = f"ned: {e}"
+        else:
+            try:
+                self.json_str = notmuch.search_json(self.q)
+                self.d = json.loads(self.json_str)
+                self.error_msg = None
+            except subprocess.CalledProcessError as e:
+                # We keep the previous data, just add an error message on top.
+                self.error_msg = f"notmuch: {e.stderr}"
         self.threads = {thread['thread']: i for i, thread in enumerate(self.d)}
         self.num_threads = len(self.d)
         self.endResetModel()
@@ -376,12 +386,20 @@ class SearchModel(QAbstractItemModel):
             row = thread.row()
 
         logger.info("Search '%s': refreshing thread %s", self.q, thread_id)
-        try:
-            contents = json.loads(
-                notmuch.search_json(f'{self.q} AND thread:{thread_id}'))
-        except subprocess.CalledProcessError as e:
-            self.error_msg = f"notmuch: {e.stderr}"
-            return
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                contents = get_client().search(f'{self.q} AND thread:{thread_id}', limit=1)
+            except Exception as e:
+                self.error_msg = f"ned: {e}"
+                return
+        else:
+            try:
+                contents = json.loads(
+                    notmuch.search_json(f'{self.q} AND thread:{thread_id}'))
+            except subprocess.CalledProcessError as e:
+                self.error_msg = f"notmuch: {e.stderr}"
+                return
 
         if len(contents) == 1 and row < len(self.d):
             if contents[0] == self.d[row]:
@@ -769,6 +787,16 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         thread_id = self._current_thread_id()
         if not thread_id:
             return None
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                res = get_client().get_thread(thread_id)
+                data = res.get('tree') or []
+            except Exception:
+                return None
+            if not data:
+                return None
+            return latest_message(data[0])
         try:
             r = notmuch.run(
                 'show', '--exclude=false', '--format=json',

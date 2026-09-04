@@ -58,6 +58,28 @@ class _AddressLoader(QThread):
     loaded = pyqtSignal(list)
 
     def run(self) -> None:
+        addresses: list[str] = []
+        seen: set[str] = set()
+
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                contacts = get_client().get_contacts("")
+                for item in contacts:
+                    formatted = item.get('display', '') or item.get('address', '')
+                    if not formatted:
+                        continue
+                    key = formatted.casefold()
+                    if key not in seen:
+                        seen.add(key)
+                        addresses.append(formatted)
+                self.loaded.emit(addresses)
+                return
+            except Exception as e:
+                logger.warning("Failed loading contacts via NED: %s", e)
+                addresses.clear()
+                seen.clear()
+
         try:
             r = notmuch.run(
                 'address', '--output=recipients',
@@ -86,8 +108,8 @@ class _AddressLoader(QThread):
         # notmuch --format=json returns:
         #   [{"name": "...", "address": "...", "name-addr": "..."}, ...]
         # Use the pre-formatted "name-addr" field directly.
-        addresses: list[str] = []
-        seen: set[str] = set()
+        addresses = []
+        seen = set()
         for item in results:
             if not isinstance(item, dict):
                 continue

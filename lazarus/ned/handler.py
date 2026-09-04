@@ -234,6 +234,27 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(service.get_signatures())
             return
 
+        if path == "/api/v1/messages":
+            q = qs.get("q", [""])[0] or qs.get("query", [""])[0]
+            limit_str = qs.get("limit", ["1000"])[0]
+            offset_str = qs.get("offset", ["0"])[0]
+            try:
+                limit = int(limit_str)
+            except ValueError:
+                limit = 1000
+            try:
+                offset = int(offset_str)
+            except ValueError:
+                offset = 0
+            self.send_json(service.search_messages(q, limit=limit, offset=offset))
+            return
+
+        if path == "/api/v1/count":
+            q = qs.get("q", [""])[0] or qs.get("query", [""])[0]
+            output = qs.get("output", ["messages"])[0]
+            self.send_json({"count": service.count_query(q, output=output)})
+            return
+
         self.send_error_json("Not found", HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -243,6 +264,18 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         parsed = urllib.parse.urlparse(self.path)
         path = self._normalize_path(parsed.path)
+
+        # Count queries
+        if path == "/api/v1/count":
+            body = self._read_json_body()
+            output = body.get("output", "messages")
+            if "queries" in body:
+                queries = body.get("queries") or []
+                self.send_json({"counts": service.count_queries(queries, output=output)})
+            else:
+                query = body.get("query", "")
+                self.send_json({"count": service.count_query(query, output=output)})
+            return
 
         # Tag modification
         if path in ("/api/v1/tag", "/api/v1/tags"):
@@ -265,7 +298,21 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error_json("Failed modifying tags", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Archive thread
+        # Archive thread or query
+        if path == "/api/v1/threads/archive":
+            body = self._read_json_body()
+            query = body.get("query")
+            queries = body.get("queries") or ([query] if query else [])
+            if not queries:
+                self.send_error_json("query or queries required")
+                return
+            with mutation_lock:
+                for q in queries:
+                    service.archive_thread(q)
+            broadcaster.broadcast_invalidate("threads", reason="archive")
+            self.send_json({"status": "ok"})
+            return
+
         m_archive = re.match(r"^/api/v1/threads/([^/]+)/archive$", path)
         if m_archive:
             thread_id = urllib.parse.unquote(m_archive.group(1))
@@ -279,7 +326,21 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error_json("Failed archiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Unarchive thread
+        # Unarchive thread or query
+        if path == "/api/v1/threads/unarchive":
+            body = self._read_json_body()
+            query = body.get("query")
+            queries = body.get("queries") or ([query] if query else [])
+            if not queries:
+                self.send_error_json("query or queries required")
+                return
+            with mutation_lock:
+                for q in queries:
+                    service.unarchive_thread(q)
+            broadcaster.broadcast_invalidate("threads", reason="unarchive")
+            self.send_json({"status": "ok"})
+            return
+
         m_unarchive = re.match(r"^/api/v1/threads/([^/]+)/unarchive$", path)
         if m_unarchive:
             thread_id = urllib.parse.unquote(m_unarchive.group(1))
@@ -293,7 +354,21 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error_json("Failed unarchiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Trash thread
+        # Trash thread or query
+        if path == "/api/v1/threads/trash":
+            body = self._read_json_body()
+            query = body.get("query")
+            queries = body.get("queries") or ([query] if query else [])
+            if not queries:
+                self.send_error_json("query or queries required")
+                return
+            with mutation_lock:
+                for q in queries:
+                    service.trash_thread(q)
+            broadcaster.broadcast_invalidate("threads", reason="trash")
+            self.send_json({"status": "ok"})
+            return
+
         m_trash = re.match(r"^/api/v1/threads/([^/]+)/trash$", path)
         if m_trash:
             thread_id = urllib.parse.unquote(m_trash.group(1))
@@ -307,7 +382,21 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error_json("Failed trashing thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Untrash thread
+        # Untrash thread or query
+        if path == "/api/v1/threads/untrash":
+            body = self._read_json_body()
+            query = body.get("query")
+            queries = body.get("queries") or ([query] if query else [])
+            if not queries:
+                self.send_error_json("query or queries required")
+                return
+            with mutation_lock:
+                for q in queries:
+                    service.untrash_thread(q)
+            broadcaster.broadcast_invalidate("threads", reason="untrash")
+            self.send_json({"status": "ok"})
+            return
+
         m_untrash = re.match(r"^/api/v1/threads/([^/]+)/untrash$", path)
         if m_untrash:
             thread_id = urllib.parse.unquote(m_untrash.group(1))

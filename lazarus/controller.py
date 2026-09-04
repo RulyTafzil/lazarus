@@ -42,7 +42,8 @@ import logging
 import os
 import signal
 import subprocess
-from typing import TYPE_CHECKING, Optional, Literal
+import threading
+from typing import TYPE_CHECKING, Optional, Literal, Any
 
 from PyQt6.QtCore import QObject, QSettings, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -64,11 +65,18 @@ logger = logging.getLogger(__name__)
 from .core.sync import SyncResult, run_sync
 
 
+class _NedEventBridge(QObject):
+    """Bridge background thread SSE invalidation events into the Qt main event loop."""
+
+    invalidate_threads = pyqtSignal()
+    invalidate_thread = pyqtSignal(str)
+
+
 class SyncMailThread(QThread):
     """A QThread used for syncing local Maildir and notmuch with IMAP.
 
-    Delegates to lazarus.core.sync.run_sync, emitting progress signals
-    for UI status bars.
+    Delegates to NED daemon if active, or lazarus.core.sync.run_sync,
+    emitting progress signals for UI status bars.
     """
 
     progress = pyqtSignal(str)
@@ -84,7 +92,20 @@ class SyncMailThread(QThread):
         self.result: SyncResult | None = None
 
     def run(self) -> None:
-        """Run sync cycle via core.sync."""
+        """Run sync cycle via NED or core.sync."""
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            self.progress.emit("Syncing mail via NED...")
+            ok, msg = get_client().sync_mail()
+            if ok:
+                self.sync_rc = 0
+                self.notmuch_rc = 0
+                self.sync_summaries = [msg] if msg else []
+            else:
+                self.sync_rc = 1
+                self.sync_stderr = msg
+            return
+
         self.result = run_sync(
             progress_callback=self.progress.emit,
             cancel_check=lambda: self._stopping,
@@ -124,6 +145,47 @@ class AppController(QObject):
         # Dodo owns the sync thread/timer; the controller reads them via
         # the app (getattr so construction order does not matter).
         self.panel_history: list["Panel"] = getattr(app, "panel_history", [])  # type: ignore[assignment]
+        self._ned_stop_event: Optional[threading.Event] = None
+        self._ned_watcher_thread: Optional[threading.Thread] = None
+        self._ned_bridge: Optional[_NedEventBridge] = None
+        self._init_ned_watcher()
+
+    def _init_ned_watcher(self) -> None:
+        """Start background SSE listener thread bridging invalidations to Qt."""
+        from .client import get_client, is_ned_active
+        if not is_ned_active():
+            return
+        client = get_client()
+        self._ned_stop_event = threading.Event()
+        self._ned_bridge = _NedEventBridge()
+        self._ned_bridge.invalidate_threads.connect(self._on_ned_invalidate_threads)
+        self._ned_bridge.invalidate_thread.connect(self._on_ned_invalidate_thread)
+
+        def _on_event(ev: Any) -> None:
+            if ev.scope == "threads":
+                if self._ned_bridge is not None:
+                    self._ned_bridge.invalidate_threads.emit()
+            elif ev.scope == "thread" and ev.target_id:
+                if self._ned_bridge is not None:
+                    self._ned_bridge.invalidate_thread.emit(ev.target_id)
+
+        try:
+            self._ned_watcher_thread = client.watch_events(
+                on_event=_on_event,
+                stop_event=self._ned_stop_event,
+            )
+        except Exception as e:
+            logger.warning("Could not start NED event watcher: %s", e)
+
+    def _on_ned_invalidate_threads(self) -> None:
+        logger.info("Received NED invalidation for all threads")
+        self.refresh_panels()
+        self.refresh_tab_titles()
+
+    def _on_ned_invalidate_thread(self, thread_id: str) -> None:
+        logger.info("Received NED invalidation for thread: %s", thread_id)
+        self.update_single_thread(thread_id)
+        self.refresh_tab_titles()
 
     # -- panel orchestration (moved from Dodo) ------------------------------
 
@@ -452,7 +514,11 @@ class AppController(QObject):
         self.status_message(f'Applied filter rules ({n} matched)', 'info')
 
     def expunge_trash(self) -> None:
-        count = notmuch.count('tag:trash', output='files')
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            count = get_client().count('tag:trash', output='files')
+        else:
+            count = notmuch.count('tag:trash', output='files')
         if count == 0:
             self.status_message('Trash is empty', 'info')
             return
@@ -491,7 +557,11 @@ class AppController(QObject):
         dirty = [w for w in panels
                  if isinstance(w, search_mod.SearchPanel) and w.title_dirty]
         if dirty:
-            counts = notmuch.count_batch([w.q for w in dirty])
+            from .client import get_client, is_ned_active
+            if is_ned_active():
+                counts = get_client().count_batch([w.q for w in dirty])
+            else:
+                counts = notmuch.count_batch([w.q for w in dirty])
             for w, n in zip(dirty, counts):
                 w.apply_thread_count(n)
 
@@ -593,6 +663,10 @@ class AppController(QObject):
                 tp.refresh()
 
     def _cleanup_sync(self) -> None:
+        if self._ned_stop_event is not None:
+            self._ned_stop_event.set()
+        if self._ned_watcher_thread is not None and self._ned_watcher_thread.is_alive():
+            self._ned_watcher_thread.join(timeout=0.5)
         timer = getattr(self.app, 'sync_timer', None)
         if timer is not None and timer.isActive():
             timer.stop()

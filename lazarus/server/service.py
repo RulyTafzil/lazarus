@@ -142,6 +142,32 @@ def search_threads(query: str, limit: int = 50, offset: int = 0) -> list[dict[st
         return []
 
 
+def search_messages(query: str, limit: int = 1000, offset: int = 0) -> list[str]:
+    """Query notmuch for message IDs matching a query."""
+    q = query.strip()
+    try:
+        r = notmuch.run(
+            'search',
+            '--exclude=false',
+            '--format=json',
+            '--output=messages',
+            f'--limit={limit}',
+            f'--offset={offset}',
+            '--',
+            q,
+            check=True,
+        )
+        if not r.stdout.strip():
+            return []
+        data = json.loads(r.stdout)
+        if isinstance(data, list):
+            return [str(m) for m in data]
+        return []
+    except Exception as e:
+        logger.warning('notmuch message search failed for query %r: %s', q, e)
+        return []
+
+
 def _flatten_messages(node: Any, output: list[dict[str, Any]]) -> None:
     """Recursively flatten notmuch show JSON tree into message list."""
     if isinstance(node, list):
@@ -167,7 +193,7 @@ def get_thread_messages(thread_id: str) -> dict[str, Any]:
         raw_tree = json.loads(r.stdout)
     except Exception as e:
         logger.warning('Failed to fetch thread %r: %s', thread_id, e)
-        return {'thread_id': clean_id, 'subject': '', 'tags': [], 'messages': []}
+        return {'thread_id': clean_id, 'subject': '', 'tags': [], 'messages': [], 'tree': []}
 
     raw_messages: list[dict[str, Any]] = []
     _flatten_messages(raw_tree, raw_messages)
@@ -223,6 +249,7 @@ def get_thread_messages(thread_id: str) -> dict[str, Any]:
         'subject': subject or '(no subject)',
         'tags': sorted(list(all_tags)),
         'messages': messages,
+        'tree': raw_tree,
     }
 
 
@@ -305,34 +332,49 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
         return False
 
 
-def archive_thread(thread_id: str) -> bool:
+def archive_thread(thread_or_query: str) -> bool:
     """A archive: tag -inbox -unread, move files to local Archive Maildir, run notmuch new."""
-    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
-    query = f"thread:{clean_id}"
-    notmuch.tag('-inbox -unread', query)
+    clean = urllib.parse.unquote(thread_or_query).strip()
+    if clean.startswith("thread:") or " " in clean or ":" in clean:
+        query = clean
+    else:
+        query = f"thread:{clean}"
+    notmuch.tag("-inbox -unread", query)
     actions.move_to_archive(query)
     return True
 
 
-def unarchive_thread(thread_id: str) -> bool:
+def unarchive_thread(thread_or_query: str) -> bool:
     """Restore thread to inbox."""
-    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
-    return modify_tags([f"thread:{clean_id}"], add_tags=['inbox'], remove_tags=[])
+    clean = urllib.parse.unquote(thread_or_query).strip()
+    if clean.startswith("thread:") or " " in clean or ":" in clean:
+        query = clean
+    else:
+        query = f"thread:{clean}"
+    return modify_tags([query], add_tags=["inbox"], remove_tags=[])
 
 
-def trash_thread(thread_id: str) -> bool:
+def trash_thread(thread_or_query: str) -> bool:
     """Trash thread: tag +trash -inbox -unread, move files to account Trash, run notmuch new."""
-    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
-    query = f"thread:{clean_id}"
-    notmuch.tag('+trash -inbox -unread', query)
+    clean = urllib.parse.unquote(thread_or_query).strip()
+    if clean.startswith("thread:") or " " in clean or ":" in clean:
+        query = clean
+    else:
+        query = f"thread:{clean}"
+    notmuch.tag("+trash -inbox -unread", query)
     actions.move_to_trash(query)
     return True
 
 
-def untrash_thread(thread_id: str) -> bool:
+def untrash_thread(thread_or_query: str) -> bool:
     """Restore thread from trash to inbox."""
-    clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
-    return modify_tags([f"thread:{clean_id}"], add_tags=['inbox'], remove_tags=['trash'])
+    clean = urllib.parse.unquote(thread_or_query).strip()
+    if clean.startswith("thread:") or " " in clean or ":" in clean:
+        query = clean
+    else:
+        query = f"thread:{clean}"
+    actions.restore_from_trash(f"tag:trash AND ({query})")
+    return modify_tags([query], add_tags=["inbox"], remove_tags=["trash"])
 
 
 def sync_mail() -> tuple[bool, str]:
@@ -355,6 +397,24 @@ def get_all_tags() -> list[dict[str, Any]]:
     queries = [f'tag:{t}' for t in all_tags]
     counts = notmuch.count_batch(queries, output='threads')
     return [{'name': t, 'count': c} for t, c in zip(all_tags, counts)]
+
+
+def count_query(query: str, output: str = 'messages') -> int:
+    """Return count of matching messages, threads, or files."""
+    try:
+        return notmuch.count(query, output=output)
+    except Exception as e:
+        logger.warning('Failed to count query %r: %s', query, e)
+        return 0
+
+
+def count_queries(queries: list[str], output: str = 'messages') -> list[int]:
+    """Return count for each query in batch."""
+    try:
+        return notmuch.count_batch(queries, output=output)
+    except Exception as e:
+        logger.warning('Failed count batch: %s', e)
+        return [0] * len(queries)
 
 
 # ---------------------------------------------------------------------------

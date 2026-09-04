@@ -166,10 +166,17 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
 
     for part in message_parts(m):
         if is_attachment(part):
-            try:
-                content = notmuch.show_part(part["id"], m["id"])
-            except subprocess.CalledProcessError:
-                continue
+            from .client import get_client, is_ned_active
+            if is_ned_active():
+                try:
+                    content = get_client().get_part(m["id"], int(part["id"]))
+                except Exception:
+                    continue
+            else:
+                try:
+                    content = notmuch.show_part(part["id"], m["id"])
+                except subprocess.CalledProcessError:
+                    continue
             filename = part["filename"]
             if not content:
                 print(f"Ignoring attachment {filename}: Got empty contents from notmuch")
