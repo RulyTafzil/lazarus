@@ -404,17 +404,14 @@ def _get_collector() -> Callable[[str], list[str]]:
     return collect_files
 
 
-def move_to_trash(notmuch_query: str, unmark: bool = False, exclude_marked: bool | None = None) -> int:
+def move_to_trash(notmuch_query: str, unmark: bool = True, exclude_marked: bool | None = None) -> int:
     """Tag ``+trash -inbox -unread`` and move matching files to account Trash."""
     files = _get_collector()(notmuch_query)
     if not files:
         return 0
 
     should_unmark = unmark if exclude_marked is None else exclude_marked
-    tag_expr = '+trash -inbox -unread'
-    if should_unmark:
-        tag_expr += ' -marked'
-    notmuch.tag(tag_expr, notmuch_query)
+    notmuch.tag('+trash -inbox -unread', notmuch_query, exclude_marked=should_unmark)
 
     resolved: List[str] = []
     for f in files:
@@ -432,16 +429,13 @@ def move_to_trash(notmuch_query: str, unmark: bool = False, exclude_marked: bool
     return len(moves)
 
 
-def move_to_archive(notmuch_query: str, unmark: bool = False, exclude_marked: bool | None = None) -> int:
+def move_to_archive(notmuch_query: str, unmark: bool = True, exclude_marked: bool | None = None) -> int:
     """Untag ``-inbox -unread`` and move matching files to local ``archive_dir/cur/``."""
     files = _get_collector()(notmuch_query)
     if not files:
         return 0
     should_unmark = unmark if exclude_marked is None else exclude_marked
-    tag_expr = '-inbox -unread'
-    if should_unmark:
-        tag_expr += ' -marked'
-    notmuch.tag(tag_expr, notmuch_query)
+    notmuch.tag('-inbox -unread', notmuch_query, exclude_marked=should_unmark)
     return move_specific_files(files, os.path.expanduser(settings.archive_dir))
 
 
