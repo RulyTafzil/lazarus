@@ -29,8 +29,9 @@ from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread
 import email.parser
-import traceback
 import logging
+import os
+import traceback
 
 from . import pgp_util
 from . import mime_builder
@@ -68,7 +69,8 @@ class SendmailThread(QThread):
 
                 # Try local file parse first when available
                 if ('filename' in self.panel.msg and
-                        len(self.panel.msg['filename']) != 0):
+                        len(self.panel.msg['filename']) != 0 and
+                        os.path.isfile(self.panel.msg['filename'][0])):
                     try:
                         with open(self.panel.msg['filename'][0], 'rb') as f:
                             old_msg = email.parser.BytesParser().parse(

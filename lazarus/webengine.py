@@ -34,6 +34,7 @@ from PyQt6.QtWebEngineCore import (
 from PyQt6.QtGui import QDesktopServices
 import email.parser
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -164,13 +165,15 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
         elif isinstance(message_or_filename, str):
             filename = message_or_filename
 
-        if filename:
+        if filename and os.path.isfile(filename):
             try:
                 with open(filename, 'rb') as f:
                     self.message = email.parser.BytesParser().parse(f)
             except OSError as e:
                 logger.debug('set_message: cannot read %s: %s', filename, e)
                 self.message = None
+        else:
+            self.message = None
 
     def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
         if request is None:
