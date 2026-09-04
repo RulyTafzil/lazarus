@@ -27,10 +27,13 @@ can be done as follows:
   lazarus.settings.email_address = 'First Last <me@domain.com>''
   lazarus.settings.sent_dir = '~/mail/work/Sent'
 
-The settings :func:`~lazarus.settings.email_address` and
-:func:`~lazarus.settings.sent_dir` are required. Lazarus may not work correctly
-unless you set them properly. The rest of the settings have reasonable
-defaults, as detailed below.
+The desktop is UI-only: mail-routing settings (`email_address`, `sent_dir`,
+`smtp_accounts`, sync, filter rules) live in the **NED** config
+(`~/.config/ned/config.py` mutating `ned.settings`) and are served to the
+desktop via the API. The fields below are retained for back-compat — if
+present in the desktop config they are shape-validated but unused by the
+running client. The rest of the settings have reasonable defaults, as
+detailed below.
 """
 
 from __future__ import annotations

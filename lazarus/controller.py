@@ -482,9 +482,11 @@ class AppController(QObject):
         t.start()
 
     def apply_filter_rules(self) -> None:
-        if not settings.filter_rules:
-            self.status_message('No filter_rules configured', 'info')
-            return
+        """Ask NED to apply the daemon-side filter rules (C-r).
+
+        Rules live in the ned config (`settings.filter_rules` there); the
+        desktop config carries none, so the daemon reports the matches.
+        """
         from .client import get_client
         try:
             n = get_client().apply_filter_rules()
@@ -493,7 +495,10 @@ class AppController(QObject):
             self.status_message(f'Error applying filter rules: {e}', 'error')
             return
         self.refresh_panels()
-        self.status_message(f'Applied filter rules ({n} matched)', 'info')
+        if n:
+            self.status_message(f'Applied filter rules ({n} matched)', 'info')
+        else:
+            self.status_message('No mail matched current filter rules', 'info')
 
     def expunge_trash(self) -> None:
         from .client import get_client

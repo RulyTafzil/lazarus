@@ -1,4 +1,4 @@
-"""Tests for lazarus.core.sync."""
+"""Tests for ned.sync — parallel mbsync, notmuch new, rules runner."""
 from unittest.mock import MagicMock
 import pytest
 
