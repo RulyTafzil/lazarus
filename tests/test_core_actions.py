@@ -1,4 +1,4 @@
-"""Tests for lazarus.core.actions."""
+"""Tests for ned.actions — file move planners, worker, expunge/restore."""
 import os
 import time
 import pytest

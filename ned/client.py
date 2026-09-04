@@ -445,7 +445,7 @@ class NedClient:
     def get_part_data(self, msg_id: str, part_id: int) -> tuple[bytes, str, str]:
         """Retrieve part payload as ``(content, content_type, filename)``.
 
-        Same tuple order as ``lazarus.core.service.get_part_data``.
+        Same tuple order as ``ned.service.get_part_data``.
         """
         clean_id = urllib.parse.quote(msg_id, safe="")
         _, headers, payload = self._request(
@@ -498,7 +498,7 @@ class NedClient:
     def count(self, query: str, output: str = "threads") -> int:
         """Return count of matching messages, threads, or files.
 
-        Defaults to threads to mirror ``lazarus.notmuch.count`` so desktop
+        Defaults to threads to mirror ``ned.notmuch.count`` so the desktop
         call sites (tab titles, marked-check) have identical semantics in
         NED and local modes.
         """
