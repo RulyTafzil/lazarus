@@ -334,36 +334,17 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
 # Tag and Thread Triage Actions
 # ---------------------------------------------------------------------------
 
-def modify_tags(
+def _build_target_query(
     queries: Sequence[str] = (),
-    add_tags: Sequence[str] = (),
-    remove_tags: Sequence[str] = (),
-    *,
     threads: Sequence[str] = (),
     messages: Sequence[str] = (),
     ids: Sequence[str] = (),
-) -> bool:
-    """Add or remove tags on specified queries, threads, or messages.
+) -> str:
+    """Build a consolidated Notmuch query from explicit targets.
 
-    - queries: arbitrary Notmuch search queries passed directly without mangling
-    - threads: thread IDs (prefixed with thread: if not already present)
-    - messages: RFC Message-IDs (prefixed with id: if not already present)
-    - ids: legacy compatibility list for queries or prefixed IDs
+    Queries are kept as-is. Threads and messages are formatted with
+    thread: and id: prefixes without guessing.
     """
-    expr_parts: list[str] = []
-    for t in add_tags:
-        clean = t.strip().lstrip('+-')
-        if clean:
-            expr_parts.append(f"+{clean}")
-    for t in remove_tags:
-        clean = t.strip().lstrip('+-')
-        if clean:
-            expr_parts.append(f"-{clean}")
-
-    if not expr_parts:
-        return True
-
-    tag_expr = ' '.join(expr_parts)
     query_parts: list[str] = []
 
     for q in queries:
@@ -395,15 +376,45 @@ def modify_tags(
             query_parts.append(clean_item)
 
     if not query_parts:
-        return True
+        return ""
 
     if len(query_parts) == 1:
-        query = query_parts[0]
-    else:
-        query = ' or '.join(
-            f"({p})" if (' ' in p and not (p.startswith('(') and p.endswith(')'))) else p
-            for p in query_parts
-        )
+        return query_parts[0]
+
+    return ' or '.join(
+        f"({p})" if (' ' in p and not (p.startswith('(') and p.endswith(')'))) else p
+        for p in query_parts
+    )
+
+
+def modify_tags(
+    queries: Sequence[str] = (),
+    add_tags: Sequence[str] = (),
+    remove_tags: Sequence[str] = (),
+    *,
+    threads: Sequence[str] = (),
+    messages: Sequence[str] = (),
+    ids: Sequence[str] = (),
+) -> bool:
+    """Add or remove tags on specified queries, threads, or messages."""
+    expr_parts: list[str] = []
+    for t in add_tags:
+        clean = t.strip().lstrip('+-')
+        if clean:
+            expr_parts.append(f"+{clean}")
+    for t in remove_tags:
+        clean = t.strip().lstrip('+-')
+        if clean:
+            expr_parts.append(f"-{clean}")
+
+    if not expr_parts:
+        return True
+
+    tag_expr = ' '.join(expr_parts)
+    query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
+    if not query:
+        return True
+
     try:
         r = notmuch.tag(tag_expr, query)
         return r.returncode == 0
@@ -412,43 +423,49 @@ def modify_tags(
         return False
 
 
-def archive_thread(thread_or_query: str) -> bool:
-    """A archive: tag -inbox -unread, move files to local Archive Maildir, run notmuch new."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:") or " " in clean or ":" in clean:
-        query = clean
-    else:
-        query = f"thread:{clean}"
-    notmuch.tag("-inbox -unread", query)
-    actions.move_to_archive(query)
-    return True
+def trash(
+    queries: Sequence[str] = (),
+    *,
+    threads: Sequence[str] = (),
+    messages: Sequence[str] = (),
+    ids: Sequence[str] = (),
+    unmark: bool = False,
+) -> int:
+    """Move matching files to account Trash, tag +trash -inbox -unread."""
+    query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
+    if not query:
+        return 0
+    return actions.move_to_trash(query, unmark=unmark)
 
 
-def unarchive_thread(thread_or_query: str) -> bool:
-    """Restore thread to inbox."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    query = clean if (clean.startswith("thread:") or " " in clean or ":" in clean) else f"thread:{clean}"
-    return modify_tags(queries=[query], add_tags=["inbox"], remove_tags=[])
+def restore(
+    queries: Sequence[str] = (),
+    *,
+    threads: Sequence[str] = (),
+    messages: Sequence[str] = (),
+    ids: Sequence[str] = (),
+    unmark: bool = False,
+) -> int:
+    """Restore matching files from Trash back to account INBOX, tag -trash +inbox."""
+    query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
+    if not query:
+        return 0
+    return actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark)
 
 
-def trash_thread(thread_or_query: str) -> bool:
-    """Trash thread: tag +trash -inbox -unread, move files to account Trash, run notmuch new."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:") or " " in clean or ":" in clean:
-        query = clean
-    else:
-        query = f"thread:{clean}"
-    notmuch.tag("+trash -inbox -unread", query)
-    actions.move_to_trash(query)
-    return True
-
-
-def untrash_thread(thread_or_query: str) -> bool:
-    """Restore thread from trash to inbox."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    query = clean if (clean.startswith("thread:") or " " in clean or ":" in clean) else f"thread:{clean}"
-    actions.restore_from_trash(f"tag:trash AND ({query})")
-    return modify_tags(queries=[query], add_tags=["inbox"], remove_tags=["trash"])
+def archive_local(
+    queries: Sequence[str] = (),
+    *,
+    threads: Sequence[str] = (),
+    messages: Sequence[str] = (),
+    ids: Sequence[str] = (),
+    unmark: bool = False,
+) -> int:
+    """Move matching files to local Archive Maildir, tag -inbox -unread."""
+    query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
+    if not query:
+        return 0
+    return actions.move_to_archive(query, unmark=unmark)
 
 
 def expunge_trash() -> int:

@@ -214,7 +214,9 @@ class ThreadModel(QAbstractItemModel):
     def _fetch_matching_ids(self) -> set[str]:
         """Fetch message IDs matching the thread + panel query from NED."""
         from .client import get_client
-        ids = get_client().search_messages(f'thread:{self.thread_id} AND {self.query}')
+        clean_q = self.query.strip()
+        q_expr = f'thread:{self.thread_id} AND ({clean_q})' if clean_q else f'thread:{self.thread_id}'
+        ids = get_client().search_messages(q_expr)
         return set(ids)
 
     # -- navigation ----------------------------------------------------------

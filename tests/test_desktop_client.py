@@ -153,22 +153,22 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
         service_calls.append(("tag", list(queries), list(add_tags), list(remove_tags), list(threads), list(messages)))
         return True
 
-    def mock_archive(q):
-        service_calls.append(("archive", q))
+    def mock_archive(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        service_calls.append(("archive", list(queries), list(threads), list(messages), unmark))
         return True
 
-    def mock_trash(q):
-        service_calls.append(("trash", q))
+    def mock_trash(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        service_calls.append(("trash", list(queries), list(threads), list(messages), unmark))
         return True
 
-    def mock_untrash(q):
-        service_calls.append(("untrash", q))
+    def mock_restore(queries=(), *, threads=(), messages=(), ids=(), unmark=False):
+        service_calls.append(("restore", list(queries), list(threads), list(messages), unmark))
         return True
 
     monkeypatch.setattr(service, "modify_tags", mock_modify_tags)
-    monkeypatch.setattr(service, "archive_thread", mock_archive)
-    monkeypatch.setattr(service, "trash_thread", mock_trash)
-    monkeypatch.setattr(service, "untrash_thread", mock_untrash)
+    monkeypatch.setattr(service, "archive_local", mock_archive)
+    monkeypatch.setattr(service, "trash", mock_trash)
+    monkeypatch.setattr(service, "restore", mock_restore)
 
     # Test single thread tag
     panel.tag_thread("+starred -unread")
@@ -186,19 +186,19 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     panel.archive_to_local()
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 3
-    assert service_calls[-1] == ("archive", "0000000000001234")
+    assert service_calls[-1] == ("archive", [], ["0000000000001234"], [], False)
 
     # Test trash single thread
     panel.delete_thread()
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 4
-    assert service_calls[-1] == ("trash", "0000000000001234")
+    assert service_calls[-1] == ("trash", [], ["0000000000001234"], [], False)
 
     # Test untrash single thread
     panel.restore_thread_from_trash()
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 5
-    assert service_calls[-1] == ("untrash", "0000000000001234")
+    assert service_calls[-1] == ("restore", [], ["0000000000001234"], [], False)
 
     # Test marked batch actions
     unmarked_panel = DummySearchPanel(marked=False)
@@ -216,13 +216,13 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     assert ("Archived marked", "info") in marked_panel.app.messages
 
     marked_panel.archive_to_local()
-    assert service_calls[-1] == ("archive", "tag:marked")
+    assert service_calls[-1] == ("archive", ["tag:marked"], [], [], True)
 
     marked_panel.delete_thread()
-    assert service_calls[-1] == ("trash", "tag:marked")
+    assert service_calls[-1] == ("trash", ["tag:marked"], [], [], True)
 
     marked_panel.restore_thread_from_trash()
-    assert service_calls[-1] == ("untrash", "tag:marked")
+    assert service_calls[-1] == ("restore", ["tag:marked"], [], [], True)
 
 
 def test_desktop_search_model_via_ned(qapp, running_ned, monkeypatch):

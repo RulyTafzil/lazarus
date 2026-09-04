@@ -181,3 +181,35 @@ def test_resolve_stale_path_exact_stem_no_wrong_file(maildir, tmp_path):
     assert rsp(os.path.join(cur, 'm-plain_extra:2,RS')) == os.path.join(cur, 'm-plain_extra:2,S')
     # A distinct stem with only a prefix-sharing unrelated file -> gone.
     assert rsp(os.path.join(cur, 'm-plainX:2,RS')) is None
+
+
+def test_resolve_stale_path_with_uid_annotation_change(maildir):
+    """mbsync adding or modifying ,U= annotations between new and cur is resolved."""
+    from ned.actions import _resolve_stale_path as rsp
+    new = os.path.join(maildir, 'default', 'INBOX', 'new')
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    # File was in new without UID, mbsync or sync moved it to cur with ,U=42:2,S
+    _write(os.path.join(cur, 'msg-new-arrival,U=42:2,S'))
+
+    resolved = rsp(os.path.join(new, 'msg-new-arrival'))
+    assert resolved == os.path.join(cur, 'msg-new-arrival,U=42:2,S')
+
+
+def test_move_to_trash_collects_before_tagging_with_unmark(notmuch_stub, maildir):
+    """move_to_trash must collect files BEFORE tagging strips query tags."""
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    trash_cur = os.path.join(maildir, 'default', 'Trash', 'cur')
+    src = _write(os.path.join(cur, 'msg-marked-batch,U=5:2,'))
+
+    notmuch_stub.files = [src]
+    # Simulate tagging stripping tag:marked so a second query would return empty
+    def fake_tag(expr, query, exclude_marked=False):
+        notmuch_stub.files = []  # Next search returns nothing
+        return type("R", (), {"returncode": 0})()
+
+    notmuch_stub.tag = fake_tag
+
+    moved = actions.move_to_trash('tag:marked AND tag:inbox', unmark=True)
+    assert moved == 1
+    assert _wait_until(lambda: any('msg-marked-batch' in f for f in os.listdir(trash_cur)))
+    assert not os.path.exists(src)

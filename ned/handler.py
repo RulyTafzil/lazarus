@@ -127,6 +127,32 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _parse_target_body(self) -> tuple[list[str], list[str], list[str], list[str], dict[str, Any]]:
+        """Parse target queries, threads, messages, and ids from request JSON body."""
+        body = self._read_json_body()
+        queries = body.get("queries")
+        threads = body.get("threads")
+        messages = body.get("messages")
+        query = body.get("query")
+        ids = body.get("ids")
+        if not queries and query:
+            queries = [query]
+        if isinstance(queries, str):
+            queries = [queries]
+        if isinstance(threads, str):
+            threads = [threads]
+        if isinstance(messages, str):
+            messages = [messages]
+        if not queries and not threads and not messages and ids:
+            queries = ids if isinstance(ids, list) else [ids]
+        return (
+            list(queries) if queries else [],
+            list(threads) if threads else [],
+            list(messages) if messages else [],
+            list(ids) if ids else [],
+            body,
+        )
+
     def _normalize_path(self, path: str) -> str:
         """Normalize legacy /api/... routes to /api/v1/..."""
         if path.startswith("/api/") and not path.startswith("/api/v1/"):
@@ -279,6 +305,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         parsed = urllib.parse.urlparse(self.path)
         path = self._normalize_path(parsed.path)
+        qs = urllib.parse.parse_qs(parsed.query)
 
         # Count queries
         if path == "/api/v1/count":
@@ -294,38 +321,26 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # Tag modification
         if path == "/api/v1/tags":
-            body = self._read_json_body()
-            queries = body.get("queries")
-            threads = body.get("threads")
-            messages = body.get("messages")
-            query = body.get("query")
-            ids = body.get("ids")
-            if not queries and query:
-                queries = [query]
-            if isinstance(queries, str):
-                queries = [queries]
-            if isinstance(threads, str):
-                threads = [threads]
-            if isinstance(messages, str):
-                messages = [messages]
-            if not queries and not threads and not messages and ids:
-                queries = ids if isinstance(ids, list) else [ids]
+            queries, threads, messages, ids, body = self._parse_target_body()
             add_tags = body.get("add", [])
             remove_tags = body.get("remove", [])
-            if not queries and not threads and not messages:
+            if not queries and not threads and not messages and not ids:
                 self.send_error_json("queries, threads, or messages required")
                 return
             if not add_tags and not remove_tags:
                 self.send_error_json("add or remove tags required")
                 return
+            kwargs: dict[str, Any] = {
+                "queries": queries,
+                "threads": threads,
+                "messages": messages,
+                "add_tags": add_tags,
+                "remove_tags": remove_tags,
+            }
+            if ids:
+                kwargs["ids"] = ids
             with mutation_lock:
-                ok = service.modify_tags(
-                    queries=queries or [],
-                    threads=threads or [],
-                    messages=messages or [],
-                    add_tags=add_tags,
-                    remove_tags=remove_tags,
-                )
+                ok = service.modify_tags(**kwargs)
             if ok:
                 broadcaster.broadcast_invalidate("threads", reason="tag")
                 self.send_json({"status": "ok", "ok": True})
@@ -333,116 +348,108 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error_json("Failed modifying tags", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Archive thread or query
-        if path == "/api/v1/threads/archive":
-            body = self._read_json_body()
-            query = body.get("query")
-            queries = body.get("queries") or ([query] if query else [])
-            if not queries:
-                self.send_error_json("query or queries required")
+        # Batch Maildir moves: trash, restore, move-archive
+        if path == "/api/v1/trash":
+            queries, threads, messages, ids, body = self._parse_target_body()
+            if not queries and not threads and not messages and not ids:
+                self.send_error_json("queries, threads, or messages required")
                 return
+            unmark = bool(body.get("unmark", False))
             with mutation_lock:
-                for q in queries:
-                    service.archive_thread(q)
-            broadcaster.broadcast_invalidate("threads", reason="archive")
-            self.send_json({"status": "ok"})
+                count = service.trash(
+                    queries=queries,
+                    threads=threads,
+                    messages=messages,
+                    ids=ids,
+                    unmark=unmark,
+                )
+            if count >= 0:
+                broadcaster.broadcast_invalidate("threads", reason="trash")
+                self.send_json({"status": "ok", "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed trashing targets", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        m_archive = re.match(r"^/api/v1/threads/([^/]+)/archive$", path)
-        if m_archive:
-            thread_id = urllib.parse.unquote(m_archive.group(1))
+        if path == "/api/v1/restore":
+            queries, threads, messages, ids, body = self._parse_target_body()
+            if not queries and not threads and not messages and not ids:
+                self.send_error_json("queries, threads, or messages required")
+                return
+            unmark = bool(body.get("unmark", False))
             with mutation_lock:
-                ok = service.archive_thread(thread_id)
-            if ok:
-                broadcaster.broadcast_invalidate("thread", thread_id, reason="archive")
+                count = service.restore(
+                    queries=queries,
+                    threads=threads,
+                    messages=messages,
+                    ids=ids,
+                    unmark=unmark,
+                )
+            if count >= 0:
+                broadcaster.broadcast_invalidate("threads", reason="untrash")
+                self.send_json({"status": "ok", "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed restoring targets", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        if path == "/api/v1/move-archive":
+            queries, threads, messages, ids, body = self._parse_target_body()
+            if not queries and not threads and not messages and not ids:
+                self.send_error_json("queries, threads, or messages required")
+                return
+            unmark = bool(body.get("unmark", False))
+            with mutation_lock:
+                count = service.archive_local(
+                    queries=queries,
+                    threads=threads,
+                    messages=messages,
+                    ids=ids,
+                    unmark=unmark,
+                )
+            if count >= 0:
                 broadcaster.broadcast_invalidate("threads", reason="archive")
-                self.send_json({"status": "ok", "archived": thread_id, "ok": True})
+                self.send_json({"status": "ok", "ok": True, "count": count})
             else:
-                self.send_error_json("Failed archiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
+                self.send_error_json("Failed archiving targets", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Unarchive thread or query
-        if path == "/api/v1/threads/unarchive":
-            body = self._read_json_body()
-            query = body.get("query")
-            queries = body.get("queries") or ([query] if query else [])
-            if not queries:
-                self.send_error_json("query or queries required")
-                return
-            with mutation_lock:
-                for q in queries:
-                    service.unarchive_thread(q)
-            broadcaster.broadcast_invalidate("threads", reason="unarchive")
-            self.send_json({"status": "ok", "ok": True})
-            return
-
-        m_unarchive = re.match(r"^/api/v1/threads/([^/]+)/unarchive$", path)
-        if m_unarchive:
-            thread_id = urllib.parse.unquote(m_unarchive.group(1))
-            with mutation_lock:
-                ok = service.unarchive_thread(thread_id)
-            if ok:
-                broadcaster.broadcast_invalidate("thread", thread_id, reason="unarchive")
-                broadcaster.broadcast_invalidate("threads", reason="unarchive")
-                self.send_json({"status": "ok", "unarchived": thread_id, "ok": True})
-            else:
-                self.send_error_json("Failed unarchiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-
-        # Trash thread or query
-        if path == "/api/v1/threads/trash":
-            body = self._read_json_body()
-            query = body.get("query")
-            queries = body.get("queries") or ([query] if query else [])
-            if not queries:
-                self.send_error_json("query or queries required")
-                return
-            with mutation_lock:
-                for q in queries:
-                    service.trash_thread(q)
-            broadcaster.broadcast_invalidate("threads", reason="trash")
-            self.send_json({"status": "ok", "ok": True})
-            return
-
+        # Single thread actions
         m_trash = re.match(r"^/api/v1/threads/([^/]+)/trash$", path)
         if m_trash:
             thread_id = urllib.parse.unquote(m_trash.group(1))
             with mutation_lock:
-                ok = service.trash_thread(thread_id)
-            if ok:
+                count = service.trash(threads=[thread_id])
+            if count >= 0:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="trash")
                 broadcaster.broadcast_invalidate("threads", reason="trash")
-                self.send_json({"status": "ok", "trashed": thread_id, "ok": True})
+                self.send_json({"status": "ok", "trashed": thread_id, "ok": True, "count": count})
             else:
                 self.send_error_json("Failed trashing thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        # Untrash thread or query
-        if path == "/api/v1/threads/untrash":
-            body = self._read_json_body()
-            query = body.get("query")
-            queries = body.get("queries") or ([query] if query else [])
-            if not queries:
-                self.send_error_json("query or queries required")
-                return
+        m_restore = re.match(r"^/api/v1/threads/([^/]+)/restore$", path)
+        if m_restore:
+            thread_id = urllib.parse.unquote(m_restore.group(1))
             with mutation_lock:
-                for q in queries:
-                    service.untrash_thread(q)
-            broadcaster.broadcast_invalidate("threads", reason="untrash")
-            self.send_json({"status": "ok", "ok": True})
-            return
-
-        m_untrash = re.match(r"^/api/v1/threads/([^/]+)/untrash$", path)
-        if m_untrash:
-            thread_id = urllib.parse.unquote(m_untrash.group(1))
-            with mutation_lock:
-                ok = service.untrash_thread(thread_id)
-            if ok:
+                count = service.restore(threads=[thread_id])
+            if count >= 0:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="untrash")
                 broadcaster.broadcast_invalidate("threads", reason="untrash")
-                self.send_json({"status": "ok", "untrashed": thread_id, "ok": True})
+                self.send_json({"status": "ok", "restored": thread_id, "ok": True, "count": count})
             else:
                 self.send_error_json("Failed restoring thread from trash", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        m_move_archive = re.match(r"^/api/v1/threads/([^/]+)/move-archive$", path)
+        if m_move_archive:
+            thread_id = urllib.parse.unquote(m_move_archive.group(1))
+            with mutation_lock:
+                count = service.archive_local(threads=[thread_id])
+            if count >= 0:
+                broadcaster.broadcast_invalidate("thread", thread_id, reason="archive")
+                broadcaster.broadcast_invalidate("threads", reason="archive")
+                self.send_json({"status": "ok", "archived": thread_id, "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed archiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         # Flag / star thread
@@ -479,6 +486,52 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"status": "ok", "ok": True})
             else:
                 self.send_error_json("Failed modifying thread tags", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        # Single message actions
+        m_msg_trash = re.match(r"^/api/v1/messages/([^/]+)/trash$", path)
+        if m_msg_trash:
+            msg_id = urllib.parse.unquote(m_msg_trash.group(1))
+            thread_id = qs.get("thread_id", [""])[0]
+            with mutation_lock:
+                count = service.trash(messages=[msg_id])
+            if count >= 0:
+                if thread_id:
+                    broadcaster.broadcast_invalidate("thread", thread_id, reason="trash")
+                broadcaster.broadcast_invalidate("threads", reason="trash")
+                self.send_json({"status": "ok", "trashed": msg_id, "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed trashing message", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        m_msg_restore = re.match(r"^/api/v1/messages/([^/]+)/restore$", path)
+        if m_msg_restore:
+            msg_id = urllib.parse.unquote(m_msg_restore.group(1))
+            thread_id = qs.get("thread_id", [""])[0]
+            with mutation_lock:
+                count = service.restore(messages=[msg_id])
+            if count >= 0:
+                if thread_id:
+                    broadcaster.broadcast_invalidate("thread", thread_id, reason="untrash")
+                broadcaster.broadcast_invalidate("threads", reason="untrash")
+                self.send_json({"status": "ok", "restored": msg_id, "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed restoring message", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        m_msg_move_archive = re.match(r"^/api/v1/messages/([^/]+)/move-archive$", path)
+        if m_msg_move_archive:
+            msg_id = urllib.parse.unquote(m_msg_move_archive.group(1))
+            thread_id = qs.get("thread_id", [""])[0]
+            with mutation_lock:
+                count = service.archive_local(messages=[msg_id])
+            if count >= 0:
+                if thread_id:
+                    broadcaster.broadcast_invalidate("thread", thread_id, reason="archive")
+                broadcaster.broadcast_invalidate("threads", reason="archive")
+                self.send_json({"status": "ok", "archived": msg_id, "ok": True, "count": count})
+            else:
+                self.send_error_json("Failed moving message to archive", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         # Single message tagging: /api/v1/messages/{id}/tags

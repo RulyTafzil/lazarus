@@ -570,21 +570,31 @@ class ThreadPanel(panel.Panel):
         self.app.status_message('Archived message', 'info')
 
     def archive_message_to_local(self) -> None:
-        """Move the current message's files to the local Archive (via NED)."""
+        """Move the current message's files to the local Archive via NED."""
         m = self.current_message
+        if not m or not m.get('id'):
+            return
         from .client import get_client
-        get_client().archive_thread('id:' + m['id'])
-        self.app.status_message('Archived message to local', 'info')
-        self.app.update_single_thread(self.thread_id, m['id'])
+        ok = get_client().archive_message_to_local(m['id'], thread_id=self.thread_id)
+        if ok:
+            self.app.status_message('Archived message to local', 'info')
+            self.app.update_single_thread(self.thread_id, m['id'])
+        else:
+            self.app.status_message('Archive error', 'error')
 
     def delete_message(self) -> None:
         """Move the current message to Trash and advance the cursor."""
         m = self.current_message
+        if not m or not m.get('id'):
+            return
         from .client import get_client
-        get_client().trash_thread('id:' + m['id'])
-        self.app.status_message('Moved message to trash', 'info')
-        self.next_message()
-        self.app.update_single_thread(self.thread_id, m['id'])
+        ok = get_client().trash_message(m['id'], thread_id=self.thread_id)
+        if ok:
+            self.app.status_message('Moved message to trash', 'info')
+            self.next_message()
+            self.app.update_single_thread(self.thread_id, m['id'])
+        else:
+            self.app.status_message('Delete error', 'error')
 
     def toggle_html(self) -> None:
         """Toggle between HTML and plain text message view."""
