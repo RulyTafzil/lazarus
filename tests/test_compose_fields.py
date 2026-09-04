@@ -307,6 +307,74 @@ def test_from_combo_switches_account(qapp, client_stub):
     assert 'a@example.com' in p._data.from_addr
 
 
+def test_reply_defaults_to_delivery_account(qapp, client_stub):
+    """Replying to a mail delivered at contact@… defaults the From
+    account to `contact` (the address the mail was sent TO)."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm1',
+        'headers': {
+            'Subject': 'S', 'From': 'Alice <alice@example.com>',
+            'To': 'contact@rulytafzil.com',
+            'Cc': 'admin@rulytafzil.com',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 1
+    assert p.account_name() == 'contact'
+    assert 'contact@rulytafzil.com' in p._data.from_addr
+
+
+def test_reply_defaults_to_from_account_when_self_sent(qapp, client_stub):
+    """A mail originally sent FROM the admin account (e.g. a sent copy)
+    defaults the reply to admin."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm2',
+        'headers': {
+            'Subject': 'S',
+            'From': 'Ruly Tafzil <admin@rulytafzil.com>',
+            'To': 'Bob <bob@example.com>',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.account_name() == 'admin'
+
+
+def test_reply_no_address_match_defaults_to_first_account(qapp, client_stub):
+    _set_identity(client_stub, ['gmail', 'contact'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm3',
+        'headers': {
+            'Subject': 'S', 'From': 'Alice <alice@example.com>',
+            'To': 'Bob <bob@example.com>',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 0
+    assert p.account_name() == 'gmail'
+
+
 def test_from_combo_prefixes_duplicate_addresses(qapp, client_stub):
     """When accounts share one address, the account name prefixes the
     dropdown text so choices stay distinguishable."""

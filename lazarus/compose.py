@@ -323,17 +323,23 @@ class ComposePanel(panel.Panel):
 
     def _account_index_for_message(self, msg: Optional[dict]) -> int:
         """Index of the account whose address matches this message's
-        From/Reply-To (then To/Cc), else account 0."""
+        From/Reply-To (then To/Cc), else account 0.
+
+        Addresses are compared bare (display names stripped), e.g. a
+        message delivered to ``contact@rulytafzil.com`` selects the
+        ``contact`` account for the reply.
+        """
         if not msg:
             return 0
-        mine = {a.strip().casefold() for a in self._emails.values() if a}
+        mine = {email.utils.parseaddr(a)[1].strip().casefold()
+                for a in self._emails.values() if a}
         headers = msg.get('headers', {}) if isinstance(msg, dict) else {}
         for key in ('From', 'Reply-To', 'To', 'Cc'):
             for _name, addr in email.utils.getaddresses([headers.get(key, '')]):
                 if addr.strip().casefold() in mine:
                     for i, acct in enumerate(self._accounts):
-                        if (self._emails.get(acct, '').strip().casefold()
-                                == addr.strip().casefold()):
+                        if (email.utils.parseaddr(self._emails.get(acct, ''))[1]
+                                .strip().casefold() == addr.strip().casefold()):
                             return i
         return 0
 
