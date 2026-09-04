@@ -149,11 +149,18 @@ class MarkableActionsMixin:
         add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
         remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
         if mode == 'tag marked':
+            if not self._has_marked_threads():
+                self.app.status_message('No marked threads', 'warning')
+                return
+            remove_tags = list(remove_tags)
+            if 'marked' not in add_tags and 'marked' not in remove_tags:
+                remove_tags.append('marked')
             ok = client.modify_tags(self._marked_query(), add=add_tags, remove=remove_tags)
             if not ok:
                 self.app.status_message('Tag error', 'error')
                 return
             self.app.refresh_panels()
+            self.app.status_message('Tagged marked', 'info')
         else:
             thread_id = self._current_thread_id()
             if not thread_id:
@@ -179,7 +186,7 @@ class MarkableActionsMixin:
         client = get_client()
         if self._has_marked_threads():
             marked_query = self._marked_query()
-            ok = client.modify_tags(marked_query, remove=['inbox', 'unread'])
+            ok = client.modify_tags(marked_query, remove=['inbox', 'unread', 'marked'])
             if not ok:
                 self.app.status_message('Archive error', 'error')
                 return

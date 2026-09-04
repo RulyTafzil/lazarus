@@ -421,3 +421,49 @@ def test_ned_openapi_and_canonical_routes(tmp_path, monkeypatch):
         conn.close()
     finally:
         daemon.stop()
+
+
+def test_modify_tags_query_handling(monkeypatch):
+    """modify_tags preserves queries (with colons, spaces, parens, or *) and formats IDs."""
+    import subprocess
+    from ned import notmuch, service
+
+    captured: list[tuple[str, str]] = []
+
+    def mock_tag(tag_expr: str, query: str) -> subprocess.CompletedProcess:
+        captured.append((tag_expr, query))
+        return subprocess.CompletedProcess(args=["notmuch", "tag"], returncode=0)
+
+    monkeypatch.setattr(notmuch, "tag", mock_tag)
+
+    # Marked batch query (regression test for t m)
+    service.modify_tags(["tag:marked AND (tag:inbox)"], add_tags=["work"], remove_tags=["marked"])
+    assert captured[-1] == ("+work -marked", "tag:marked AND (tag:inbox)")
+
+    # Single tag query
+    service.modify_tags(["tag:unread"], add_tags=["todo"], remove_tags=[])
+    assert captured[-1] == ("+todo", "tag:unread")
+
+    # Raw 16-hex thread ID
+    service.modify_tags(["0000000000001234"], add_tags=["flagged"], remove_tags=[])
+    assert captured[-1] == ("+flagged", "thread:0000000000001234")
+
+    # Already prefixed thread query
+    service.modify_tags(["thread:0000000000001234"], add_tags=["flagged"], remove_tags=[])
+    assert captured[-1] == ("+flagged", "thread:0000000000001234")
+
+    # Raw message ID
+    service.modify_tags(["abc@example.com"], add_tags=["replied"], remove_tags=[])
+    assert captured[-1] == ("+replied", "id:abc@example.com")
+
+    # Angle bracket message ID
+    service.modify_tags(["<abc@example.com>"], add_tags=["replied"], remove_tags=[])
+    assert captured[-1] == ("+replied", "id:abc@example.com")
+
+    # Wildcard query
+    service.modify_tags(["*"], add_tags=["archive"], remove_tags=[])
+    assert captured[-1] == ("+archive", "*")
+
+    # Multiple queries joined with or
+    service.modify_tags(["tag:marked", "tag:todo"], add_tags=["urgent"], remove_tags=[])
+    assert captured[-1] == ("+urgent", "tag:marked or tag:todo")

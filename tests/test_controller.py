@@ -187,6 +187,19 @@ def test_tag_bar_typed_expr_dispatches(ctl, mw, qapp, client_stub):
     assert client_stub.modify_tags_calls[0][1] == ['work']
 
 
+def test_tag_bar_marked_expr_dispatches(ctl, mw, qapp, client_stub):
+    client_stub.threads = [make_thread('t1', 'A', tags=['inbox', 'marked'])]
+    ctl.open_search('tag:inbox')
+    ctl.tag_bar('tag marked')
+    ctl.command_bar.setPlainText('+work')
+    ctl.command_bar.accept()
+    assert len(client_stub.modify_tags_calls) == 1
+    q, add, rem = client_stub.modify_tags_calls[0]
+    assert 'tag:marked' in q[0]
+    assert add == ['work']
+    assert rem == ['marked']
+
+
 def test_mark_and_advance(ctl, mw, qapp, client_stub):
     client_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
     ctl.open_search('tag:inbox')

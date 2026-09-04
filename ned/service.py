@@ -336,7 +336,7 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
 # ---------------------------------------------------------------------------
 
 def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> bool:
-    """Add or remove tags on specified threads or message IDs."""
+    """Add or remove tags on specified threads, queries, or message IDs."""
     if not ids:
         return True
 
@@ -361,10 +361,20 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
             query_parts.append(clean)
         elif len(clean) == 16 and re.fullmatch(r'[0-9a-fA-F]+', clean):
             query_parts.append(f"thread:{clean}")
+        elif clean == '*' or ' ' in clean or ':' in clean or '(' in clean or ')' in clean:
+            query_parts.append(clean)
+        elif clean.startswith('<') and clean.endswith('>'):
+            query_parts.append(f"id:{clean[1:-1]}")
         else:
             query_parts.append(f"id:{clean}")
 
-    query = ' or '.join(query_parts)
+    if len(query_parts) == 1:
+        query = query_parts[0]
+    else:
+        query = ' or '.join(
+            f"({p})" if (' ' in p and not (p.startswith('(') and p.endswith(')'))) else p
+            for p in query_parts
+        )
     try:
         r = notmuch.tag(tag_expr, query)
         return r.returncode == 0

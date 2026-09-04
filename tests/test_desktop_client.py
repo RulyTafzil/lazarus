@@ -201,13 +201,19 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     assert service_calls[-1] == ("untrash", "0000000000001234")
 
     # Test marked batch actions
+    unmarked_panel = DummySearchPanel(marked=False)
+    unmarked_panel.tag_thread("+reviewed", mode="tag marked")
+    assert ("No marked threads", "warning") in unmarked_panel.app.messages
+
     marked_panel = DummySearchPanel(marked=True)
     marked_panel.tag_thread("+reviewed", mode="tag marked")
     assert marked_panel.app.refreshed
-    assert service_calls[-1] == ("tag", ["tag:marked"], ["reviewed"], [])
+    assert service_calls[-1] == ("tag", ["tag:marked"], ["reviewed"], ["marked"])
+    assert ("Tagged marked", "info") in marked_panel.app.messages
 
     marked_panel.archive_thread()
-    assert service_calls[-1] == ("tag", ["tag:marked"], [], ["inbox", "unread"])
+    assert service_calls[-1] == ("tag", ["tag:marked"], [], ["inbox", "unread", "marked"])
+    assert ("Archived marked", "info") in marked_panel.app.messages
 
     marked_panel.archive_to_local()
     assert service_calls[-1] == ("archive", "tag:marked")
