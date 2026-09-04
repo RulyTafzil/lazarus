@@ -106,14 +106,14 @@ live switching, low-poly watermark tab background, hicolor icons.
 ├── tools/
 │   ├── import_themes.py          # Zero-dep CLI for theme inspection, truecolor swatches, compilation, and export
 │   └── mapping.json              # Clean 1-to-1 mapping from terminal/ANSI properties to Lazarus's 19 semantic keys
-├── tests/                  # 408 tests (pytest, offscreen Qt, notmuch stubbed)
+├── tests/                  # 437 tests (pytest, offscreen Qt, notmuch stubbed)
 ├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
-├── docs/                   # Sphinx (Makefile, make.bat, source/)
+├── docs/                   # HTTP API specification (api.md)
 ├── README.md
 ├── COPYING                 # GPLv3
 ├── setup.py                # lazarus-mail 0.3; package_data icons + theme_packs (+ bundles `ned`)
 ├── pyproject.toml          # setuptools build-system
-├── mypy.ini / MANIFEST.in / .mailmap / .readthedocs.yaml / .gitignore
+├── mypy.ini / MANIFEST.in / .mailmap / .gitignore
 └── Lazarus.png             # 1024px source icon
 ```
 
