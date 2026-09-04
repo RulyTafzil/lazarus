@@ -29,13 +29,12 @@ import json
 import logging
 import mailbox
 import os
-import re
 import shlex
 import subprocess
 import tempfile
 import threading
 import urllib.parse
-from typing import Any
+from typing import Any, Sequence
 
 from . import actions
 from . import sync
@@ -335,11 +334,22 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
 # Tag and Thread Triage Actions
 # ---------------------------------------------------------------------------
 
-def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> bool:
-    """Add or remove tags on specified threads or message IDs."""
-    if not ids:
-        return True
+def modify_tags(
+    queries: Sequence[str] = (),
+    add_tags: Sequence[str] = (),
+    remove_tags: Sequence[str] = (),
+    *,
+    threads: Sequence[str] = (),
+    messages: Sequence[str] = (),
+    ids: Sequence[str] = (),
+) -> bool:
+    """Add or remove tags on specified queries, threads, or messages.
 
+    - queries: arbitrary Notmuch search queries passed directly without mangling
+    - threads: thread IDs (prefixed with thread: if not already present)
+    - messages: RFC Message-IDs (prefixed with id: if not already present)
+    - ids: legacy compatibility list for queries or prefixed IDs
+    """
     expr_parts: list[str] = []
     for t in add_tags:
         clean = t.strip().lstrip('+-')
@@ -355,16 +365,45 @@ def modify_tags(ids: list[str], add_tags: list[str], remove_tags: list[str]) -> 
 
     tag_expr = ' '.join(expr_parts)
     query_parts: list[str] = []
-    for item in ids:
-        clean = urllib.parse.unquote(item.strip())
-        if clean.startswith(('thread:', 'id:')):
-            query_parts.append(clean)
-        elif len(clean) == 16 and re.fullmatch(r'[0-9a-fA-F]+', clean):
-            query_parts.append(f"thread:{clean}")
-        else:
-            query_parts.append(f"id:{clean}")
 
-    query = ' or '.join(query_parts)
+    for q in queries:
+        clean_q = str(q).strip()
+        if clean_q:
+            query_parts.append(clean_q)
+
+    for tid in threads:
+        clean_tid = urllib.parse.unquote(str(tid).strip())
+        if clean_tid:
+            query_parts.append(clean_tid if clean_tid.startswith("thread:") else f"thread:{clean_tid}")
+
+    for mid in messages:
+        clean_mid = urllib.parse.unquote(str(mid).strip())
+        if clean_mid.startswith("<") and clean_mid.endswith(">"):
+            clean_mid = clean_mid[1:-1]
+        if clean_mid:
+            query_parts.append(clean_mid if clean_mid.startswith("id:") else f"id:{clean_mid}")
+
+    for item in ids:
+        clean_item = urllib.parse.unquote(str(item).strip())
+        if not clean_item:
+            continue
+        if clean_item.startswith(('thread:', 'id:')):
+            query_parts.append(clean_item)
+        elif clean_item.startswith('<') and clean_item.endswith('>'):
+            query_parts.append(f"id:{clean_item[1:-1]}")
+        else:
+            query_parts.append(clean_item)
+
+    if not query_parts:
+        return True
+
+    if len(query_parts) == 1:
+        query = query_parts[0]
+    else:
+        query = ' or '.join(
+            f"({p})" if (' ' in p and not (p.startswith('(') and p.endswith(')'))) else p
+            for p in query_parts
+        )
     try:
         r = notmuch.tag(tag_expr, query)
         return r.returncode == 0
@@ -388,11 +427,8 @@ def archive_thread(thread_or_query: str) -> bool:
 def unarchive_thread(thread_or_query: str) -> bool:
     """Restore thread to inbox."""
     clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:") or " " in clean or ":" in clean:
-        query = clean
-    else:
-        query = f"thread:{clean}"
-    return modify_tags([query], add_tags=["inbox"], remove_tags=[])
+    query = clean if (clean.startswith("thread:") or " " in clean or ":" in clean) else f"thread:{clean}"
+    return modify_tags(queries=[query], add_tags=["inbox"], remove_tags=[])
 
 
 def trash_thread(thread_or_query: str) -> bool:
@@ -410,12 +446,9 @@ def trash_thread(thread_or_query: str) -> bool:
 def untrash_thread(thread_or_query: str) -> bool:
     """Restore thread from trash to inbox."""
     clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:") or " " in clean or ":" in clean:
-        query = clean
-    else:
-        query = f"thread:{clean}"
+    query = clean if (clean.startswith("thread:") or " " in clean or ":" in clean) else f"thread:{clean}"
     actions.restore_from_trash(f"tag:trash AND ({query})")
-    return modify_tags([query], add_tags=["inbox"], remove_tags=["trash"])
+    return modify_tags(queries=[query], add_tags=["inbox"], remove_tags=["trash"])
 
 
 def expunge_trash() -> int:
@@ -461,8 +494,8 @@ def toggle_flag(thread_id: str, flag: bool) -> bool:
     """Add or remove flagged tag from thread."""
     clean_id = urllib.parse.unquote(thread_id).removeprefix('thread:')
     if flag:
-        return modify_tags([f"thread:{clean_id}"], add_tags=['flagged'], remove_tags=[])
-    return modify_tags([f"thread:{clean_id}"], add_tags=[], remove_tags=['flagged'])
+        return modify_tags(threads=[clean_id], add_tags=['flagged'], remove_tags=[])
+    return modify_tags(threads=[clean_id], add_tags=[], remove_tags=['flagged'])
 
 
 def get_all_tags() -> list[dict[str, Any]]:

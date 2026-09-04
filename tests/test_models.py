@@ -189,14 +189,14 @@ def test_thread_model_toggle_message_tag(client_stub, qapp):
 
     # message is unread -> toggling removes unread from just that message
     model.toggle_message_tag(idx, 'unread')
-    assert client_stub.modify_tags_calls[-1][0] == ['id:m1']
-    assert client_stub.modify_tags_calls[-1][2] == ['unread']
+    assert client_stub.modify_message_tags_calls[-1][0] == 'm1'
+    assert client_stub.modify_message_tags_calls[-1][2] == ['unread']
 
     # and it reports the change on the message index
     changed = {'n': 0}
     model.messageChanged.connect(lambda _i: changed.__setitem__('n', changed['n'] + 1))
     model.toggle_message_tag(idx, 'flagged')
-    assert client_stub.modify_tags_calls[-1][1] == ['flagged']
+    assert client_stub.modify_message_tags_calls[-1][1] == ['flagged']
     assert changed['n'] == 1
 
 

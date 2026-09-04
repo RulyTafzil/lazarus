@@ -83,8 +83,8 @@ def test_send_ok_dispatches_raw_and_marks_replied(qapp, client_stub):
     assert acct == 'default'
     assert b'Subject: hello' in payload
     assert any(
-        q == ['id:orig123'] and add == ['replied']
-        for q, add, _rem in client_stub.modify_tags_calls)
+        msg_id == 'orig123' and add == ['replied']
+        for msg_id, add, _rem in client_stub.modify_message_tags_calls)
 
 
 def test_send_failure_never_marks_replied(qapp, client_stub):
@@ -96,7 +96,7 @@ def test_send_failure_never_marks_replied(qapp, client_stub):
     t = _run_send(panel, qapp)
     assert not t.send_success
     assert not any(
-        add == ['replied'] for _q, add, _rem in client_stub.modify_tags_calls)
+        add == ['replied'] for _msg, add, _rem in client_stub.modify_message_tags_calls)
 
 
 def test_mime_builder_missing_inline_image(tmp_path):

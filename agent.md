@@ -463,6 +463,7 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 - **Forward attachment resolution via NED API**: client-side forward seeds pass `fetch_part=lambda mid, pid: get_client().get_part(mid, pid)` to `build_forward_seed` and `write_attachments`, preventing the desktop GUI process from running local `notmuch` CLI subprocesses.
 - **Embedded image resolution over network**: `EmbeddedImageHandler.set_message(m)` maps CIDs from the message JSON and fetches bytes via `NedClient.get_part`, enabling inline image rendering even when the maildir is not locally accessible.
 - **SendmailThread references fallback**: if the local mail file is absent or moved, `SendmailThread` requests the full references header chain via `NedClient.get_reply_seed(clean_id)`.
+- **Query parsing in `modify_tags`**: `ned.service.modify_tags` accepts arbitrary Notmuch queries, thread IDs, and message IDs. Queries with colons, spaces, parentheses, or `*` must be passed directly to `notmuch tag` without adding `id:`, otherwise batch operations like `t m` or marked archive match zero messages. Batch marked tagging and archiving clear the `marked` tag upon completion.
 
 ### Architecture and roadmap
 

@@ -90,5 +90,5 @@ def test_reply_sets_references_and_replied_tag(tmp_path, qapp, client_stub):
     assert 'In-Reply-To: <msg-9>' in content
     assert 'References: <r1> <r2> <msg-9>' in content
     assert any(
-        q == ['id:msg-9'] and add == ['replied']
-        for q, add, _rem in client_stub.modify_tags_calls)
+        msg_id == 'msg-9' and add == ['replied']
+        for msg_id, add, _rem in client_stub.modify_message_tags_calls)

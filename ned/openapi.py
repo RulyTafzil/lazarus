@@ -146,15 +146,23 @@ def build_spec() -> dict[str, Any]:
                     "responses": {"200": {"description": "Reply seed {to, cc, subject, body, account, signatures?}", "content": {"application/json": {"schema": {"type": "object"}}}}},
                 },
             },
+            "/api/v1/messages/{id}/tags": {
+                "post": {
+                    "summary": "Modify tags on a single message",
+                    "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}, "description": "RFC message-id, URL-encoded"}],
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"add": {"type": "array", "items": {"type": "string"}}, "remove": {"type": "array", "items": {"type": "string"}}}}}}},
+                    "responses": {"200": {"description": "{status: ok, ok: true}", "content": {"application/json": {"schema": {"type": "object"}}}}},
+                },
+            },
             "/api/v1/tags": {
                 "get": {
                     "summary": "List all known tags with thread counts",
                     "responses": {"200": {"description": "List of {name, count}", "content": {"application/json": {"schema": {"type": "array", "items": {"type": "object"}}}}}},
                 },
                 "post": {
-                    "summary": "Modify tags on matching queries",
-                    "description": "Body: {\"queries\": [...], \"add\": [...], \"remove\": [...]} (queries required, at least one of add/remove). Legacy `ids`/`query` accepted.",
-                    "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}, "add": {"type": "array", "items": {"type": "string"}}, "remove": {"type": "array", "items": {"type": "string"}}}}}}},
+                    "summary": "Modify tags on queries, threads, or messages",
+                    "description": "Body: {\"queries\": [...], \"threads\": [...], \"messages\": [...], \"add\": [...], \"remove\": [...]}. Legacy ids or query accepted.",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}, "threads": {"type": "array", "items": {"type": "string"}}, "messages": {"type": "array", "items": {"type": "string"}}, "add": {"type": "array", "items": {"type": "string"}}, "remove": {"type": "array", "items": {"type": "string"}}}}}}},
                     "responses": {"200": {"description": "{status: ok, ok: true}", "content": {"application/json": {"schema": {"type": "object"}}}}},
                 },
             },
@@ -203,6 +211,14 @@ def build_spec() -> dict[str, Any]:
                     "summary": "Set/clear the flagged tag",
                     "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"flag": {"type": "boolean", "default": True}}}}}},
                     "responses": {"200": {"description": "{status: ok, starred: bool}", "content": {"application/json": {"schema": {"type": "object"}}}}},
+                },
+            },
+            "/api/v1/threads/{id}/tags": {
+                "post": {
+                    "summary": "Modify tags on a single thread",
+                    "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}, "description": "Thread ID, URL-encoded"}],
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object", "properties": {"add": {"type": "array", "items": {"type": "string"}}, "remove": {"type": "array", "items": {"type": "string"}}}}}}},
+                    "responses": {"200": {"description": "{status: ok, ok: true}", "content": {"application/json": {"schema": {"type": "object"}}}}},
                 },
             },
             "/api/v1/threads/archive": {"post": {"summary": "Batch archive several queries", "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"queries": {"type": "array", "items": {"type": "string"}}}}}}}, "responses": {"200": {"description": "{status: ok}"}}}},
