@@ -126,6 +126,9 @@ class MarkableActionsMixin:
         in-memory rows (e.g. SearchPanel) should override with an instant check.
         """
         try:
+            from .client import get_client, is_ned_active
+            if is_ned_active():
+                return get_client().count(self._marked_query()) > 0
             return notmuch.count(self._marked_query()) > 0
         except Exception:
             return False
@@ -159,6 +162,28 @@ class MarkableActionsMixin:
         if not ('+' in tag_expr or '-' in tag_expr):
             tag_expr = '+' + tag_expr
 
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            client = get_client()
+            add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
+            remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
+            if mode == 'tag marked':
+                ok = client.modify_tags(self._marked_query(), add=add_tags, remove=remove_tags)
+                if not ok:
+                    self.app.status_message('Tag error', 'error')
+                    return
+                self.app.refresh_panels()
+            else:
+                thread_id = self._current_thread_id()
+                if not thread_id:
+                    return
+                ok = client.modify_tags(f'thread:{thread_id}', add=add_tags, remove=remove_tags)
+                if not ok:
+                    self.app.status_message('Tag error', 'error')
+                    return
+                self.app.update_single_thread(thread_id)
+            return
+
         if mode == 'tag marked':
             r = notmuch.tag(tag_expr, self._marked_query(), exclude_marked=True)
             if r.returncode != 0:
@@ -188,6 +213,38 @@ class MarkableActionsMixin:
     def archive_thread(self) -> None:
         """Archive (``-inbox -unread``) all marked threads in this
         panel's scope, or the current thread if none are marked."""
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            client = get_client()
+            if self._has_marked_threads():
+                marked_query = self._marked_query()
+                ok = client.archive_thread(marked_query)
+                if not ok:
+                    self.app.status_message('Archive error', 'error')
+                    return
+                self.app.refresh_panels()
+                self.app.status_message('Archived marked', 'info')
+                return
+
+            thread_id = self._current_thread_id()
+            if not thread_id:
+                return
+            tags = self._current_thread_tags()
+            if tags is None:
+                return
+            if check_archive_refused(tags):
+                self.app.status_message(
+                    'Archive refused: thread has no tags beyond inbox/unread',
+                    'warning')
+                return
+            self._advance_selection()
+            ok = client.archive_thread(thread_id)
+            if not ok:
+                self.app.status_message('Archive error', 'error')
+                return
+            self.app.update_single_thread(thread_id)
+            return
+
         if self._has_marked_threads():
             marked_query = self._marked_query()
             r = notmuch.tag('-inbox -unread', marked_query, exclude_marked=True)
@@ -221,6 +278,26 @@ class MarkableActionsMixin:
     def delete_thread(self) -> None:
         """Move all marked threads in this panel's scope to Trash, or
         the current thread if none are marked."""
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            client = get_client()
+            if self._has_marked_threads():
+                marked_query = self._marked_query()
+                ok = client.trash_thread(marked_query)
+                if ok:
+                    self.app.refresh_panels()
+                    self.app.status_message('Deleted marked', 'info')
+                    return
+
+            self._advance_selection()
+            thread_id = self._current_thread_id()
+            if not thread_id:
+                return
+            client.trash_thread(thread_id)
+            self.app.update_single_thread(thread_id)
+            self.app.status_message('Moved to trash', 'info')
+            return
+
         if self._has_marked_threads():
             marked_query = self._marked_query()
             moved = move_to_trash(marked_query)
@@ -240,6 +317,26 @@ class MarkableActionsMixin:
     def restore_thread_from_trash(self) -> None:
         """Move the current thread (or all marked threads) from Trash
         back to INBOX, undoing a soft-delete."""
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            client = get_client()
+            if self._has_marked_threads():
+                marked_query = self._marked_query()
+                ok = client.untrash_thread(marked_query)
+                if ok:
+                    self.app.refresh_panels()
+                    self.app.status_message('Restored from trash', 'info')
+                    return
+
+            self._advance_selection()
+            thread_id = self._current_thread_id()
+            if not thread_id:
+                return
+            ok = client.untrash_thread(thread_id)
+            self.app.update_single_thread(thread_id)
+            self.app.status_message('Restored from trash', 'info')
+            return
+
         if self._has_marked_threads():
             marked_query = self._marked_query()
             moved = restore_from_trash(
@@ -269,6 +366,34 @@ class MarkableActionsMixin:
     def archive_to_local(self) -> None:
         """Move all marked threads in this panel's scope to the local
         Archive maildir, or the current thread if none are marked."""
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            client = get_client()
+            if self._has_marked_threads():
+                marked_query = self._marked_query()
+                ok = client.archive_thread(marked_query)
+                if ok:
+                    self.app.refresh_panels()
+                    self.app.status_message('Archived marked to local', 'info')
+                    return
+
+            thread_id = self._current_thread_id()
+            if not thread_id:
+                return
+            tags = self._current_thread_tags()
+            if tags is None:
+                return
+            if check_archive_refused(tags):
+                self.app.status_message(
+                    'Archive refused: thread has no tags beyond inbox/unread',
+                    'warning')
+                return
+            self._advance_selection()
+            client.archive_thread(thread_id)
+            self.app.update_single_thread(thread_id)
+            self.app.status_message('Archived to local', 'info')
+            return
+
         if self._has_marked_threads():
             marked_query = self._marked_query()
             moved = move_to_archive(marked_query)

@@ -38,6 +38,14 @@ class _TagLoader(QtCore.QThread):
     loaded = QtCore.pyqtSignal(list)
 
     def run(self) -> None:
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                tags = [t['name'] for t in get_client().get_tags()]
+                self.loaded.emit(tags)
+                return
+            except Exception:
+                pass
         try:
             tags = notmuch.tags()
         except Exception:

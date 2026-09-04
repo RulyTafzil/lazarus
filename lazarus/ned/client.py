@@ -471,28 +471,102 @@ class NedClient:
         res = self._request_json("POST", "/api/v1/tags", json_body=payload)
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
-    def archive_thread(self, thread_id: str) -> bool:
-        """Archive a thread (removes inbox/unread and moves Maildir files)."""
-        clean_id = urllib.parse.quote(thread_id, safe="")
-        res = self._request_json("POST", f"/api/v1/threads/{clean_id}/archive")
+    def search_messages(
+        self,
+        query: str,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> list[str]:
+        """Search message IDs matching a Notmuch query string."""
+        params = {"q": query, "limit": limit, "offset": offset}
+        data = self._request_json("GET", "/api/v1/messages", query_params=params)
+        return [str(m) for m in data] if isinstance(data, list) else []
+
+    def count(self, query: str, output: str = "messages") -> int:
+        """Return count of matching messages, threads, or files."""
+        res = self._request_json(
+            "GET", "/api/v1/count", query_params={"q": query, "output": output}
+        )
+        if isinstance(res, dict) and "count" in res:
+            return int(res["count"])
+        return 0
+
+    def count_batch(
+        self, queries: Sequence[str], output: str = "messages"
+    ) -> list[int]:
+        """Return counts for a batch of queries."""
+        payload = {"queries": list(queries), "output": output}
+        res = self._request_json("POST", "/api/v1/count", json_body=payload)
+        if isinstance(res, dict) and "counts" in res and isinstance(res["counts"], list):
+            return [int(c) for c in res["counts"]]
+        return [0] * len(queries)
+
+    def archive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
+        """Archive a thread or query (removes inbox/unread and moves Maildir files)."""
+        if isinstance(thread_or_query, list):
+            res = self._request_json(
+                "POST", "/api/v1/threads/archive", json_body={"queries": thread_or_query}
+            )
+            return bool(isinstance(res, dict) and res.get("status") == "ok")
+        clean = thread_or_query.strip()
+        if " " in clean or ":" in clean:
+            res = self._request_json(
+                "POST", "/api/v1/threads/archive", json_body={"query": clean}
+            )
+        else:
+            clean_id = urllib.parse.quote(clean, safe="")
+            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/archive")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
-    def unarchive_thread(self, thread_id: str) -> bool:
-        """Restore an archived thread back to inbox."""
-        clean_id = urllib.parse.quote(thread_id, safe="")
-        res = self._request_json("POST", f"/api/v1/threads/{clean_id}/unarchive")
+    def unarchive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
+        """Restore an archived thread or query back to inbox."""
+        if isinstance(thread_or_query, list):
+            res = self._request_json(
+                "POST", "/api/v1/threads/unarchive", json_body={"queries": thread_or_query}
+            )
+            return bool(isinstance(res, dict) and res.get("status") == "ok")
+        clean = thread_or_query.strip()
+        if " " in clean or ":" in clean:
+            res = self._request_json(
+                "POST", "/api/v1/threads/unarchive", json_body={"query": clean}
+            )
+        else:
+            clean_id = urllib.parse.quote(clean, safe="")
+            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/unarchive")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
-    def trash_thread(self, thread_id: str) -> bool:
-        """Move a thread to trash folder and tag as trash."""
-        clean_id = urllib.parse.quote(thread_id, safe="")
-        res = self._request_json("POST", f"/api/v1/threads/{clean_id}/trash")
+    def trash_thread(self, thread_or_query: Union[list[str], str]) -> bool:
+        """Move a thread or query to trash folder and tag as trash."""
+        if isinstance(thread_or_query, list):
+            res = self._request_json(
+                "POST", "/api/v1/threads/trash", json_body={"queries": thread_or_query}
+            )
+            return bool(isinstance(res, dict) and res.get("status") == "ok")
+        clean = thread_or_query.strip()
+        if " " in clean or ":" in clean:
+            res = self._request_json(
+                "POST", "/api/v1/threads/trash", json_body={"query": clean}
+            )
+        else:
+            clean_id = urllib.parse.quote(clean, safe="")
+            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/trash")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
-    def untrash_thread(self, thread_id: str) -> bool:
-        """Restore a thread from trash back to inbox."""
-        clean_id = urllib.parse.quote(thread_id, safe="")
-        res = self._request_json("POST", f"/api/v1/threads/{clean_id}/untrash")
+    def untrash_thread(self, thread_or_query: Union[list[str], str]) -> bool:
+        """Restore a thread or query from trash back to inbox."""
+        if isinstance(thread_or_query, list):
+            res = self._request_json(
+                "POST", "/api/v1/threads/untrash", json_body={"queries": thread_or_query}
+            )
+            return bool(isinstance(res, dict) and res.get("status") == "ok")
+        clean = thread_or_query.strip()
+        if " " in clean or ":" in clean:
+            res = self._request_json(
+                "POST", "/api/v1/threads/untrash", json_body={"query": clean}
+            )
+        else:
+            clean_id = urllib.parse.quote(clean, safe="")
+            res = self._request_json("POST", f"/api/v1/threads/{clean_id}/untrash")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
     def toggle_flag(self, thread_id: str, flag: bool = True) -> bool:

@@ -206,6 +206,15 @@ class ThreadModel(QAbstractItemModel):
     # -- data fetching -------------------------------------------------------
 
     def _fetch_full_thread(self) -> list:
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                res = get_client().get_thread(self.thread_id)
+                tree = res.get('tree')
+                if isinstance(tree, list):
+                    return tree
+            except Exception as e:
+                logger.warning("NED thread fetch failed: %s", e)
         args = [
             'show', '--exclude=false', '--format=json',
             '--verify', '--include-html', '--decrypt=true',
@@ -216,6 +225,13 @@ class ThreadModel(QAbstractItemModel):
         return json.loads(r.stdout)
 
     def _fetch_matching_ids(self) -> set[str]:
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            try:
+                ids = get_client().search_messages(f'thread:{self.thread_id} AND {self.query}')
+                return set(ids)
+            except Exception as e:
+                logger.warning("NED message search failed: %s", e)
         r = notmuch.run(
             'search', '--exclude=false', '--format=json',
             '--output=messages', f'thread:{self.thread_id} AND {self.query}',
@@ -326,7 +342,21 @@ class ThreadModel(QAbstractItemModel):
         msg_id = m['id']
         if '+' not in tag_expr and '-' not in tag_expr:
             tag_expr = '+' + tag_expr
-        notmuch.tag(tag_expr, 'id:' + msg_id)
+        from .client import get_client, is_ned_active
+        if is_ned_active():
+            add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
+            remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
+            get_client().modify_tags(f'id:{msg_id}', add=add_tags, remove=remove_tags)
+        else:
+            notmuch.tag(tag_expr, 'id:' + msg_id)
+        if 'tags' in m:
+            tset = set(m['tags'])
+            for t in tag_expr.split():
+                if t.startswith('+'):
+                    tset.add(t[1:])
+                elif t.startswith('-'):
+                    tset.discard(t[1:])
+            m['tags'] = list(tset)
         self.messageChanged.emit(idx)
 
     def toggle_message_tag(self, idx: QModelIndex, tag: str) -> None:
