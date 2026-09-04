@@ -45,10 +45,10 @@ Lazarus acts as a frontend for standard Unix email utilities:
 └───────────────┘       └───────────────┘       └───────────────┘
 ```
 
-- **Local IPC (Unix domain socket):**
-  Located at `/run/user/$UID/ned/ned.sock` (or `~/.local/share/lazarus/ned/ned.sock`). Communicates using HTTP/1.1 over Unix streams with sub-millisecond latency and operating system permission security.
+- **Local IPC, Unix domain socket:**
+  Located at `/run/user/$UID/ned/ned.sock`, or `~/.local/share/lazarus/ned/ned.sock` as a fallback. Communicates using HTTP/1.1 over Unix streams with sub-millisecond latency and operating system permission security.
 - **Reactive updates via SSE:**
-  When mail arrives or tags change, NED broadcasts invalidation events (`threads`, `thread`). Connected clients refresh their views immediately without polling.
+  When mail arrives or tags change, NED broadcasts invalidation events for `threads` and `thread`. Connected clients refresh their views immediately without polling.
 - **Mutation locking:**
   All tag modifications and file moves run through NED's serialized mutation lock, preventing index concurrency errors between desktop, mobile, and background sync operations.
 
@@ -56,26 +56,26 @@ Lazarus acts as a frontend for standard Unix email utilities:
 
 ## Installation
 
-Two independent distributions come from this repository — pick either or both:
+Two independent distributions come from this repository, pick either or both:
 
-**Headless daemon only (zero Qt dependencies):**
+**Headless daemon only, zero Qt dependencies:**
 ```bash
 git clone https://forge.rulytafzil.com/Home/lazarus.git
 cd lazarus
 pipx install -e ./ned
-# installs: ned (daemon), ned-client (CLI)
+# installs: ned daemon, ned-client CLI
 ```
 
-The daemon reads configuration from `~/.config/ned/config.py` only (generate from your desktop config with `ned --init-config`) and serves any client over a Unix domain socket or Tailscale TCP.
+The daemon reads configuration from `~/.config/ned/config.py` only and serves clients over a Unix domain socket or Tailscale TCP.
 
-**Desktop GUI (+ bundled daemon):**
+**Desktop GUI with bundled daemon:**
 ```bash
 cd lazarus && pipx install .
 ```
 
 This installs three executables in your path:
 - `lazarus`: Desktop GUI application.
-- `ned`: Notmuch Email Daemon (serves the mobile web client on `/`).
+- `ned`: Notmuch Email Daemon, which serves the mobile web client on `/`.
 - `ned-client`: CLI utility to interact with NED.
 
 To install desktop application icons and the `.desktop` launcher file:
@@ -90,18 +90,14 @@ lazarus --install-desktop
 
 ### 1. Configuration
 
-The **daemon** config `~/.config/ned/config.py` is the single source of mail
-identity: accounts, From addresses, PGP keys, signatures, send, sync, and
-filter rules. Generate it from an existing desktop config with
-`ned --init-config`.
+Lazarus separates email state from user interface settings:
 
-The **desktop** config `~/.config/lazarus/config.py` is UI-only (themes,
-fonts, tags, keymap) — the compose panel pulls accounts/signatures from the
-NED API and sends through the daemon, so no mail settings are needed here
-(any old `email_address`/`smtp_accounts`/`sent_dir` lines can simply be
-removed).
+- The **daemon config** `~/.config/ned/config.py` is the single source of mail identity: accounts, From addresses, PGP keys, signatures, send commands, sync intervals, and filter rules.
+- The **desktop config** `~/.config/lazarus/config.py` controls user interface options: themes, fonts, tag icons, layout panes, and key bindings.
 
-Set your email identity in the ned config (example):
+#### Configure NED
+
+Create `~/.config/ned/config.py`:
 
 ```python
 import ned.settings as settings
@@ -114,7 +110,53 @@ settings.sent_dir = '~/Mail/default/Sent'
 # Common optional settings
 settings.mail_root = '~/Mail'
 settings.archive_dir = '~/Mail/Archive'
+settings.web_host = '127.0.0.1'
+settings.web_port = 8080
+settings.web_token = 'choose-a-secret-token'
 ```
+
+If migrating from an existing desktop config that contains mail settings, run `ned --init-config` to generate this file automatically.
+
+#### Configure Lazarus desktop
+
+Lazarus requires `~/.config/lazarus/config.py` to start. Create it:
+
+```bash
+mkdir -p ~/.config/lazarus && touch ~/.config/lazarus/config.py
+```
+
+All desktop settings have defaults, so an empty file works. To customize the interface, edit `~/.config/lazarus/config.py`:
+
+```python
+import lazarus.settings as settings
+
+# Interface customization
+settings.thread_pane_position = 'right'  # right, left, below, above
+settings.init_queries = ['tag:inbox']
+settings.search_font_size = 13
+settings.message_font_size = 12
+```
+
+#### Optional: Connect to NED on another machine
+
+If NED runs on a remote server or another machine on your LAN or Tailnet, configure Lazarus to connect over the network instead of starting a local daemon.
+
+Add connection settings to `~/.config/lazarus/config.py`:
+
+```python
+import os
+
+os.environ['NED_URL'] = 'https://your-server.your-tailnet.ts.net'  # or http://100.x.y.z:8080
+os.environ['NED_TOKEN'] = 'choose-a-secret-token'
+```
+
+Alternatively, pass these variables in your shell when launching Lazarus:
+
+```bash
+NED_URL="https://your-server.your-tailnet.ts.net" NED_TOKEN="choose-a-secret-token" lazarus
+```
+
+When `NED_URL` is set, Lazarus verifies connectivity via `/api/v1/ping`, skips launching a local NED process, and streams real-time updates over Server-Sent Events from the remote daemon.
 
 ### 2. Start NED
 
@@ -140,7 +182,7 @@ Description=Notmuch Email Daemon (NED)
 After=network.target
 
 [Service]
-ExecStart=%h/.local/bin/ned --foreground
+ExecStart=%h/.local/bin/ned --host 127.0.0.1
 Restart=on-failure
 
 [Install]
@@ -160,7 +202,7 @@ systemctl --user enable --now ned
 lazarus
 ```
 
-Lazarus connects to the local NED socket automatically. If NED is not already running, Lazarus will start it in the background.
+Lazarus connects to the local NED socket automatically. If NED is not already running, Lazarus will start it in the background. If `NED_URL` is set, Lazarus connects to the remote daemon instead.
 
 ---
 
@@ -170,16 +212,17 @@ Everything in Lazarus can be operated from the keyboard. Press `?` inside the ap
 
 ### Layout
 
-Lazarus uses a split-pane layout with an email list on one side and a persistent thread preview on the other. You can change preview placement with `thread_pane_position` (`right`, `left`, `below`, or `above`).
+Lazarus uses a split-pane layout with an email list on one side and a persistent thread preview on the other. You can change preview placement with `thread_pane_position`: `right`, `left`, `below`, or `above`.
 
-- `j` / `k` (or `↓` / `↑`): Move between threads in the list. The thread under the cursor opens in the preview pane after a short delay.
+- `j` / `k` or `↓` / `↑`: Move between threads in the list. The thread under the cursor opens in the preview pane after a short delay.
 - `J` / `K`: Move between individual messages within the open thread.
 - `h` / `l`: Switch between open tabs.
 - `<enter>`: Focus the thread preview.
 - `<escape>`: Return focus to the thread list.
 - `C-<enter>`: Close the thread preview.
 - `c`: Compose a new message.
-- `r` / `R`: Reply / reply-all (contextual: replies to the focused message in preview, or the list's selected thread).
+- `R`: Reply to sender.
+- `r`: Reply to all. Contextual: replies to the focused message in preview, or the list selected thread.
 - `C-y`: Forward the current message or thread.
 - `T`: Open the tag browser.
 - `` ` ``: Trigger background mail sync.
@@ -194,11 +237,11 @@ Actions operate on marked batches if marked threads exist, or fall back to the s
 - `1` through `9`: Toggle tags configured in `tag_hotkeys`.
 - `t t`: Tag current thread.
 - `t m`: Tag all marked threads.
-- `a`: Archive (removes `inbox` and `unread` tags; requires at least one other tag to prevent orphaned mail).
-- `A`: Archive to local Maildir (`archive_dir`).
+- `a`: Archive. Removes `inbox` and `unread` tags. Requires at least one other tag to prevent orphaned mail.
+- `A`: Archive to local Maildir defined by `archive_dir`.
 - `d`: Move thread to Trash folder.
 - `d u`: Restore thread from Trash back to INBOX.
-- `d d`: Empty trash permanently (irreversible).
+- `d d`: Empty trash permanently, irreversible.
 
 All actions route through NED, which serializes file moves and runs `notmuch new` automatically.
 
@@ -208,14 +251,14 @@ All actions route through NED, which serializes file moves and runs `notmuch new
 
 Lazarus includes a built-in rich-text compose editor:
 
-- **Formatting toolbar:** Bold, italic, underline, lists, alignment, font colors, and inline images using NerdFont glyphs (or `Ctrl+B`, `Ctrl+I`, `Ctrl+U`).
+- **Formatting toolbar:** Bold, italic, underline, lists, alignment, font colors, and inline images using NerdFont glyphs, or shortcuts `Ctrl+B`, `Ctrl+I`, `Ctrl+U`.
 - **Plaintext mode:** Toggle with `Shift+H` or the `[Plaintext | HTML]` toolbar button to send standard `text/plain` emails without an HTML part.
 - **Inline images and attachments:** Paste or drag-and-drop images directly into the body. Add file attachments with `a`.
 - **Address autocomplete:** Recipient suggestions populate from your notmuch address history.
 - **Cc and Bcc rows:** Reveal or hide extra header rows with `M-c` and `M-b`.
-- **Signatures:** Per-account signatures insert automatically above quoted text (`~/.config/ned/<account>/signature` or `signature.html`; served to the desktop via the NED API).
+- **Signatures:** Per-account signatures insert automatically above quoted text from `~/.config/ned/<account>/signature` or `signature.html`, served to the desktop via the NED API.
 - **Multiple accounts:** Switch sending accounts with `[` / `]` or the From dropdown. The From header and signature update instantly.
-- **PGP:** Toggle signing with `p` and encryption with `e` (requires a per-account `gnupg_keyid` in the ned config).
+- **PGP:** Toggle signing with `p` and encryption with `e`, requiring a per-account `gnupg_keyid` in the ned config.
 - **Send:** `C-s` builds the message locally and hands it to NED, which runs msmtp, saves the sent copy, and indexes it. `<escape>` exits to the panel chrome.
 
 ### Themes
@@ -237,13 +280,13 @@ Lazarus bundles over 600 pre-compiled native themes:
 
 ## Mail filter rules
 
-Define filter rules in the **NED** config (`~/.config/ned/config.py` — rules
-run daemon-side):
+Define filter rules in the **NED** config `~/.config/ned/config.py`, where rules run daemon-side:
 
 ```python
+import ned.settings as settings
 from ned.rules import Rule
 
-ned.settings.filter_rules = [
+settings.filter_rules = [
     Rule(
         query='from:notifications@github.com',
         tag_add=['github'],
@@ -259,22 +302,23 @@ ned.settings.filter_rules = [
 ]
 ```
 
-Rules execute automatically following each sync cycle, scoped by `filter_scope_query` (default `'tag:inbox and tag:unread'`). You can also trigger them manually with `C-r`.
+Rules execute automatically following each sync cycle, scoped by `filter_scope_query`, which defaults to `'tag:inbox and tag:unread'`. You can also trigger them manually with `C-r`.
 
 ---
 
 ## Multiple accounts
 
-Configure multiple accounts in the **NED** config (`~/.config/ned/config.py`) —
-the desktop compose discovers them via the API:
+Configure multiple accounts in the **NED** config `~/.config/ned/config.py`, which the desktop compose discovers via the API:
 
 ```python
-ned.settings.smtp_accounts = ['personal', 'work']
-ned.settings.email_address = {
+import ned.settings as settings
+
+settings.smtp_accounts = ['personal', 'work']
+settings.email_address = {
     'personal': 'Me <me@personal.com>',
     'work': 'Me <me@work.com>',
 }
-ned.settings.sent_dir = {
+settings.sent_dir = {
     'personal': '~/Mail/personal/Sent',
     'work': '~/Mail/work/Sent',
 }
@@ -286,40 +330,54 @@ In the compose panel, press `[` and `]` to cycle between active sender accounts.
 
 ## Mobile web client and remote access
 
-NED includes a mobile-first web client (PWA) with a dark theme, touch gestures, one-tap archiving, and dynamic signature switching.
+NED includes a mobile web app with a dark theme, touch gestures, one-tap archiving, and dynamic signature switching.
 
-Want to build your own client? The HTTP API is documented in [`docs/api.md`](docs/api.md) and the running daemon serves a machine-readable OpenAPI spec at `GET /api/v1/openapi.json` (`curl --unix-socket /run/user/$UID/ned/ned.sock http://localhost/api/v1/openapi.json`).
+To build your own client, the HTTP API is documented in [`docs/api.md`](docs/api.md). The running daemon serves a machine-readable OpenAPI specification at `GET /api/v1/openapi.json`.
 
 ### Remote access over Tailscale
 
-Tailscale provides an encrypted WireGuard mesh network between your devices without exposing mail ports publicly:
+Tailscale provides an encrypted WireGuard mesh network between your devices without exposing mail ports publicly. MagicDNS and automated HTTPS Let's Encrypt certificates are included at no charge on the personal plan.
 
 1. Install Tailscale on your host machine and authenticate:
    ```bash
    tailscale up
    ```
-2. Find your Tailscale IPv4 address:
-   ```bash
-   tailscale ip -4
-   # Example: 100.82.14.95
-   ```
-3. Start NED listening on your Tailscale interface:
-   ```bash
-   ned --host 100.82.14.95 --port 8080
-   ```
-   (Tailscale binds are allowed without a token — WireGuard is the transport. Binding a
-   plain LAN or public address requires `settings.web_token`/`--token` or `--allow-insecure`;
-   NED refuses unauthenticated non-loopback, non-Tailscale binds.)
-   Or set it permanently in `~/.config/ned/config.py`:
+2. Enable HTTPS in the Tailscale admin console under DNS by toggling **MagicDNS** and **HTTPS Certificates**.
+3. Configure NED to listen on loopback. Tailscale Serve forwards to `127.0.0.1:8080` by default.
+   In `~/.config/ned/config.py`:
    ```python
    import ned.settings as settings
-   settings.web_host = '100.82.14.95'
+
+   settings.web_host = '127.0.0.1'
    settings.web_port = 8080
-   settings.web_token = 'your-secret-token'
+   settings.web_token = 'choose-a-secret-token'
    ```
-4. Open `http://100.82.14.95:8080` in your phone browser and install it as a home screen app:
-   - **iOS Safari:** Tap Share, then **Add to Home Screen**.
-   - **Android Chrome:** Tap the three dots, then **Add to Home screen** or **Install app**.
+   If running NED via systemd, ensure `~/.config/systemd/user/ned.service` passes `--host 127.0.0.1`:
+   ```ini
+   ExecStart=%h/.local/bin/ned --host 127.0.0.1
+   ```
+4. Expose NED via Tailscale Serve. Grant operator permissions once so running serve does not require root:
+   ```bash
+   sudo tailscale set --operator=$USER
+   ```
+   Then route incoming HTTPS traffic to NED's local port in the background:
+   ```bash
+   tailscale serve --bg 8080
+   ```
+   Verify the routing status:
+   ```bash
+   tailscale serve status
+   ```
+   The output displays your HTTPS URL and target:
+   ```text
+   https://your-node.tailnet.ts.net (tailnet only)
+   |-- / proxy http://127.0.0.1:8080
+   ```
+5. Open `https://your-node.tailnet.ts.net/?token=choose-a-secret-token` in your phone browser and install it as a home screen app:
+   - **iOS Safari:** Tap Share, then tap **Add to Home Screen**.
+   - **Android Chrome:** Tap the three dots menu, then tap **Add to Home screen** or **Install app**.
+
+Because HTTPS provides a secure origin, mobile browsers allow full Progressive Web App features including offline service worker caching and background event streaming.
 
 ---
 
@@ -328,23 +386,22 @@ Tailscale provides an encrypted WireGuard mesh network between your devices with
 The `ned-client` command line tool allows scripting and querying NED directly:
 
 ```bash
-# Health check
+# Health check and connectivity
 ned-client ping
+ned-client health
 
-# Search threads
+# Search threads and inspect thread messages
 ned-client search "tag:inbox" --limit 10
+ned-client thread "0000000000001234"
 
-# Tag a thread
-ned-client tag "thread:0000000000001234" +starred -unread
+# List tags and query address book contacts
+ned-client tags
+ned-client contacts "Alice"
 
-# Archive or trash a thread
-ned-client archive "thread:0000000000001234"
-ned-client trash "thread:0000000000001234"
-
-# Trigger sync
+# Trigger mail synchronization and filter rules
 ned-client sync
 
-# Listen to live SSE invalidation stream
+# Listen to live Server-Sent Events invalidation stream
 ned-client events
 ```
 
