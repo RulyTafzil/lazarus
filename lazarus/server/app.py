@@ -30,7 +30,6 @@ import http.server
 import json
 import logging
 import mimetypes
-import os
 from pathlib import Path
 import re
 import socketserver
@@ -38,11 +37,16 @@ from typing import Any
 import urllib.parse
 
 from .. import settings
-from . import service
+from ..core import service
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(__file__).parent / 'static'
+# Static assets live in ned/static/ (the canonical, actively maintained
+# copy); keep this dir as a fallback only for old source trees that still
+# ship a server/static/ directory.
+STATIC_DIR = Path(__file__).resolve().parent.parent / "ned" / "static"
+if not STATIC_DIR.is_dir():
+    STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class LazarusRequestHandler(http.server.BaseHTTPRequestHandler):

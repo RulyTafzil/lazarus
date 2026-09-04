@@ -273,7 +273,7 @@ def test_desktop_thread_model_via_ned(qapp, running_ned, monkeypatch):
     monkeypatch.setattr(
         service,
         "get_thread_messages",
-        lambda tid: {
+        lambda tid, include_bodies=True: {
             "thread_id": tid,
             "subject": "Hello from NED",
             "tags": ["inbox", "unread"],
@@ -351,7 +351,7 @@ def test_ensure_daemon_spawn_command(monkeypatch, tmp_path):
 
     call_count = 0
 
-    def mock_is_active():
+    def mock_is_active(force=False):
         nonlocal call_count
         call_count += 1
         return call_count > 1

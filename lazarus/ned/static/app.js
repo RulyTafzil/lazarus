@@ -461,6 +461,11 @@
   async function runSearch(query, append = false, silent = false) {
     state.currentQuery = query;
     const savedScrollTop = el.threadList ? el.threadList.scrollTop : 0;
+    const fetchLimit = (!append && silent && state.threads.length > state.limit)
+      ? state.threads.length
+      : state.limit;
+    const fetchOffset = (!append) ? 0 : state.offset;
+
     if (!append && !silent) {
       state.offset = 0;
       el.threadList.innerHTML = `
@@ -468,23 +473,23 @@
           <div class="spinner"></div>
           <span>Loading threads…</span>
         </div>`;
-    } else if (!append && silent) {
-      state.offset = 0;
     }
 
     try {
-      const threads = await api(`/api/search?q=${encodeURIComponent(query)}&limit=${state.limit}&offset=${state.offset}`);
+      const threads = await api(`/api/search?q=${encodeURIComponent(query)}&limit=${fetchLimit}&offset=${fetchOffset}`);
       if (!append) {
         state.threads = threads;
+        state.offset = threads.length;
       } else {
         state.threads.push(...threads);
+        state.offset += threads.length;
       }
       renderThreadList(state.threads);
       if (silent && el.threadList) {
         el.threadList.scrollTop = savedScrollTop;
       }
 
-      if (threads.length >= state.limit) {
+      if (threads.length >= fetchLimit) {
         el.loadMoreWrap.classList.remove('hidden');
       } else {
         el.loadMoreWrap.classList.add('hidden');

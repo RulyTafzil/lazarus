@@ -380,6 +380,15 @@ def untrash_thread(thread_or_query: str) -> bool:
     return modify_tags([query], add_tags=["inbox"], remove_tags=["trash"])
 
 
+def expunge_trash() -> int:
+    """Flag every file matching ``tag:trash`` with the Maildir T flag.
+
+    Runs under the daemon's mutation lock (see ``ned.handler``) so it is
+    serialized with the other single-writer mutations. Returns the number
+    of files that were newly flagged.
+    """
+    return actions.expunge_trash()
+
 def sync_mail() -> tuple[bool, str]:
     """Execute parallel mbsync per account (or sync_mail_command), run notmuch new, apply filter rules."""
     res = sync.run_sync()

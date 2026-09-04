@@ -15,10 +15,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-"""Backward compatibility re-export shim for lazarus.core.service."""
+"""Backward compatibility alias for lazarus.core.service.
+
+The sys.modules assignment makes ``import lazarus.server.service`` resolve
+to the identical module object as ``lazarus.core.service``, so test
+monkeypatches on either name affect the same functions. Callers (e.g.
+``lazarus.server.app``) should import ``lazarus.core.service`` by its real
+name for static-analysis friendliness.
+"""
 
 import sys
+
 from ..core import service as _core_service
 
 sys.modules[__name__] = _core_service
-

@@ -27,11 +27,9 @@ import http.server
 import logging
 import os
 from pathlib import Path
-import signal
 import socket
 import socketserver
 import threading
-import time
 from typing import Optional
 
 from .. import settings

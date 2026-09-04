@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 _CLIENT_INSTANCE: Optional[NedClient] = None
 
+# is_ned_active() is called on hot paths (every panel refresh, every
+# keypress action, autocomplete, command bar). Each call used to open a
+# fresh socket + HTTP ping, so resolve once and cache briefly. The cache
+# is keyed on the NED-related env vars so tests (which flip
+# LAZARUS_DISABLE_NED / NED_SOCK between cases) never see a stale value.
+_NED_ACTIVE_TTL = 2.0
+_ned_active_cache: Optional[tuple[float, bool]] = None
+_ned_active_env: Optional[tuple[str, str, str, str]] = None
+
 
 def get_client() -> NedClient:
     """Return the shared NedClient instance."""
@@ -54,26 +63,53 @@ def get_client() -> NedClient:
 
 
 def reset_client() -> None:
-    """Reset cached client singleton."""
-    global _CLIENT_INSTANCE
+    """Reset cached client singleton and the active-state cache."""
+    global _CLIENT_INSTANCE, _ned_active_cache, _ned_active_env
     if _CLIENT_INSTANCE is not None:
         _CLIENT_INSTANCE.close()
         _CLIENT_INSTANCE = None
+    _ned_active_cache = None
+    _ned_active_env = None
 
 
-def is_ned_active() -> bool:
-    """Check if the NED daemon is reachable and responding."""
+def _env_signature() -> tuple[str, str, str, str]:
+    return (
+        os.environ.get("LAZARUS_DISABLE_NED", ""),
+        os.environ.get("NED_SOCK", ""),
+        os.environ.get("NED_URL", ""),
+        os.environ.get("NED_TOKEN", ""),
+    )
+
+
+def is_ned_active(force: bool = False) -> bool:
+    """Check if the NED daemon is reachable and responding.
+
+    Results are cached for a short TTL; pass ``force=True`` for call
+    sites that must see a fresh answer (e.g. daemon-spawn polling loops).
+    """
+    global _ned_active_cache, _ned_active_env
+    sig = _env_signature()
+    if not force and _ned_active_cache is not None and _ned_active_env == sig:
+        ts, val = _ned_active_cache
+        if time.monotonic() - ts < _NED_ACTIVE_TTL:
+            return val
+
     if os.environ.get("LAZARUS_DISABLE_NED") == "1":
-        return False
-    try:
-        return get_client().ping()
-    except Exception:
-        return False
+        val = False
+    else:
+        try:
+            val = get_client().ping()
+        except Exception:
+            val = False
+
+    _ned_active_cache = (time.monotonic(), val)
+    _ned_active_env = sig
+    return val
 
 
 def ensure_daemon(timeout: float = 3.0) -> bool:
     """Ensure the NED daemon is running, spawning it if necessary."""
-    if is_ned_active():
+    if is_ned_active(force=True):
         return True
 
     if os.environ.get("LAZARUS_DISABLE_NED") == "1":
@@ -105,7 +141,7 @@ def ensure_daemon(timeout: float = 3.0) -> bool:
     start = time.time()
     reset_client()
     while time.time() - start < timeout:
-        if is_ned_active():
+        if is_ned_active(force=True):
             logger.info("NED daemon connected successfully")
             return True
         time.sleep(0.1)

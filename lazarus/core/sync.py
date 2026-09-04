@@ -28,7 +28,6 @@ import logging
 import os
 import re
 import select
-import shlex
 import signal
 import subprocess
 from typing import Callable, List, Optional, Tuple
@@ -249,10 +248,7 @@ def run_sync(
     notmuch_rc = 0
     notmuch_stderr = ''
     try:
-        try:
-            notmuch.new(no_hooks=False)
-        except TypeError:
-            notmuch.new()  # type: ignore[call-arg]
+        notmuch.new(no_hooks=False)
     except Exception as e:
         logger.warning('notmuch new failed: %s', e)
         notmuch_rc = 1

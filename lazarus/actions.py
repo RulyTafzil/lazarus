@@ -23,12 +23,9 @@ bridged to the headless domain primitives in lazarus.core.actions.
 
 from __future__ import annotations
 import logging
-import os
-from typing import Callable, List, Literal, Optional, Set, Tuple
+from typing import Callable, Literal, Optional, Set
 
 from .core.actions import (
-    _BulkMoveWorker,
-    _get_worker as _core_get_worker,
     get_worker,
     shutdown_worker,
     set_batch_done_listener as _core_set_batch_done_listener,
@@ -51,6 +48,27 @@ from .core.actions import (
     _is_trash_path,
 )
 
+# Re-exported from ``lazarus.core.actions`` for ``lazarus.actions.<name>``
+# consumers (controller, rules, thread panel, tests). The composition
+# (mixin use + module-namespace re-export) is deliberate.
+__all__ = [
+    "get_worker",
+    "shutdown_worker",
+    "collect_files",
+    "plan_trash_moves",
+    "plan_archive_moves",
+    "move_specific_files",
+    "expunge_trash",
+    "_strip_uid_annotation",
+    "_unique_dest",
+    "_resolve_stale_path",
+    "_mail_file_account",
+    "_trash_dir_path",
+    "_find_trash_dir",
+    "_find_archive_dir",
+    "_is_trash_path",
+]
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -61,7 +79,8 @@ try:
         batch_done = pyqtSignal()
 
     _bridge: Optional[_QtBatchDoneBridge] = _QtBatchDoneBridge()
-    _core_set_batch_done_listener(_bridge.batch_done.emit)
+    if _bridge is not None:
+        _core_set_batch_done_listener(_bridge.batch_done.emit)
 except ImportError:
     _bridge = None
 
@@ -80,18 +99,6 @@ def set_batch_done_listener(fn: Optional[Callable[[], None]]) -> None:
         pass
     if fn is not None:
         _bridge.batch_done.connect(fn)
-
-
-def _run_notmuch_new() -> None:
-    """Legacy helper maintained for backward compatibility."""
-    pass
-
-
-def _get_worker() -> _BulkMoveWorker:
-    w = _core_get_worker()
-    if _bridge is not None:
-        w.batch_done = _bridge.batch_done  # type: ignore[attr-defined]
-    return w
 
 
 # ---------------------------------------------------------------------------
