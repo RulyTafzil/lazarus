@@ -18,7 +18,7 @@
 """UI email actions for desktop search and thread panels.
 
 This module provides Qt-specific panel actions (MarkableActionsMixin)
-bridged to the headless domain primitives in lazarus.core.actions. Every
+bridged to the headless domain primitives in ned.actions. Every
 action delegates to the NED daemon via ``NedClient``; there is no local
 notmuch fallback.
 """
@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional, Set
 
-from .core.actions import (  # re-exported for lazarus.actions.<name> consumers
+from ned.actions import (  # re-exported for lazarus.actions.<name> consumers
     collect_files,
     plan_trash_moves,
     plan_archive_moves,
@@ -47,7 +47,7 @@ from .core.actions import (  # re-exported for lazarus.actions.<name> consumers
     _is_trash_path,
 )
 
-# Re-exported from ``lazarus.core.actions`` for module-namespace consumers
+# Re-exported from ``ned.actions`` for module-namespace consumers
 # (``lazarus.rules``, tests). The composition (mixin use + module re-export)
 # is deliberate.
 __all__ = [

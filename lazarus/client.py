@@ -33,7 +33,7 @@ import sys
 import time
 from typing import Optional
 
-from .ned.client import NedClient, resolve_default_socket_path
+from ned.client import NedClient, resolve_default_socket_path
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def ensure_daemon(timeout: float = 5.0) -> bool:
     cmd = [
         sys.executable,
         "-m",
-        "lazarus.ned.main",
+        "ned.main",
         f"--socket={socket_path}",
     ]
     logger.info("Spawning NED daemon: %s", " ".join(cmd))

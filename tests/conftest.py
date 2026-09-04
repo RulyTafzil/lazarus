@@ -27,7 +27,7 @@ QApplication.setAttribute(
 import pytest  # noqa: E402
 from PyQt6.QtCore import QSettings  # noqa: E402
 
-import lazarus.notmuch as notmuch  # noqa: E402
+import ned.notmuch as notmuch  # noqa: E402
 
 # Captured before any autouse fixture patches it — real-daemon tests
 # (test_desktop_client) re-install this to talk to a live NED.
@@ -55,20 +55,24 @@ def qapp(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _restore_settings():
-    """Snapshot lazarus.settings before each test and restore after.
+    """Snapshot lazarus.settings and ned.settings before each test and restore after.
 
-    Settings is a module of mutable globals that config.py normally
-    overrides; tests mutate it freely (themes, mail_root, addresses...)
-    and this fixture guarantees no leakage between tests.
+    Settings are modules of mutable globals that config.py normally
+    overrides; tests mutate them freely (themes, mail_root, addresses...)
+    and this fixture guarantees no leakage between tests. The desktop and
+    the daemon own separate settings modules, so both are snapshotted.
     """
-    import lazarus.settings as settings
-    saved = dict(vars(settings))
+    import lazarus.settings as laz_settings
+    import ned.settings as ned_settings
+    saved_pairs = [(laz_settings, dict(vars(laz_settings))),
+                   (ned_settings, dict(vars(ned_settings)))]
     yield
-    for k in list(vars(settings)):
-        if k not in saved:
-            delattr(settings, k)
-    for k, v in saved.items():
-        setattr(settings, k, v)
+    for mod, saved in saved_pairs:
+        for k in list(vars(mod)):
+            if k not in saved:
+                delattr(mod, k)
+        for k, v in saved.items():
+            setattr(mod, k, v)
 
 
 @pytest.fixture(autouse=True)
@@ -356,15 +360,23 @@ def build_maildir(root, account='default', folders=('INBOX', 'Trash'),
 def maildir(tmp_path):
     """A fresh Maildir under settings.mail_root, with cleanup."""
     import lazarus.settings as settings
-    old_root = settings.mail_root
-    old_archive = settings.archive_dir
+    import ned.settings as ned_settings
+    # Both processes own settings: the desktop GUI reads lazarus.settings,
+    # the daemon's move engines read ned.settings. Keep them pointing at
+    # the same tmp Maildir so mixed tests stay consistent.
+    pairs = [
+        (settings, 'mail_root', 'archive_dir'),
+        (ned_settings, 'mail_root', 'archive_dir'),
+    ]
+    olds = [(m, a, getattr(m, a)) for m, a, _ in pairs]
     root = build_maildir(str(tmp_path / 'Mail'))
-    settings.mail_root = str(tmp_path / 'Mail')
-    settings.archive_dir = str(tmp_path / 'Mail' / 'Archive')
-    os.makedirs(settings.archive_dir, exist_ok=True)
+    for m, _a1, _a2 in pairs:
+        m.mail_root = str(tmp_path / 'Mail')
+        m.archive_dir = str(tmp_path / 'Mail' / 'Archive')
+        os.makedirs(m.archive_dir, exist_ok=True)
     yield root
-    settings.mail_root = old_root
-    settings.archive_dir = old_archive
+    for m, attr, old in olds:
+        setattr(m, attr, old)
 
 
 # ---------------------------------------------------------------------------

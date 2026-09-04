@@ -36,8 +36,8 @@ import re
 from typing import Any
 import urllib.parse
 
-from .. import settings
-from ..core import service
+from . import settings
+from . import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 

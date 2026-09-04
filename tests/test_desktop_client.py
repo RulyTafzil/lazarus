@@ -35,10 +35,10 @@ import pytest
 from lazarus.actions import MarkableActionsMixin
 from lazarus.client import ensure_daemon, get_client, reset_client
 from lazarus.controller import _NedEventBridge
-from lazarus.ned.daemon import NedDaemon
-from lazarus.ned.events import broadcaster
+from ned.daemon import NedDaemon
+from ned.events import broadcaster
 from lazarus.search import SearchModel
-from lazarus.core import service
+from ned import service
 from tests.conftest import REAL_GET_CLIENT
 
 
@@ -368,7 +368,7 @@ def test_ensure_daemon_spawn_command(monkeypatch, tmp_path):
         assert cmd == [
             sys.executable,
             "-m",
-            "lazarus.ned.main",
+            "ned.main",
             f"--socket={sock_file}",
         ]
         assert kwargs.get("start_new_session") is True

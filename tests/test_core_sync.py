@@ -2,13 +2,13 @@
 from unittest.mock import MagicMock
 import pytest
 
-from lazarus.core.sync import (
+from ned.sync import (
     SyncResult,
     parse_sync_stats,
     format_sync_summary,
     run_sync,
 )
-from lazarus import notmuch, rules, settings
+from ned import notmuch, rules, settings
 
 
 def test_parse_sync_stats():

@@ -1,2 +1,5 @@
 recursive-include lazarus/icons *.png
 recursive-include lazarus/theme_packs *.json
+recursive-include ned/static *
+include ned/setup.py
+include ned/pyproject.toml

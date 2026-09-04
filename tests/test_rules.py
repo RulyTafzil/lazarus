@@ -2,7 +2,7 @@
 import pytest
 
 from lazarus.rules import Rule, apply_rules
-from lazarus import actions
+import ned.actions as ned_actions
 from tests.conftest import make_thread
 
 
@@ -49,11 +49,11 @@ def test_rule_move_to_enqueues_moves(stub, tmp_path, monkeypatch):
     f.write_text('x')
     stub.files = [str(f)]
 
-    import lazarus.settings as settings
+    import ned.settings as settings
     settings.mail_root = str(tmp_path / 'Mail')
 
     moved = []
-    monkeypatch.setattr(actions, 'move_specific_files',
+    monkeypatch.setattr(ned_actions, 'move_specific_files',
                         lambda files, target: moved.append((files, target)) or len(files))
 
     rule = Rule(query='tag:inbox', tag_add=['seen'], move_to='~/Mail/Archive')

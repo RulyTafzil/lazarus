@@ -1,6 +1,6 @@
 import setuptools
 
-# read description from README.md
+# Read description from README.md
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
@@ -9,6 +9,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
 # own share/ where no desktop ever looks.  The single install path is
 # `lazarus --install-desktop` (see lazarus.app.install_desktop), which
 # copies the bundled package icons into ~/.local/share.
+#
+# Two distributions, one repository:
+#   - `pipx install .`      → lazarus-mail: the Qt desktop client, bundled
+#                             NED daemon, and the ned-client CLI.
+#   - `pipx install ./ned`  → ned: the headless Notmuch Email Daemon (and
+#                             ned-client) alone, with ZERO Qt dependencies.
+# Pick either or both; the daemon is the same `ned` package in both cases.
 
 setuptools.setup(
     name="lazarus-mail",
@@ -26,19 +33,19 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    packages=["lazarus", "lazarus.core", "lazarus.ned"],
+    packages=["lazarus", "ned"],
     py_modules=["ned_client"],
     package_data={
         'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json'],
-        'lazarus.ned': ['static/*'],
+        'ned': ['static/*'],
     },
     install_requires=["PyQt6>=6.2", "PyQt6-WebEngine>=6.2", "bleach>=5.0"],
     python_requires=">=3.10",
     entry_points={
         'console_scripts': [
             'lazarus=lazarus.app:main',
-            'ned=lazarus.ned.main:main',
-            'ned-client=lazarus.ned.client:main',
+            'ned=ned.main:main',
+            'ned-client=ned.client:main',
         ]
     },
 )

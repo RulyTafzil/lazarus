@@ -3,8 +3,8 @@ import os
 import time
 import pytest
 
-from lazarus.core import actions
-from lazarus import settings
+from ned import actions
+from ned import settings
 
 
 def test_core_worker_lifecycle(tmp_path, monkeypatch):

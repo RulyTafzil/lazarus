@@ -13,7 +13,7 @@ and ``test_worker_runs_notmuch_new_after_batch``).
 import os
 import time
 
-from lazarus import actions
+from ned import actions
 
 
 def _write(path, content='body\n'):
@@ -156,7 +156,7 @@ def test_worker_resolves_rename_after_planning(maildir):
     renamed = os.path.join(cur, 'msg-7,U=11:2,FS')
     os.rename(src, renamed)
 
-    from lazarus.core import actions as core_actions
+    from ned import actions as core_actions
     core_actions.get_worker().enqueue(moves)
     assert _wait_until(lambda: any('msg-7' in f for f in os.listdir(trash_cur)))
     # Moved with the CURRENT flags, and nothing left in INBOX.
@@ -171,7 +171,7 @@ def test_resolve_stale_path_exact_stem_no_wrong_file(maildir, tmp_path):
     `m-plain:2,S` still present); a prefix-sharing sibling with a longer
     name is a different message and must NOT be claimed.
     """
-    from lazarus.core.actions import _resolve_stale_path as rsp
+    from ned.actions import _resolve_stale_path as rsp
     cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
     _write(os.path.join(cur, 'm-plain:2,S'))
     _write(os.path.join(cur, 'm-plain_extra:2,S'))   # different message

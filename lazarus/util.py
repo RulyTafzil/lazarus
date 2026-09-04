@@ -1,6 +1,6 @@
 #     Lazarus - A fork of Dodo, a graphical, hackable email client based on notmuch
 #     Copyright (C) 2021 - Aleks Kissinger
-#     Copyright (C) 2025 - Ruly Tafzil
+#     Copyright (C) 2026 - Ruly Tafzil
 #
 # This file is part of Lazarus
 #
@@ -16,22 +16,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-"""Compatibility shim — re-exports the split helper modules.
+"""Compatibility shim — the desktop's public ``lazarus.util`` surface.
 
-``lazarus.util`` was previously a 609-line grab-bag covering HTML/text
-rendering, mail-content, email/account helpers, header wrapping, and key
-handling.  It has been split into focused modules, but this file keeps
-every symbol importable from ``lazarus.util`` for backward compat so
-``config.py`` example code and ``from lazarus.util import X`` imports
-continue to work.
+The headless helpers moved to the standalone NED package
+(:mod:`ned.util`, :mod:`ned.html_utils`, :mod:`ned.mail_utils`); this
+file re-exports them so ``from lazarus.util import X`` keeps working in
+``config.py`` and desktop modules. Qt-dependent and theme-dependent
+helpers stay desktop-owned here:
 
-New code should import from the owning module directly:
-
-* HTML/text:  :mod:`lazarus.html_utils` (linkify, colorize, html2text, …)
-* Mail parts: :mod:`lazarus.mail_utils` (message_parts, body_text, write_attachments, …)
-* Keys:       :mod:`lazarus.keys` (key_string, basic_keytab, keytab)
-* This file:  email identity + message helpers (strip/parse addresses,
-              header splitting, wrapping, message CSS)
+* Keys:        :mod:`lazarus.keys` (key_string, basic_keytab, keytab)
+* Message CSS: ``make_message_css`` (needs ``lazarus.settings.theme``)
+* Tag sort:    ``sort_tags`` (needs ``lazarus.settings.tag_order``)
 
 A ``DeprecationWarning`` is not yet emitted to avoid spamming on every
 start — clean imports at your leisure.
@@ -39,104 +34,48 @@ start — clean imports at your leisure.
 
 from __future__ import annotations
 
-import email.utils
-import textwrap
-from typing import List, Tuple, Dict, Optional, Iterable
+from typing import Iterable
+
+from . import settings as _laz_settings
+import ned.util as _ned_util
+import ned.compose_model as _ned_compose_model
+
+# Desktop process wiring: the shared headless helpers (reply seeds, account
+# matching, wrapping) must see the DESKTOP's own configuration
+# (``lazarus.settings`` — loaded from ~/.config/lazarus/config.py), not the
+# daemon's (``ned.settings`` — ~/.config/ned/config.py). The daemon process
+# never imports these shims, so its copy of the modules stays on ned.settings.
+_ned_util.settings = _laz_settings
+_ned_compose_model.settings = _laz_settings
+
+from ned.util import (  # noqa: F401  (re-exported for the public lazarus.util surface)
+    get_header_addresses,
+    strip_email_address,
+    email_is_me,
+    email_smtp_account_index,
+    chop_s,
+    separate_headers,
+    wrap_message,
+    w3m_html2text,
+    linkify,
+    html2html,
+    html2text,
+    html_to_plain,
+    simple_escape,
+    decode_header,
+    colorize_text,
+    message_parts,
+    is_attachment,
+    find_content,
+    body_text,
+    body_html,
+    quote_body_text,
+    sanitize_filename,
+    write_attachments,
+)
 
 from . import settings
-
-# -- email / account helpers (owned here) ---------------------------------
-
-def get_header_addresses(
-    headers: Dict[str, str], header_keys: List[str]
-) -> List[Tuple[str, str]]:
-    """Extract realnames and email addresses from message headers."""
-    header_values = [headers[key] for key in header_keys if key in headers]
-    return email.utils.getaddresses(header_values)
-
-
-def strip_email_address(e: str) -> str:
-    """Strip the display name, leaving just the email address
-
-    E.g. "First Last <me@domain.com>" -> "me@domain.com"
-    """
-    return email.utils.parseaddr(e)[1]
-
-
-def email_is_me(e: str) -> bool:
-    """Check whether the provided email is me
-
-    This compares settings.email_address with the provided email, after calling
-    :func:`strip_email_address` on both. This method is used e.g. by
-    :class:`lazarus.compose.Compose` to filter out the user's own email when forming
-    a "reply-to-all" message.
-    """
-    if isinstance(settings.email_address, dict):
-        addresses = [
-            strip_email_address(v) for v in settings.email_address.values()
-        ]
-    else:
-        addresses = [email.utils.parseaddr(settings.email_address)[1]]
-
-    return strip_email_address(e).casefold() in [a.casefold() for a in addresses]
-
-
-def email_smtp_account_index(e: str) -> Optional[int]:
-    """Index in settings.smtp_accounts of account having the provided email address
-
-    This method is used e.g. by :class:`lazarus.compose.Compose` to autmatically
-    select the account to be used when replying to a mail. It returns the index
-    of first matching account or None if provided email does not match
-    any smtp account.  """
-    assert isinstance(settings.email_address, dict), settings.email_address
-    return next(
-            (i for i, acc in enumerate(settings.smtp_accounts) if
-             strip_email_address(e).casefold() ==
-             strip_email_address(settings.email_address[acc]).casefold()
-             ), None)
-
-
-def chop_s(s: str) -> str:
-    if len(s) > 20:
-        return s[0:20] + '...'
-    else:
-        return s
-
-
-# -- header / wrapping / css helpers (owned here) --------------------------
-
-def separate_headers(s: str) -> Tuple[str, str]:
-    """Split a message into its header part and body part"""
-
-    h = ''
-    b = ''
-    headers = True
-    for line in s.splitlines():
-        if headers and line == '':
-            headers = False
-        elif headers:
-            h += line + '\n'
-        else:
-            b += line + '\n'
-    return (h, b)
-
-
-def wrap_message(s: str) -> str:
-    """Hard wrap message body using :func:`~lazarus.settings.wrap_column`
-
-    Wrap the body part of the message. Headers and quoted text are not affected.
-    """
-
-    headers, body = separate_headers(s)
-    body_wrap = ''
-
-    for line in body.splitlines():
-        if line[0:1] == '>':
-            body_wrap += line + '\n'
-        else:
-            body_wrap += textwrap.fill(line, width=settings.wrap_column) + '\n'
-
-    return headers + '\n' + body_wrap
+from .keys import key_string, basic_keytab, keytab  # noqa: F401
 
 
 def make_message_css() -> str:
@@ -157,28 +96,33 @@ def sort_tags(tags: Iterable[str]) -> list[str]:
     return sorted(tags, key=lambda t: (priority.get(t, len(settings.tag_order)), t))
 
 
-# -- re-exports from split modules (backward compat) ----------------------
-# Prefer importing from the owning module directly in new code; these
-# stay here so ``from lazarus.util import X`` keeps working.
-
-from .keys import key_string, basic_keytab, keytab  # noqa: E402,I001
-from .html_utils import (  # noqa: E402
-    w3m_html2text,
-    linkify,
-    html2html,
-    html2text,
-    html_to_plain,
-    simple_escape,
-    decode_header,
-    colorize_text,
-)
-from .mail_utils import (  # noqa: E402
-    message_parts,
-    is_attachment,
-    find_content,
-    body_text,
-    body_html,
-    quote_body_text,
-    sanitize_filename,
-    write_attachments,
-)
+__all__ = [
+    "get_header_addresses",
+    "strip_email_address",
+    "email_is_me",
+    "email_smtp_account_index",
+    "chop_s",
+    "separate_headers",
+    "wrap_message",
+    "make_message_css",
+    "sort_tags",
+    "w3m_html2text",
+    "linkify",
+    "html2html",
+    "html2text",
+    "html_to_plain",
+    "simple_escape",
+    "decode_header",
+    "colorize_text",
+    "message_parts",
+    "is_attachment",
+    "find_content",
+    "body_text",
+    "body_html",
+    "quote_body_text",
+    "sanitize_filename",
+    "write_attachments",
+    "key_string",
+    "basic_keytab",
+    "keytab",
+]
