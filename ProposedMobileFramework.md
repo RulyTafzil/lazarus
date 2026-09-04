@@ -99,7 +99,7 @@ data: {"scope": "thread", "id": "0000000000001234", "reason": "tag"}
 
 ## 4. Implementation roadmap
 
-### Phase 1: The NED daemon (Active)
+### Phase 1: The NED daemon (Completed)
 - Implement `lazarus.ned` daemon with dual listeners (Unix domain socket + optional Tailscale TCP).
 - Implement a serialized mutation lock (`threading.Lock` / `asyncio.Lock`) protecting Maildir and Notmuch write operations.
 - Implement `/api/v1/` route registry absorbing `core.actions`, `core.sync`, and query handlers.
@@ -107,16 +107,16 @@ data: {"scope": "thread", "id": "0000000000001234", "reason": "tag"}
 - Serve bundled static mobile web assets.
 - Provide `systemd --user` unit file (`ned.service`).
 
-### Phase 2: Python client library (`ned_client.py`)
+### Phase 2: Python client library (`ned_client.py`) (Completed)
 - Create lightweight, zero-dependency Python client supporting both Unix domain socket and HTTP transports.
 - Wrap all `/api/v1/` methods with clean typed signatures.
 - Provide automated unit tests verifying client against running NED instance.
 
-### Phase 3: Migrate Lazarus desktop to pure client
+### Phase 3: Migrate Lazarus desktop to pure client (Completed)
 - Refactor Lazarus desktop panels (`search.py`, `thread.py`, `actions.py`, `controller.py`) to call `ned_client.py`.
 - Connect desktop panel auto-refresh to NED's SSE invalidation stream.
 - Remove direct `subprocess.Popen(['notmuch', ...])` and local `_BulkMoveWorker` from desktop.
 
-### Phase 4: Retire `lazarus-server`
-- Deprecate `lazarus-server` CLI in favor of `ned`.
-- Update user documentation and `agent.md`.
+### Phase 4: Retire `lazarus-server` (Completed)
+- Deprecate `lazarus-server` and `lazarus-web` CLI in favor of `ned`.
+- Update user documentation, README, and `agent.md`.

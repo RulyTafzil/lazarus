@@ -457,7 +457,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
 2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
 3. Phase 3 (completed): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`, wired to SSE invalidation stream.
-4. Phase 4 (active): Retire `lazarus-server` in favor of `ned`.
+4. Phase 4 (completed): Retire `lazarus-server` in favor of `ned`.
 
 #### Decoupled domain engine (`lazarus.core`)
 The codebase follows a clear separation between headless domain primitives and presentation layers:

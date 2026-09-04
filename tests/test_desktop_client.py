@@ -85,11 +85,17 @@ def running_ned(temp_ned_socket):
 
 
 def test_client_singleton_and_disable():
-    reset_client()
-    os.environ["LAZARUS_DISABLE_NED"] = "1"
-    assert not is_ned_active()
-    os.environ.pop("LAZARUS_DISABLE_NED", None)
-    reset_client()
+    old = os.environ.get("LAZARUS_DISABLE_NED")
+    try:
+        reset_client()
+        os.environ["LAZARUS_DISABLE_NED"] = "1"
+        assert not is_ned_active()
+    finally:
+        if old is not None:
+            os.environ["LAZARUS_DISABLE_NED"] = old
+        else:
+            os.environ.pop("LAZARUS_DISABLE_NED", None)
+        reset_client()
 
 
 def test_client_active_with_daemon(running_ned):

@@ -15,33 +15,20 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-"""CLI entry point for the legacy Lazarus mobile web server.
-
-Deprecated in favor of 'ned' (Notmuch Email Daemon).
-"""
+"""Tests for Phase 4 deprecation of lazarus-web / lazarus-server."""
 
 from __future__ import annotations
 
-import sys
-import warnings
+from unittest.mock import patch
+import pytest
 
-from ..ned.main import main as ned_main
-
-
-def main() -> int:
-    """Parse arguments, display deprecation notice, and delegate to NED."""
-    warnings.warn(
-        "'lazarus-web' is deprecated and will be removed in a future release. "
-        "Please use 'ned' instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    print(
-        "Notice: 'lazarus-web' is deprecated. Delegating to 'ned'...",
-        file=sys.stderr,
-    )
-    return ned_main()
+from lazarus.server.main import main as server_main
 
 
-if __name__ == '__main__':
-    sys.exit(main())
+def test_lazarus_web_deprecation_warning():
+    """Verify lazarus-web entry point issues DeprecationWarning and delegates to ned."""
+    with pytest.deprecated_call(match="lazarus-web"):
+        with patch("lazarus.server.main.ned_main", return_value=0) as mock_ned:
+            rc = server_main()
+            assert rc == 0
+            mock_ned.assert_called_once()
