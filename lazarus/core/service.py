@@ -554,7 +554,7 @@ def send_email(
     temp_files: list[str] = []
     temp_dir: str | None = None
     if attachments:
-        temp_dir = tempfile.mkdtemp(prefix='lazarus-web-send-')
+        temp_dir = tempfile.mkdtemp(prefix='lazarus-ned-send-')
         for filename, _, content_bytes in attachments:
             clean_name = mail_utils.sanitize_filename(filename or 'attachment')
             p = os.path.join(temp_dir, clean_name)

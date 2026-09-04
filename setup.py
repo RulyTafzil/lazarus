@@ -26,7 +26,7 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
-    packages=["lazarus", "lazarus.core", "lazarus.ned", "lazarus.server"],
+    packages=["lazarus", "lazarus.core", "lazarus.ned"],
     py_modules=["ned_client"],
     package_data={
         'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json'],
@@ -37,8 +37,6 @@ setuptools.setup(
     entry_points={
         'console_scripts': [
             'lazarus=lazarus.app:main',
-            'lazarus-web=lazarus.server.main:main',
-            'lazarus-server=lazarus.server.main:main',
             'ned=lazarus.ned.main:main',
             'ned-client=lazarus.ned.client:main',
         ]

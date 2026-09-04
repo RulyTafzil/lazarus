@@ -66,11 +66,10 @@ cd lazarus
 pipx install -e .
 ```
 
-This installs four executables in your path:
+This installs three executables in your path:
 - `lazarus`: Desktop GUI application.
-- `ned`: Notmuch Email Daemon.
+- `ned`: Notmuch Email Daemon (serves the mobile web client on `/`).
 - `ned-client`: CLI utility to interact with NED.
-- `lazarus-web` / `lazarus-server`: Legacy server entry points (deprecated in favor of `ned`).
 
 To install desktop application icons and the `.desktop` launcher file:
 

@@ -8,8 +8,8 @@
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
-- **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED); `lazarus-web` (legacy web launcher, deprecating in Phase 4)
-- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `lazarus.ned.main:main` (`ned`); `lazarus.server.main:main` (`lazarus-web`)
+- **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED)
+- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `lazarus.ned.main:main` (`ned`)
 - **Config**: Cascading search: `~/.config/ned/config.py` first, falling back to `~/.config/lazarus/config.py` (loaded via `lazarus.config.load_config()`)
 - **State**: `QSettings('lazarus','lazarus')` for desktop geometry, splitter, open searches; NED state in `~/.local/share/lazarus/ned/`
 - **Install**: `pipx install -e ~/Projects/lazarus` (editable)
@@ -97,11 +97,6 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   │   ├── main.py         # ned CLI entry point
 │   │   └── static/         # Mobile PWA web assets served directly by NED
 │   ├── ned_client.py       # Top-level standalone entry point for NedClient
-│   ├── server/             # Legacy mobile web server & service helpers
-│   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
-│   │   ├── service.py      # sys.modules alias to lazarus.core.service
-│   │   ├── main.py         # lazarus-web CLI entry point with Tailscale detection
-│   │   └── static/         # Legacy static assets
 │   └── theme_packs/
 │       ├── builtin.json          # 602 pre-compiled native 19-key themes (~4ms load)
 │       └── raw_terminal_themes.json  # Raw terminal palette sources
@@ -241,9 +236,6 @@ Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archiv
 | `html_utils.py` | 116 | `linkify`, `colorize_text`, `w3m_html2text`, `html_to_plain` (sig search keys) |
 | `signature.py` | 90 | `config_dir(account)` + per-account `signature`/`signature.html` loader (QStandardPaths) |
 | `core/service.py` | 370 | Headless domain services: queries, thread flattening, tag modifications, msmtp delivery |
-| `server/app.py` | 338 | Threaded HTTP server, route dispatch, authentication, static asset streaming |
-| `server/service.py` | 21 | Module alias delegating directly to lazarus.core.service |
-| `server/main.py` | 88 | `lazarus-web` CLI launcher with Tailscale detection |
 | `__init__.py` / `__main__.py` | 23/22 | Re-exports; entry point |
 
 ## Icons & Desktop Integration
@@ -444,23 +436,23 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Lazy initialization of secondary windows & WebEngine warmup**: Never instantiate dialogs (`HelpWindow`) during `app.py` bootstrap. Defer Chromium warmup to `QTimer.singleShot(0, self._warm_webengine)` to drop cold startup from ~760ms to ~110ms.
 - **1-to-1 mapping vs convoluted fallback chains**: Multi-item fallback chains (`[14, 6, 12, 4, 'fg']`) were relics of 8-color vs 16-color VT100 terminals. In modern truecolor Qt GUI apps where 100% of bundled themes define all 16 colors, clean 1-to-1 mappings are vastly clearer and maintainable.
 - **URL percent-decoding in REST routes**: Browser clients URL-encode path parameters (e.g. `@` as `%40` in message IDs like `CABsu...%40mail.gmail.com`). Always unquote path segments with `urllib.parse.unquote()` before querying `notmuch show -- id:...` or file actions, otherwise notmuch searches for literal `%40` and fails to find the message.
-- **Headless server independence from Qt**: `lazarus.server` is pure Python stdlib (`http.server`, `socketserver`) with 0 external dependencies. Modules reused by the server (`config.py`, `signature.py`) must maintain standard XDG path resolution fallbacks (`$XDG_CONFIG_HOME` / `~/.config`) when `PyQt6.QtCore.QStandardPaths` is not instantiated.
+- **Headless daemon independence from Qt**: NED runs without instantiating Qt. Modules the daemon reuses (`config.py`, `signature.py`) must keep their standard XDG path resolution fallbacks (`$XDG_CONFIG_HOME` / `~/.config`) — `PyQt6.QtCore.QStandardPaths` may be unimportable in a headless environment.
 - **`A` archive parity on mobile**: In Lazarus, `a` is tag-only (`-inbox -unread`), whereas `A` (`archive_to_local`) removes `-inbox -unread`, moves message files into `~/Mail/Archive/cur/` while stripping UID annotations, and runs `notmuch new`. The mobile interface uses `A` archive for all archive actions.
 - **Pull-down-to-sync gesture on mobile web**: Implemented using passive touch handlers (`touchstart`, `touchmove`, `touchend`) on the thread list when `scrollTop <= 0`. Pulling past the threshold triggers `POST /api/sync`, executing parallel `mbsync -V <account>` processes, running `notmuch new`, and applying filter rules.
 - **Plaintext signature placement and switching**: `sig_edit()` in `compose_model.py` is a pure function. On mobile, signatures are pre-populated above the quote anchor, and switching accounts dynamically replaces the signature block in the `<textarea>` without network round-trips.
-- **No-cache headers on static PWA assets**: Static files (`app.js`, `app.css`) served by `lazarus-web` must use `Cache-Control: no-cache, must-revalidate` so client updates are immediately applied upon browser refresh.
+- **No-cache headers on static PWA assets**: Static files (`app.js`, `app.css`) served by NED must use `Cache-Control: no-cache, must-revalidate` so client updates are immediately applied upon browser refresh.
 - **Zero Qt imports in `lazarus.core`**: The `lazarus.core` package is strictly headless with zero Qt dependencies. Any background threading must use standard library `threading.Thread`, not `QThread`.
 - **`threading.Thread` vs Qt main loop signal marshalling**: When background threads in `core.actions` complete batches, wire desktop listeners through `_QtBatchDoneBridge(QObject)` with a `pyqtSignal()`. Emitting the signal safely marshals the callback onto Qt's main event loop before invoking `app.refresh_panels()`.
 - **Non-blocking socket select polling for SSE streams**: On Unix domain sockets, standard blocking `readline()` does not reliably wake up when another thread calls `shutdown()` or `close()`. Using `select.select([raw_sock], [], [], 0.2)` with non-blocking sockets allows event listener threads to check stop events and shut down cleanly within milliseconds without hanging during test teardown.
-- **`core.actions._get_collector()` is a swappable seam, not dead code**: move actions resolve the collector through `lazarus.actions.collect_files` when it differs from core's — that's how tests inject file lists (`monkeypatch.setattr(actions, 'collect_files', ...)` in `test_server.py`) and how a UI-level collector could replace core collection. Do not “simplify” it away; the headless daemon resolves it to the core collector since `lazarus.actions` is never imported there.
+- **`core.actions._get_collector()` is a swappable seam, not dead code**: move actions resolve the collector through `lazarus.actions.collect_files` when it differs from core's — that's how tests inject file lists (`monkeypatch.setattr(actions, 'collect_files', ...)` in `tests/test_maildir_concurrency.py` and the desktop path) and how a UI-level collector could replace core collection. Do not “simplify” it away; the headless daemon resolves it to the core collector since `lazarus.actions` is never imported there.
 - **`is_ned_active()` is TTL-cached** (2s, keyed on the NED env vars) because it sits on every hot path (panel refresh, keypress actions, autocomplete). Polling loops that must see a fresh answer (daemon spawn) call `is_ned_active(force=True)`.
 - **Desktop expunge is routed through the daemon when NED is active**: `POST /api/v1/expunge` (under `mutation_lock`) so the irreversible trash flagging runs inside the daemon's single-writer boundary; the local `actions.expunge_trash()` path is the NED-less fallback only.
-- **`get_part_data` canonical order is `(content, content_type, filename)`** across `core.service`, `ned.handler`, `lazarus.server.app`, and `NedClient.get_part_data`. Keep the three layers in that order — the sibling tests (`test_ned.py`, `test_ned_client.py`) pin it.
+- **`get_part_data` canonical order is `(content, content_type, filename)`** across `core.service`, `ned.handler`, and `NedClient.get_part_data`. Keep the layers in that order — the sibling tests (`test_ned.py`, `test_ned_client.py`) pin it.
 - **Sync summary is single-sourced**: `SyncMailThread` stores `via_ned`/`sync_message`; when the daemon ran the sync its pre-formatted summary is shown as-is, otherwise `parse_sync_stats()` (core.sync) feeds the status bar. Never re-implement the `Far:` regex in the controller.
 - **SSE invalidations are debounced** (150ms single-shot timer in `AppController`) so a desktop action that mutates via NED — which triggers both the local refresh and a daemon-broadcast invalidation — coalesces into one panel pass.
 - **Cascading config resolution**: NED searches for its own configuration at `~/.config/ned/config.py` first, then falls back to `~/.config/lazarus/config.py`.
 - **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_thread`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
-- **Module aliasing in `sys.modules` for decoupled modules**: When moving domain services to `core/service.py` while maintaining a legacy shim in `server/service.py`, assign `sys.modules[__name__] = _core_service` instead of re-exporting symbols. This ensures test monkeypatches on either module name modify the identical module object in memory.
+- **Module aliasing in `sys.modules` for decoupled modules**: When a legacy module name must keep resolving to a moved service (e.g. tests that patched `lazarus.server.service`), assign `sys.modules[__name__] = _core_service` instead of re-exporting symbols. This ensures monkeypatches on either module name modify the identical module object in memory.
 - **NED static asset bundling**: NED serves web client assets directly out of `lazarus/ned/static/`. Package data in `setup.py` includes `ned/static/*` so wheel and source distributions ship the web client.
 
 ### Architecture and roadmap
@@ -517,18 +509,18 @@ data: {"scope": "thread", "id": "0000000000001234", "reason": "tag"}
 1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
 2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
 3. Phase 3 (completed): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`, wired to SSE invalidation stream.
-4. Phase 4 (completed): Retire `lazarus-server` in favor of `ned`.
+4. Phase 4 (completed): Retire `lazarus-server` in favor of `ned`, then remove `lazarus.server` + the `lazarus-web`/`lazarus-server` entry points entirely (2026-09).
 
 #### Decoupled domain engine (`lazarus.core`)
 The codebase follows a clear separation between headless domain primitives and presentation layers:
 - `lazarus.core`: Pure Python domain logic (file moves, mail sync, index queries). Zero Qt dependencies.
-- `lazarus.server`: Lightweight mobile web daemon and REST API consuming `lazarus.core`. Zero Qt dependencies.
-- `lazarus` (root): Desktop client in PyQt6/WebEngine consuming `lazarus.core`.
+- `lazarus.ned`: The daemon — HTTP/REST over Unix socket/TCP, SSE, serialized mutations.
+- `lazarus` (root): Desktop client in PyQt6/WebEngine consuming `lazarus.core` via `NedClient`.
 
 #### Migration roadmap for `core/`
 To prevent massive diff churn and preserve `git blame`, headless modules are migrated incrementally when touched:
 1. Steps 1 and 2 completed: Decoupled `core.actions` and `core.sync`.
-2. Step 3 completed: Decoupled `core.service` with `sys.modules` alias in `server.service`.
+2. Step 3 completed: Decoupled `core.service`; `ned.handler` consumes it directly (the `server.service` sys.modules alias was removed with the server in Phase 4).
 3. Candidate modules for incremental migration into `core/`:
    - `core/rules.py` (filter engine)
    - `core/notmuch.py` (CLI wrapper)

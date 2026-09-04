@@ -39,7 +39,7 @@ from lazarus.controller import _NedEventBridge
 from lazarus.ned.daemon import NedDaemon
 from lazarus.ned.events import broadcaster
 from lazarus.search import SearchModel
-from lazarus.server import service
+from lazarus.core import service
 
 
 @pytest.fixture(scope="session")
