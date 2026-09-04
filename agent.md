@@ -460,6 +460,9 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 - **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_thread`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
 - **Desktop shims wire settings into `ned` helpers**: `lazarus.util`/`lazarus.compose_model` re-export the headless helpers, and — because the desktop process publishes its own `lazarus.settings` — set `ned.util.settings` / `ned.compose_model.settings` to `lazarus.settings` so reply seeds, account matching, and wrapping see the desktop config. The daemon process never imports the shims, so its copy stays on `ned.settings`.
 - **NED static asset bundling**: NED serves web client assets directly out of `ned/static/`. Package data in both `setup.py` (lazarus-mail) and `ned/setup.py` includes `static/*` so wheel and source distributions ship the web client.
+- **Forward attachment resolution via NED API**: client-side forward seeds pass `fetch_part=lambda mid, pid: get_client().get_part(mid, pid)` to `build_forward_seed` and `write_attachments`, preventing the desktop GUI process from running local `notmuch` CLI subprocesses.
+- **Embedded image resolution over network**: `EmbeddedImageHandler.set_message(m)` maps CIDs from the message JSON and fetches bytes via `NedClient.get_part`, enabling inline image rendering even when the maildir is not locally accessible.
+- **SendmailThread references fallback**: if the local mail file is absent or moved, `SendmailThread` requests the full references header chain via `NedClient.get_reply_seed(clean_id)`.
 
 ### Architecture and roadmap
 

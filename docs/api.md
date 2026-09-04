@@ -127,10 +127,12 @@ Legacy input forms `ids: [...]` and `query: "<single query>"` are still accepted
 #### `POST /api/v1/threads/{id}/archive|trash|unarchive|untrash`
 | Action | Effect |
 |---|---|
-| `archive` | `-inbox -unread` (tag only, no move) |
-| `trash` | `+trash -inbox -unread` + move files to account Trash |
+| `archive` | `-inbox -unread` and move files to local Archive |
+| `trash` | `+trash -inbox -unread` and move files to account Trash |
 | `unarchive` | `+inbox` restore |
-| `untrash` | `-trash` + move files back to INBOX |
+| `untrash` | `-trash` and move files back to INBOX |
+
+To archive threads by modifying tags only without moving files, use `POST /api/v1/tags` with `remove: ['inbox', 'unread']`.
 
 Batch variants operate on queries: `POST /api/v1/threads/archive` with
 `{"queries": [...]}` (also `trash|unarchive|untrash`).

@@ -30,7 +30,7 @@ import os
 import os.path
 import sys
 import tempfile
-from typing import Iterator, List, Tuple
+from typing import Callable, Iterator, List, Optional, Tuple
 
 from .html_utils import html2text
 
@@ -158,8 +158,16 @@ def sanitize_filename(name: str) -> str:
     return root + ext
 
 
-def write_attachments(m: dict) -> Tuple[str, List[str]]:
-    """Write attachments to a temp dir; returns (temp_dir, [paths])."""
+def write_attachments(
+    m: dict,
+    fetch_part: Optional[Callable[[str, int], bytes]] = None,
+) -> Tuple[str, List[str]]:
+    """Write attachments to a temp dir; returns (temp_dir, [paths]).
+
+    When fetch_part is provided, it is used to download attachment bytes
+    (e.g. client-side via NedClient.get_part). Otherwise falls back to
+    local notmuch.show_part in daemon/headless context.
+    """
     if not m:
         return ('', [])
     temp_dir = tempfile.mkdtemp(prefix='lazarus-')
@@ -167,9 +175,12 @@ def write_attachments(m: dict) -> Tuple[str, List[str]]:
 
     for part in message_parts(m):
         if is_attachment(part):
-            from . import notmuch
             try:
-                content = notmuch.show_part(int(part["id"]), m["id"])
+                if fetch_part is not None:
+                    content = fetch_part(m["id"], int(part["id"]))
+                else:
+                    from . import notmuch
+                    content = notmuch.show_part(int(part["id"]), m["id"])
             except Exception as e:
                 logger.debug("Could not fetch part %s of %s: %s", part["id"], m["id"], e)
                 continue

@@ -182,3 +182,32 @@ def test_subject_with_prefix_no_double():
     assert subject_with_prefix('Subject', 'RE') == 'RE: Subject'
     assert subject_with_prefix('RE: Subject', 'RE') == 'RE: Subject'
     assert subject_with_prefix('re: Subject', 'RE') == 're: Subject'
+
+
+def test_forward_seed_uses_fetch_part_callback():
+    msg = {
+        'id': 'msg-forward-test',
+        'headers': {'Subject': 'Original email'},
+        'body': [
+            {'content-type': 'text/plain', 'content': 'Hello there'},
+            {
+                'id': 2,
+                'content-type': 'image/png',
+                'filename': 'photo.png',
+                'content-disposition': 'attachment',
+            },
+        ],
+    }
+    calls = []
+
+    def mock_fetch(mid: str, pid: int) -> bytes:
+        calls.append((mid, pid))
+        return b'\x89PNGfakeimagebytes'
+
+    seed = build_forward_seed(msg, fetch_part=mock_fetch)
+    assert len(calls) == 1
+    assert calls[0] == ('msg-forward-test', 2)
+    assert len(seed.attachments) == 1
+    with open(seed.attachments[0], 'rb') as f:
+        assert f.read() == b'\x89PNGfakeimagebytes'
+

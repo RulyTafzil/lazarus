@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import email.utils
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from . import settings
 from . import util
@@ -253,13 +253,16 @@ def build_reply_seed(msg: dict, *, to_all: bool,
     return seed
 
 
-def build_forward_seed(msg: dict) -> ComposeSeed:
+def build_forward_seed(
+    msg: dict,
+    fetch_part: Optional[Callable[[str, int], bytes]] = None,
+) -> ComposeSeed:
     seed = ComposeSeed()
     if 'Subject' in msg.get('headers', {}):
         seed.subject = subject_with_prefix(msg['headers']['Subject'], 'FW')
 
     # Dump attachments to temp dir (side effect — keep here so seeds are useful off-thread)
-    temp_dir, att = util.write_attachments(msg)
+    temp_dir, att = util.write_attachments(msg, fetch_part=fetch_part)
     if temp_dir:
         seed.temp_dirs.append(temp_dir)
     seed.attachments.extend(att)

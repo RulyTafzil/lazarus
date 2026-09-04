@@ -201,10 +201,9 @@ tag:trash"` and use `query:inbox` as a search term.
 """
 
 mail_root = '~/Mail'
-"""Root directory of the local Maildir.
+"""[Deprecated in lazarus.settings] Maildir root is managed by the NED daemon.
 
-This is used by delete/archive operations to locate per-account Trash
-folders and the local Archive.  Change this if your mail lives elsewhere.
+Configure mail_root in ~/.config/ned/config.py (ned.settings.mail_root).
 """
 
 thread_pane_position: Literal['right', 'left', 'below', 'above'] = 'right'
@@ -220,21 +219,16 @@ match the theme instead of flashing white.
 """
 
 archive_dir = '~/Mail/Archive'
-"""Path to a local-only Maildir where ``A`` hotkey moves archived emails.
+"""[Deprecated in lazarus.settings] Local archive destination is managed by the NED daemon.
 
-Files are moved into a ``cur/`` subdirectory here, keeping them
-searchable in notmuch while removing them from synced IMAP folders.
-This directory should be under mail_root but outside all mbsync
-channels so archived mail stays local-only.
+Configure archive_dir in ~/.config/ned/config.py (ned.settings.archive_dir).
 """
 
 no_hooks_on_send = True
-"""disable/enable calling notmuch hooks when sending email
+"""[Deprecated in lazarus.settings] Hook execution on send is managed by the NED daemon.
 
-When True, 'notmuch new' is called with --no-hooks when a message is sent. One
-may not wanting to wait for the hooks on each sent email, for example when
-calling mbsync on their notmuch hooks. Other users may set this to False, for
-example when notmuch hooks are used to archive sent mail."""
+Configure no_hooks_on_send in ~/.config/ned/config.py (ned.settings.no_hooks_on_send).
+"""
 
 compose_editor_font = 'DejaVu Sans Mono'
 """Font used in the built-in compose editor."""
@@ -248,19 +242,16 @@ compose_autocomplete_min_chars = 2
 use_signature = True
 """Whether to automatically insert a per-account signature when composing.
 
-Signatures are loaded from files (not from this settings module -- see
-:mod:`lazarus.signature`), one per account:
+Signatures are managed daemon-side by NED, one per account:
 
 .. code-block:: text
 
-  $XDG_CONFIG_HOME/lazarus/<account>/signature       (plain text)
-  $XDG_CONFIG_HOME/lazarus/<account>/signature.html   (HTML)
+  $XDG_CONFIG_HOME/ned/<account>/signature       (plain text)
+  $XDG_CONFIG_HOME/ned/<account>/signature.html   (HTML)
 
-where ``<account>`` is one of the names in
-:func:`~lazarus.settings.smtp_accounts` ($XDG_CONFIG_HOME defaults to
-``~/.config``). Either file is optional; in rich-text compose mode the
-HTML file is inserted directly when present, otherwise the plaintext one
-is used. Set this to False to disable signature insertion entirely.
+The desktop compose panel retrieves signatures via the NED API. Either file is
+optional. In rich-text compose mode the HTML file is inserted directly when present,
+otherwise the plaintext one is used.
 """
 
 filter_rules: List[rules.Rule] = []
