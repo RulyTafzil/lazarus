@@ -6,7 +6,6 @@ from lazarus import keymap
 
 def _make_panel(qapp, mode='', msg=None, **kw):
     from unittest.mock import MagicMock
-    settings.email_address = 'Bob <bob@example.com>'
     p = ComposePanel(MagicMock(), mode, msg, **kw)
     p.resize(600, 500)
     p.show()
@@ -14,16 +13,20 @@ def _make_panel(qapp, mode='', msg=None, **kw):
     return p
 
 
-def _make_panel_with_address(qapp, email_address):
-    """ComposePanel with a pre-set email_address (combo items are fixed
-    at construction, so the address must be set before building)."""
-    from unittest.mock import MagicMock
-    settings.email_address = email_address
-    p = ComposePanel(MagicMock())
-    p.resize(600, 500)
-    p.show()
-    qapp.processEvents()
-    return p
+def _set_identity(stub, accounts, emails, keys=None):
+    """Point the client stub's accounts payload at *accounts*/*emails* and
+    rebuild the panel combo (fixed at construction, like before)."""
+    stub.accounts_info = {
+        'accounts': list(accounts),
+        'email': {a: emails.get(a, '') for a in accounts},
+        'gnupg_keyid': {a: (keys or {}).get(a) for a in accounts},
+    }
+    stub.signatures_info = {
+        'use_signature': False,
+        'signatures': {},
+        'signatures_html': {},
+    }
+    return stub
 
 
 def test_cc_and_bcc_rows_hidden_by_default(qapp):
@@ -256,19 +259,15 @@ def test_plaintext_send_builds_plain_only_message(qapp):
     assert eml.get_content_type() == 'text/plain'
 
 
-def test_account_cycle_wraps_and_updates_from(qapp):
-    """[ / ] cycle through smtp_accounts with wrap-around, and the From
+def test_account_cycle_wraps_and_updates_from(qapp, client_stub):
+    """[ / ] cycle through accounts with wrap-around, and the From
     dropdown selection follows the current account."""
-    settings.smtp_accounts = ['a', 'b', 'c']
-    settings.use_signature = False
-    # Set the per-account dict BEFORE building the panel: the combo's
-    # items are fixed at construction time.
-    settings.email_address = {
+    _set_identity(client_stub, ['a', 'b', 'c'], {
         'a': 'A <a@example.com>',
         'b': 'B <b@example.com>',
         'c': 'C <c@example.com>',
-    }
-    p = _make_panel_with_address(qapp, settings.email_address)
+    })
+    p = _make_panel(qapp)
     assert p.current_account == 0
     assert p.from_combo.currentIndex() == 0
     assert 'a@example.com' in p.from_combo.currentText()
@@ -288,16 +287,14 @@ def test_account_cycle_wraps_and_updates_from(qapp):
     assert p.from_combo.currentIndex() == 2
 
 
-def test_from_combo_switches_account(qapp):
+def test_from_combo_switches_account(qapp, client_stub):
     """Picking an item in the From dropdown switches account (the mouse
     path, mirroring [ / ])."""
-    settings.smtp_accounts = ['a', 'b']
-    settings.use_signature = False
-    settings.email_address = {
+    _set_identity(client_stub, ['a', 'b'], {
         'a': 'A <a@example.com>',
         'b': 'B <b@example.com>',
-    }
-    p = _make_panel_with_address(qapp, settings.email_address)
+    })
+    p = _make_panel(qapp)
     assert p.from_combo.currentText() == 'A <a@example.com>'
 
     p.from_combo.setCurrentIndex(1)
@@ -310,13 +307,107 @@ def test_from_combo_switches_account(qapp):
     assert 'a@example.com' in p._data.from_addr
 
 
-def test_from_combo_prefixes_duplicate_addresses(qapp):
-    """When accounts share one address (plain-string config), the account
-    name prefixes the dropdown text so choices stay distinguishable."""
-    settings.smtp_accounts = ['gmail', 'work']
-    settings.use_signature = False
-    p = _make_panel_with_address(
-        qapp, 'Same <s@example.com>')  # same for every account
+def test_reply_defaults_to_delivery_account(qapp, client_stub):
+    """Replying to a mail delivered at contact@… defaults the From
+    account to `contact` (the address the mail was sent TO)."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm1',
+        'headers': {
+            'Subject': 'S', 'From': 'Alice <alice@example.com>',
+            'To': 'contact@rulytafzil.com',
+            'Cc': 'admin@rulytafzil.com',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 1
+    assert p.account_name() == 'contact'
+    assert 'contact@rulytafzil.com' in p._data.from_addr
+
+
+def test_reply_prefers_delivery_over_from_account(qapp, client_stub):
+    """admin@ → contact@ mail: the reply goes out AS contact (delivery
+    address wins over the From header)."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm4',
+        'headers': {
+            'Subject': 'S',
+            'From': 'Ruly Tafzil <admin@rulytafzil.com>',
+            'To': 'contact@rulytafzil.com',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 1
+    assert p.account_name() == 'contact'
+    assert 'contact@rulytafzil.com' in p._data.from_addr
+
+
+def test_reply_defaults_to_from_account_when_self_sent(qapp, client_stub):
+    """A mail originally sent FROM the admin account (e.g. a sent copy)
+    defaults the reply to admin."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm2',
+        'headers': {
+            'Subject': 'S',
+            'From': 'Ruly Tafzil <admin@rulytafzil.com>',
+            'To': 'Bob <bob@example.com>',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.account_name() == 'admin'
+
+
+def test_reply_no_address_match_defaults_to_first_account(qapp, client_stub):
+    _set_identity(client_stub, ['gmail', 'contact'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm3',
+        'headers': {
+            'Subject': 'S', 'From': 'Alice <alice@example.com>',
+            'To': 'Bob <bob@example.com>',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 0
+    assert p.account_name() == 'gmail'
+
+
+def test_from_combo_prefixes_duplicate_addresses(qapp, client_stub):
+    """When accounts share one address, the account name prefixes the
+    dropdown text so choices stay distinguishable."""
+    _set_identity(client_stub, ['gmail', 'work'], {
+        'gmail': 'Same <s@example.com>',
+        'work': 'Same <s@example.com>',
+    })
+    p = _make_panel(qapp)
     items = [p.from_combo.itemText(i)
              for i in range(p.from_combo.count())]
     assert items[0].startswith('gmail ·')

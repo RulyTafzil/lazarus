@@ -1,13 +1,13 @@
-"""compose_threads — SendmailThread with a stubbed send command.
+"""compose_threads — SendmailThread with the daemon-routed send path.
 
-The send command is pointed at a real ``sh -c 'cat > path'`` so the
-full MIME assembly path runs for real (no network, no msmtp); the
-notmuch layer is stubbed.  ``pgp_sign``/``pgp_encrypt`` are left off —
-python-gnupg is optional.
+The client stub records the finished MIME bytes handed to NED (the
+daemon owns msmtp/sent-copy/indexing); the full MIME assembly path runs
+for real. ``pgp_sign``/``pgp_encrypt`` are left off — python-gnupg is
+optional (failures are covered in test_sendmail_resilience).
 """
 import time
 
-from lazarus import compose_threads, mime_builder, settings
+from lazarus import compose_threads, mime_builder
 
 
 class FakePanel:
@@ -47,36 +47,28 @@ def _run_send(panel, qapp, timeout=10.0):
     return t
 
 
-def test_send_writes_message_and_saves_sent(tmp_path, qapp, client_stub):
-    out = tmp_path / 'out.eml'
-    sent = tmp_path / 'Sent'
-    settings.send_mail_command = f"sh -c 'cat > {out}'"
-    settings.sent_dir = str(sent)
-
+def test_send_dispatches_finished_mime_to_daemon(qapp, client_stub):
+    """The full MIME message (headers + body) reaches NED as raw bytes."""
     t = _run_send(FakePanel(), qapp)
 
     assert t.send_success
     assert t.send_error == ''
-    content = out.read_text()
+    assert len(client_stub.send_message_calls) == 1
+    _acct, payload = client_stub.send_message_calls[0]
+    content = payload.decode('utf-8', errors='replace')
     assert 'Subject: hello' in content
     assert 'To: bob@example.com' in content
     assert 'From: Me <me@example.com>' in content
     assert 'body text' in content
-    # Saved to the sent folder (mailbox.Maildir writes to new/) and
-    # re-indexed.
-    assert list((sent / 'new').iterdir()) or list((sent / 'cur').iterdir())
-    assert client_stub.index_new_calls == 1
 
 
-def test_send_failure_sets_error(tmp_path, qapp, client_stub):
-    settings.send_mail_command = "sh -c 'exit 1'"
-    settings.sent_dir = str(tmp_path / 'Sent')
+def test_send_failure_sets_error(qapp, client_stub):
+    client_stub.send_message = lambda account, data: (False, 'send failed: exit 1')
 
     t = _run_send(FakePanel(), qapp)
 
     assert not t.send_success
-    assert 'exit' in t.send_error
-    assert client_stub.index_new_calls == 0
+    assert 'exit 1' in t.send_error
 
 
 def test_reply_sets_references_and_replied_tag(tmp_path, qapp, client_stub):
@@ -89,15 +81,14 @@ def test_reply_sets_references_and_replied_tag(tmp_path, qapp, client_stub):
     panel = FakePanel()
     panel.mode = 'reply'
     panel.msg = {'id': 'msg-9', 'filename': [str(orig)]}
-    out = tmp_path / 'out.eml'
-    settings.send_mail_command = f"sh -c 'cat > {out}'"
-    settings.sent_dir = str(tmp_path / 'Sent')
 
     t = _run_send(panel, qapp)
 
     assert t.send_success
-    content = out.read_text()
+    _acct, payload = client_stub.send_message_calls[0]
+    content = payload.decode('utf-8', errors='replace')
     assert 'In-Reply-To: <msg-9>' in content
     assert 'References: <r1> <r2> <msg-9>' in content
-    # NED-only: the +replied tag is dispatched to the daemon.
-    assert client_stub.modify_tags_calls[-1] == (['id:msg-9'], ['replied'], [])
+    assert any(
+        q == ['id:msg-9'] and add == ['replied']
+        for q, add, _rem in client_stub.modify_tags_calls)

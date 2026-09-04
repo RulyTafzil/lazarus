@@ -1,12 +1,12 @@
 """Compose signatures — insertion, account switching, HTML signatures.
 
 Exercises ComposePanel._insert_signature through the real editor;
-signature.load is stubbed per-account and the notmuch layer is stubbed.
+signatures + accounts are served by the client stub (the daemon's
+API, not local config) and the notmuch layer is stubbed.
 """
 import pytest
 from PyQt6.QtGui import QTextCursor
 
-import lazarus.settings as settings
 from lazarus.compose import ComposePanel
 from tests.conftest import make_message
 
@@ -27,9 +27,6 @@ def _cleanup_panels(qapp):
 
 def _make_panel(qapp, mode='', msg=None, **kw):
     from unittest.mock import MagicMock
-    settings.email_address = {'default': 'Me <me@example.com>',
-                              'work': 'Me <me@work.com>'}
-    settings.smtp_accounts = ['default', 'work']
     p = ComposePanel(MagicMock(), mode, msg, **kw)
     p.resize(600, 500)
     p.show()
@@ -39,10 +36,27 @@ def _make_panel(qapp, mode='', msg=None, **kw):
 
 
 def _stub_signatures(monkeypatch, sigs):
-    """Stub signature.load: account → (plain_text, html)."""
-    monkeypatch.setattr(
-        'lazarus.compose.signature.load',
-        lambda account: sigs.get(account, (None, None)))
+    """Serve per-account signatures through the client stub.
+
+    ``sigs`` maps account → ``(plaintext, html)``; accounts are added to
+    the stub if they are not already configured.
+    """
+    from lazarus import client as _client_mod
+    stub = _client_mod.get_client()
+    stub.signatures_info = {
+        'use_signature': True,
+        'signatures': {a: (t or '') for a, (t, _h) in sigs.items()},
+        'signatures_html': {a: (h or '') for a, (_t, h) in sigs.items()},
+    }
+    if stub.accounts_info['accounts'] == ['default'] and any(
+            a != 'default' for a in sigs):
+        accts = list(sigs.keys())
+        stub.accounts_info = {
+            'accounts': accts,
+            'email': {a: 'Me <me@example.com>' for a in accts},
+            'gnupg_keyid': {a: None for a in accts},
+        }
+    return stub
 
 
 def _reply_msg():

@@ -24,6 +24,7 @@ IPC and remote HTTP/HTTPS transports with Bearer authentication.
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass, field
 from http.client import HTTPConnection, HTTPException, HTTPSConnection
 import json
@@ -653,6 +654,54 @@ class NedClient:
         """Fetch mapping of account identifiers to their email signature text."""
         data = self._request_json("GET", "/api/v1/signatures")
         return dict(data.get("signatures", {})) if isinstance(data, dict) else {}
+
+    def get_accounts_detail(self) -> dict[str, Any]:
+        """Fetch accounts plus per-account mail identity for compose.
+
+        :returns: ``{'accounts': [...], 'email': {acct: addr},
+        'gnupg_keyid': {acct: key | None}}`` (empty dicts on failure).
+        """
+        data = self._request_json("GET", "/api/v1/accounts")
+        if not isinstance(data, dict):
+            return {'accounts': [], 'email': {}, 'gnupg_keyid': {}}
+        return {
+            'accounts': list(data.get('accounts', [])),
+            'email': dict(data.get('email', {})),
+            'gnupg_keyid': dict(data.get('gnupg_keyid', {})),
+        }
+
+    def get_signatures_detail(self) -> dict[str, Any]:
+        """Fetch signatures including HTML per account.
+
+        :returns: ``{'use_signature': bool, 'signatures': {acct: text},
+        'signatures_html': {acct: html}}``.
+        """
+        data = self._request_json("GET", "/api/v1/signatures")
+        if not isinstance(data, dict):
+            return {'use_signature': True, 'signatures': {}, 'signatures_html': {}}
+        return {
+            'use_signature': bool(data.get('use_signature', True)),
+            'signatures': dict(data.get('signatures', {})),
+            'signatures_html': dict(data.get('signatures_html', {})),
+        }
+
+    def send_message(self, account: str, message_bytes: bytes) -> tuple[bool, str]:
+        """Send a fully built RFC822 message via NED.
+
+        The message is base64-encoded in JSON; the daemon pipes it to the
+        account's msmtp command, saves the sent copy, and indexes it.
+        """
+        data = self._request_json(
+            "POST", "/api/v1/send",
+            json_body={
+                "account": account,
+                "message_b64": base64.b64encode(message_bytes).decode("ascii"),
+            },
+        )
+        if isinstance(data, dict):
+            ok = data.get("status") == "ok"
+            return ok, str(data.get("message") or "")
+        return False, "Unknown send response"
 
     def sync_mail(self) -> tuple[bool, str]:
         """Trigger background mail synchronization (mbsync + notmuch new)."""

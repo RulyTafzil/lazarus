@@ -29,19 +29,22 @@ import subprocess
 import tempfile
 import typing
 import os
+import email.utils
+import logging
 
 from . import panel
 from . import keymap
 from . import settings
 from . import util
 from . import style
-from . import signature
 from . import editor as editor_mod
 from . import address_completer
 from . import mime_builder
 from . import compose_model
 from . import compose_threads
 from .protocols import PanelApp
+
+logger = logging.getLogger(__name__)
 
 # To/Cc/Bcc/Subject rows get this much extra right padding so their boxes
 # end at the same x as the From dropdown, which reserves trailing space
@@ -83,8 +86,21 @@ class ComposePanel(panel.Panel):
         # ── Structured compose data ──────────────────────────────────
         self._data = mime_builder.ComposeData()
 
-        # Determine initial account via model helper
-        self.current_account = compose_model.account_for_message(msg) if msg else 0
+        # ── Mail identity (from the daemon, not local config) ────────
+        # The desktop is an arbitrary NED client: accounts, From
+        # addresses, PGP keys, and signatures come from the daemon's
+        # config via the API — lazarus.settings carries no mail settings.
+        self._accounts: List[str] = []
+        self._emails: dict[str, str] = {}
+        self._pgp_keys: dict[str, typing.Optional[str]] = {}
+        self._sig_text: dict[str, str] = {}
+        self._sig_html: dict[str, str] = {}
+        self._use_signature = True
+        self._load_mail_identity()
+
+        # Determine initial account via daemon-provided identity
+        self.current_account = (self._account_index_for_message(msg)
+                                if msg else 0)
         self.pgp_sign = self.gnupg_keyid() is not None
         self.pgp_encrypt = False
 
@@ -97,9 +113,10 @@ class ComposePanel(panel.Panel):
         # scanning for quote markers.
         self._sig_block = ''
         self._quoted_tail = ''
-        if settings.use_signature:
-            self.signature_text, self.signature_html = signature.load(
-                self.account_name())
+        if self._use_signature:
+            acct = self.account_name()
+            self.signature_text = self._sig_text.get(acct)
+            self.signature_html = self._sig_html.get(acct)
 
         # ── Build the layout ─────────────────────────────────────────
         self._build_ui()
@@ -114,7 +131,8 @@ class ComposePanel(panel.Panel):
             self._insert_signature()
         elif msg and (mode == 'reply' or mode == 'replyall'):
             seed = compose_model.build_reply_seed(
-                msg, to_all=(mode == 'replyall'))
+                msg, to_all=(mode == 'replyall'),
+                self_addresses=set(self._emails.values()))
             self.to_field.setText(seed.to_text)
             self.cc_field.setText(seed.cc_text)
             # reply-all populates Cc — reveal the hidden row so it's visible
@@ -188,7 +206,7 @@ class ComposePanel(panel.Panel):
         self.status_label = QLabel()
         self.from_combo = QComboBox()
         self.from_combo.setStyleSheet(self._combo_style())
-        for i in range(len(settings.smtp_accounts)):
+        for i in range(len(self._accounts)):
             self.from_combo.addItem(self._account_display(i), i)
         self.from_combo.setCurrentIndex(self.current_account)
         self.from_combo.currentIndexChanged.connect(self._on_from_combo_changed)
@@ -273,18 +291,74 @@ class ComposePanel(panel.Panel):
         )
         return lbl
 
+    def _load_mail_identity(self) -> None:
+        """Fetch accounts + signatures from NED (blocking, local socket).
+
+        Guards every call: a daemon hiccup degrades to a single placeholder
+        account with no signature rather than crashing compose.
+        """
+        from .client import get_client
+        try:
+            info = get_client().get_accounts_detail()
+            self._accounts = list(info.get('accounts') or [])
+            self._emails = {a: (info.get('email', {}).get(a) or '')
+                            for a in self._accounts}
+            self._pgp_keys = {a: info.get('gnupg_keyid', {}).get(a)
+                              for a in self._accounts}
+        except Exception as e:
+            logger.warning('Could not load accounts from NED: %s', e)
+        try:
+            sigs = get_client().get_signatures_detail()
+            self._use_signature = bool(sigs.get('use_signature', True))
+            self._sig_text = dict(sigs.get('signatures') or {})
+            self._sig_html = dict(sigs.get('signatures_html') or {})
+        except Exception as e:
+            logger.warning('Could not load signatures from NED: %s', e)
+        if not self._accounts:
+            # Daemon reachable but no accounts configured — degrade to a
+            # placeholder so compose still opens; sending surfaces the
+            # daemon-side error.
+            self._accounts = ['default']
+            self._emails = {'default': ''}
+
+    def _account_index_for_message(self, msg: Optional[dict]) -> int:
+        """Index of the account whose address matches this message, else
+        account 0.
+
+        Precedence mirrors the daemon's reply-seed heuristic
+        (``compose_model.account_for_message``): the *delivery* address is
+        preferred — To/Cc first, then From/Reply-To. So a message sent
+        from admin@… to contact@… replies from ``contact`` (where it was
+        delivered), not from the account that appears in its From header.
+        Addresses are compared bare (display names stripped).
+        """
+        if not msg:
+            return 0
+        mine = {email.utils.parseaddr(a)[1].strip().casefold()
+                for a in self._emails.values() if a}
+        headers = msg.get('headers', {}) if isinstance(msg, dict) else {}
+        # Delivery headers first, then authorship headers.
+        for key in ('To', 'Cc', 'From', 'Reply-To'):
+            for _name, addr in email.utils.getaddresses([headers.get(key, '')]):
+                if addr.strip().casefold() in mine:
+                    for i, acct in enumerate(self._accounts):
+                        if (email.utils.parseaddr(self._emails.get(acct, ''))[1]
+                                .strip().casefold() == addr.strip().casefold()):
+                            return i
+        return 0
+
     def _account_display(self, idx: int) -> str:
         """Dropdown text for account *idx*: its address (which already
         carries the display name), with the account name prefixed when
         several accounts share the same address so the choices stay
         distinguishable."""
-        addr = compose_model.email_for_account(idx)
-        others = [compose_model.email_for_account(j)
-                  for j in range(len(settings.smtp_accounts)) if j != idx]
+        name = self._accounts[idx]
+        addr = self._emails.get(name) or ''
+        others = [self._emails.get(self._accounts[j]) or ''
+                  for j in range(len(self._accounts)) if j != idx]
         if addr in others:
-            name = compose_model.account_name(idx)
             return f'{name} · {addr}' if addr else name
-        return addr or compose_model.account_name(idx)
+        return addr or name
 
     def _combo_style(self) -> str:
         """Field-matching stylesheet for the From account dropdown, with
@@ -580,9 +654,10 @@ class ComposePanel(panel.Panel):
 
     def _reload_signature(self) -> None:
         """Swap the signature when the account changes."""
-        if settings.use_signature:
-            self.signature_text, self.signature_html = signature.load(
-                self.account_name())
+        if self._use_signature:
+            acct = self.account_name()
+            self.signature_text = self._sig_text.get(acct)
+            self.signature_html = self._sig_html.get(acct)
         else:
             self.signature_text = None
             self.signature_html = None
@@ -591,15 +666,18 @@ class ComposePanel(panel.Panel):
 
     def account_name(self) -> str:
         """Return the name of the current SMTP account."""
-        return compose_model.account_name(self.current_account)
+        if not self._accounts:
+            return 'default'
+        idx = max(0, min(self.current_account, len(self._accounts) - 1))
+        return self._accounts[idx]
 
     def email_address(self) -> str:
         """Return the email address for the current account."""
-        return compose_model.email_for_account(self.current_account)
+        return self._emails.get(self.account_name(), '')
 
     def gnupg_keyid(self) -> str | None:
         """Get the GPG key id for the current SMTP account."""
-        return compose_model.gnupg_keyid_for_account(self.current_account)
+        return self._pgp_keys.get(self.account_name())
 
     def _set_account(self, idx: int) -> None:
         """Switch to SMTP account *idx* (dropdown selection or [ / ]).
@@ -626,7 +704,7 @@ class ComposePanel(panel.Panel):
     def _cycle_account(self, delta: int) -> None:
         """Cycle the SMTP account by *delta* (±1) and keep the dropdown
         selection in sync with the new account."""
-        idx = (self.current_account + delta) % len(settings.smtp_accounts)
+        idx = (self.current_account + delta) % len(self._accounts)
         self._set_account(idx)
         if hasattr(self, 'from_combo'):
             # Fires currentIndexChanged → _on_from_combo_changed →

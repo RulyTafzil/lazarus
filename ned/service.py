@@ -566,17 +566,121 @@ def get_configured_accounts() -> list[str]:
     return accts
 
 
+def get_accounts_detail() -> dict[str, Any]:
+    """Accounts plus per-account mail identity for client compose.
+
+    Returns ``{'accounts': [...], 'email': {acct: addr}, 'gnupg_keyid': {acct: key | None}}``
+    so a client can build its From dropdown, address selection, and PGP
+    toggle entirely from the daemon's config.
+    """
+    accts = get_configured_accounts()
+    emails: dict[str, str] = {}
+    for acct in accts:
+        if isinstance(settings.email_address, dict):
+            emails[acct] = settings.email_address.get(acct, '')
+        else:
+            emails[acct] = settings.email_address  # type: ignore[assignment]
+
+    keys: dict[str, Any] = {}
+    for acct in accts:
+        if isinstance(settings.gnupg_keyid, dict):
+            keys[acct] = settings.gnupg_keyid.get(acct)
+        else:
+            keys[acct] = settings.gnupg_keyid
+
+    return {
+        'accounts': accts,
+        'email': emails,
+        'gnupg_keyid': keys,
+    }
+
+
 def get_signatures() -> dict[str, Any]:
-    """Return map of account name to plaintext signature and use_signature setting."""
+    """Map of account name to plaintext/HTML signature + use_signature setting.
+
+    :returns: ``{'use_signature': bool, 'signatures': {acct: text},
+    'signatures_html': {acct: html}}`` — ``signatures_html`` entries are
+    empty when no ``signature.html`` file exists.
+    """
     use_sig = getattr(settings, 'use_signature', True)
     sigs: dict[str, str] = {}
+    sigs_html: dict[str, str] = {}
     for acct in get_configured_accounts():
-        text, _ = signature.load(acct)
+        text, html = signature.load(acct)
         sigs[acct] = text or ''
+        sigs_html[acct] = html or ''
     return {
         'use_signature': use_sig,
         'signatures': sigs,
+        'signatures_html': sigs_html,
     }
+
+
+def _dispatch_and_save(acct: str, msg_bytes: bytes,
+                       eml: Any = None) -> tuple[bool, str]:
+    """Pipe ``msg_bytes`` through the account's send command, save a sent
+    copy, and index it. Shared by :func:`send_email` and :func:`send_raw`.
+    """
+    # Resolve command
+    if isinstance(settings.send_mail_command, dict):
+        cmd_tmpl = settings.send_mail_command.get(acct, 'msmtp -a "{account}" -t')
+    else:
+        cmd_tmpl = settings.send_mail_command
+    cmd_str = cmd_tmpl.format(account=acct)
+    cmd_args = shlex.split(cmd_str)
+
+    proc = subprocess.Popen(
+        cmd_args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout, stderr = proc.communicate(input=msg_bytes, timeout=60)
+
+    if proc.returncode != 0:
+        err_msg = stderr.decode('utf-8', errors='replace').strip() or f"Exit code {proc.returncode}"
+        logger.warning('Failed to send mail via %r: %s', cmd_str, err_msg)
+        return (False, f"Send command failed: {err_msg}")
+
+    # Save to sent_dir if configured
+    sent_dest: str | None = None
+    if isinstance(settings.sent_dir, dict):
+        sent_dest = settings.sent_dir.get(acct)
+    elif isinstance(settings.sent_dir, str):
+        sent_dest = settings.sent_dir
+
+    if sent_dest:
+        expanded_sent = os.path.expanduser(sent_dest)
+        try:
+            os.makedirs(expanded_sent, exist_ok=True)
+            box = mailbox.Maildir(expanded_sent, create=True)
+            box.add(eml if eml is not None else mailbox.MaildirMessage(msg_bytes))
+        except Exception as e:
+            logger.warning('Could not save sent message to %r: %s', sent_dest, e)
+
+    # Index sent copy
+    try:
+        notmuch.new(no_hooks=settings.no_hooks_on_send)
+    except Exception as e:
+        logger.warning('notmuch new failed after send: %s', e)
+
+    return (True, 'Message sent successfully')
+
+
+def send_raw(account: str, message_bytes: bytes) -> tuple[bool, str]:
+    """Send a fully built RFC822 message (body of a ``POST /api/v1/send``
+    raw-mode request) via the account's send command.
+
+    Clients that build rich MIME themselves (HTML + inline images, PGP,
+    custom headers) send the finished bytes here; the daemon only pipes
+    them to msmtp, saves the sent copy, and indexes it.
+    """
+    acct = account or get_configured_accounts()[0]
+    try:
+        return _dispatch_and_save(acct, message_bytes)
+    except Exception as e:
+        logger.exception('Exception while sending raw message: %s', e)
+        return (False, str(e))
 
 
 def send_email(
@@ -630,51 +734,7 @@ def send_email(
         if references:
             eml['References'] = references
 
-        # Resolve command
-        if isinstance(settings.send_mail_command, dict):
-            cmd_tmpl = settings.send_mail_command.get(acct, 'msmtp -a "{account}" -t')
-        else:
-            cmd_tmpl = settings.send_mail_command
-        cmd_str = cmd_tmpl.format(account=acct)
-        cmd_args = shlex.split(cmd_str)
-
-        proc = subprocess.Popen(
-            cmd_args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        msg_bytes = eml.as_bytes()
-        stdout, stderr = proc.communicate(input=msg_bytes, timeout=60)
-
-        if proc.returncode != 0:
-            err_msg = stderr.decode('utf-8', errors='replace').strip() or f"Exit code {proc.returncode}"
-            logger.warning('Failed to send mail via %r: %s', cmd_str, err_msg)
-            return (False, f"Send command failed: {err_msg}")
-
-        # Save to sent_dir if configured
-        sent_dest: str | None = None
-        if isinstance(settings.sent_dir, dict):
-            sent_dest = settings.sent_dir.get(acct)
-        elif isinstance(settings.sent_dir, str):
-            sent_dest = settings.sent_dir
-
-        if sent_dest:
-            expanded_sent = os.path.expanduser(sent_dest)
-            try:
-                os.makedirs(expanded_sent, exist_ok=True)
-                box = mailbox.Maildir(expanded_sent, create=True)
-                box.add(eml)
-            except Exception as e:
-                logger.warning('Could not save sent message to %r: %s', sent_dest, e)
-
-        # Index sent copy
-        try:
-            notmuch.new(no_hooks=settings.no_hooks_on_send)
-        except Exception as e:
-            logger.warning('notmuch new failed after send: %s', e)
-
-        return (True, 'Message sent successfully')
+        return _dispatch_and_save(acct, eml.as_bytes(), eml=eml)
     except Exception as e:
         logger.exception('Exception while building or sending email: %s', e)
         return (False, str(e))

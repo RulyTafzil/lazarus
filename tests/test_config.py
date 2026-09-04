@@ -20,11 +20,13 @@ def test_valid_settings_no_errors():
     assert _validate_settings() == []
 
 
-def test_missing_email_address():
+def test_missing_email_address_is_optional():
     _reset()
     settings.email_address = ''
-    assert any('email_address is required' in e
-               for e in _validate_settings())
+    # Mail identity comes from the NED daemon; the desktop config may
+    # omit it entirely.
+    assert not any('email_address is required' in e
+                   for e in _validate_settings())
 
 
 def test_email_missing_at():
@@ -51,10 +53,11 @@ def test_sent_dir_none_allowed():
     assert _validate_settings() == []
 
 
-def test_empty_smtp_accounts():
+def test_empty_smtp_accounts_is_optional():
     _reset()
     settings.smtp_accounts = []
-    assert any('smtp_accounts is empty' in e for e in _validate_settings())
+    # Accounts come from the daemon; an empty desktop list is fine.
+    assert not any('smtp_accounts is empty' in e for e in _validate_settings())
 
 
 def test_bad_pane_position():

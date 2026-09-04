@@ -39,7 +39,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 | HTML | `bleach >=5.0`, `w3m` | `w3m` renders HTML→plaintext; bleach `Linker` linkifies URLs |
 | Email index | `notmuch` CLI | Wrapped by `lazarus/notmuch.py` |
 | IMAP sync | `mbsync -V <acct>` per account (parallel) | `sync_mail_command` shell fallback used **only** when `smtp_accounts` is empty |
-| SMTP send | `msmtp` | `msmtp -a "{account}" -t`; per-account via `send_mail_command` dict |
+| SMTP send | `msmtp` (daemon-side) | `msmtp -a "{account}" -t`; per-account via `send_mail_command` dict in the **ned** config; the desktop hands finished MIME bytes to `POST /api/v1/send` |
 | PGP | `python-gnupg` (optional) | `lazarus/pgp_util.py`; `gnupg_home`/`gnupg_keyid` settings |
 | Build | `setuptools >=42` | `setup.py` + `pyproject.toml`; icons via `package_data` + `--install-desktop` (no `data_files`) |
 | Logging | stdlib `logging` | Level/file from `settings.log_level`/`log_file`; status bar mirror |
@@ -48,35 +48,6 @@ live switching, low-poly watermark tab background, hicolor icons.
 ```
 ~/Projects/lazarus/
 ├── agent.md                # this file
-├── lazarus/                # Python package (11.3k LOC)
-│   ├── __init__.py         # re-exports app/themes/settings/keymap/util
-│   ├── __main__.py         # app.main() entry
-│   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, sync timer, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
-│   ├── client.py           # NedClient singleton + ensure_daemon (desktop is NED-only, spawns daemon at startup)
-│   ├── controller.py       # AppController(QObject) + SyncMailThread + _NedEventBridge — panel registry, sync engine, SSE invalidation
-│   ├── mainwindow.py       # MainWindow(QMainWindow) — splitter, tabs, preview, status bar
-│   ├── panel.py            # Panel(QWidget) base — keychords, dirty flag, debounce
-│   ├── search.py           # SearchPanel + SearchModel + render_thread_cell()
-│   ├── thread.py           # ThreadPanel — double-buffered web view + message list
-│   ├── thread_model.py     # ThreadModel + ThreadItem (conversation/thread modes)
-│   ├── compose.py          # ComposePanel — reply/forward, account switch, sig, PGP
-│   ├── compose_model.py    # Qt-free seeds + sig_edit() placement logic
-│   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop, formatting toolbar, plaintext mode
-│   ├── compose_threads.py  # SendmailThread (msmtp + sent save)
-│   ├── mime_builder.py     # ComposeData dataclass + build_message() (multipart/related)
-│   ├── actions.py          # MarkableActionsMixin (NED-only) + core.actions re-exports
-│   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
-│   ├── tag.py              # TagPanel + TagModel
-│   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag/theme modes
-│   ├── keymap.py           # global_keymap (consolidated) + tag/compose/command_bar maps
-│   ├── address_completer.py# AddressCompleter + _AddressLoader (notmuch address bg thread)
-│   ├── webengine.py        # MessagePage/Handler, EmbeddedImageHandler, RemoteBlocker
-│   ├── themes.py           # Hand-written palettes + terminal-theme pack import + apply_theme()
-│   ├── config.py           # ConfigError + load_config() + _validate_settings() (exec + validation gate)
-│   ├── settings.py         # All defaults with docstrings (validated by config.py after exec)
-│   ├── signature.py        # Per-account signature loader (signature / signature.html)
-│   ├── pgp_util.py         # PGP/MIME sign/encrypt via python-gnupg
-│   ├── notmuch.py          # Thin CLI wrapper — run/count/count_batch/tags/search_files/search_json/show_part/tag/new
 ├── ned/                    # Standalone Notmuch Email Daemon — top-level package, ZERO Qt
 │   ├── __init__.py         # re-exports NedClient/NedDaemon/MutationLock/…
 │   ├── main.py             # `ned` CLI entry point (daemon) + `--init-config`
@@ -101,9 +72,9 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── static/             # Mobile PWA web assets served directly by NED
 │   └── setup.py / pyproject.toml   # the `ned` distribution
 ├── lazarus/                # Desktop GUI client — imports the top-level `ned` package
-│   ├── __init__.py         # re-exports app/themes/settings/keymap/util
+│   ├── __init__.py         # re-exports app/themes/settings/keymap/util (lazy)
 │   ├── __main__.py         # app.main() entry
-│   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, sync timer, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
+│   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, startup sync, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
 │   ├── client.py           # NedClient singleton + ensure_daemon (desktop is NED-only, spawns daemon at startup)
 │   ├── controller.py       # AppController(QObject) + SyncMailThread + _NedEventBridge — panel registry, sync engine, SSE invalidation
 │   ├── mainwindow.py       # MainWindow(QMainWindow) — splitter, tabs, preview, status bar
@@ -111,17 +82,18 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── search.py           # SearchPanel + SearchModel + render_thread_cell()
 │   ├── thread.py           # ThreadPanel — double-buffered web view + message list
 │   ├── thread_model.py     # ThreadModel + ThreadItem (conversation/thread modes)
-│   ├── compose.py          # ComposePanel — reply/forward, account switch, sig, PGP
+│   ├── compose.py          # ComposePanel — reply/forward, API accounts/sigs, PGP
 │   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop, formatting toolbar, plaintext mode
-│   ├── compose_threads.py  # SendmailThread (msmtp + sent save)
+│   ├── compose_threads.py  # SendmailThread — builds MIME + PGP locally, sends via NedClient.send_message
 │   ├── actions.py          # MarkableActionsMixin (NED-only) + ned.actions re-exports
+│   ├── tag.py              # TagPanel + TagModel
 │   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag/theme modes
 │   ├── keymap.py           # global_keymap (consolidated) + tag/compose/command_bar maps
 │   ├── address_completer.py# AddressCompleter + _AddressLoader (notmuch address bg thread)
 │   ├── webengine.py        # MessagePage/Handler, EmbeddedImageHandler, RemoteBlocker
 │   ├── themes.py           # Hand-written palettes + terminal-theme pack import + apply_theme()
-│   ├── config.py           # ConfigError + desktop load_config() + _validate_settings() (exec + validation gate)
-│   ├── settings.py         # Desktop defaults with docstrings (validated by lazarus.config after exec)
+│   ├── config.py           # ConfigError + desktop load_config() + _validate_settings() (mail fields optional)
+│   ├── settings.py         # Desktop (UI-only) defaults with docstrings
 │   ├── pgp_util.py         # PGP/MIME sign/encrypt via python-gnupg
 │   ├── keys.py             # key_string + basic_keytab/keytab (Qt)
 │   ├── style.py            # Memoised cell_font/theme_color; NerdFont family + glyph_image()
@@ -134,12 +106,12 @@ live switching, low-poly watermark tab background, hicolor icons.
 ├── tools/
 │   ├── import_themes.py          # Zero-dep CLI for theme inspection, truecolor swatches, compilation, and export
 │   └── mapping.json              # Clean 1-to-1 mapping from terminal/ANSI properties to Lazarus's 19 semantic keys
-├── tests/                  # 412 tests (pytest, offscreen Qt, notmuch stubbed)
+├── tests/                  # 404 tests (pytest, offscreen Qt, notmuch stubbed)
 ├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
 ├── docs/                   # Sphinx (Makefile, make.bat, source/)
 ├── README.md
 ├── COPYING                 # GPLv3
-├── setup.py                # lazarus-mail 0.3; package_data icons + theme_packs
+├── setup.py                # lazarus-mail 0.3; package_data icons + theme_packs (+ bundles `ned`)
 ├── pyproject.toml          # setuptools build-system
 ├── mypy.ini / MANIFEST.in / .mailmap / .readthedocs.yaml / .gitignore
 └── Lazarus.png             # 1024px source icon
@@ -217,7 +189,10 @@ Thread:   notmuch show --format=json   → ThreadModel (ThreadItem tree) → QTr
           (MessagePage, double-buffered, _SwapGuard arbitrates stale loads)
 Compose:  fields (To/Cc/Bcc/Subject/From) + RichTextEditor + attachments + inline images
             → ComposeData (mime_builder) → build_message() → multipart/related MIME
-            → SendmailThread → msmtp → mailbox save to sent_dir → status bar
+            → SendmailThread → NedClient.send_message (POST /api/v1/send raw mode)
+            → daemon msmtp → sent save + notmuch new → SSE invalidate → status bar
+          Accounts/emails/PGP keys/signatures come from GET /api/v1/accounts + /signatures
+            — compose never reads mail settings from the desktop config.
           Signature: seeds provide the quote (ComposeSeed.quoted_tail); _insert_signature
             places the sig block structurally via compose_model.sig_edit (no markers);
             HTML sig file used in rich mode, plain block otherwise.
@@ -375,15 +350,14 @@ fallthrough in `Panel.keyPressEvent` against `keymap.COMPOSE_ALLOWED_GLOBALS`
 
 ## Configuration
 
-Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardPaths` and `exec()`'d at startup. All settings live in `lazarus.settings` with documented defaults; `email_address` + `sent_dir` are required.
+Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardPaths` and `exec()`'d at startup. All settings live in `lazarus.settings` with documented defaults. Mail-routing settings (`email_address`, `sent_dir`, `smtp_accounts`, `sync_mail_*`, `filter_rules`) are **optional here and unused**: the compose panel sources accounts, From addresses, PGP keys, and signatures from the NED API and sends through the daemon. This file is UI-only (themes, fonts, tags, keymap).
 
 **The daemon uses its own config** — `~/.config/ned/config.py` mutating `ned.settings` (see `ned/settings.py`); generate from the lazarus one with `ned --init-config`. Signatures live at `~/.config/ned/<account>/signature(.html)`.
 
 ### Required
 | Setting | Purpose |
 |---------|---------|
-| `email_address` | `str` or `{account: address}` dict; From + reply-all self-filter |
-| `sent_dir` | `str` or `{account: dir}` dict; Maildir sent folder (or `None` to discard) |
+| *(none)* | Mail identity lives in `~/.config/ned/config.py` — the desktop config has no required fields |
 
 ### Key Optional
 | Setting | Default | Purpose |
@@ -455,7 +429,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **`deleteLater` vs running QThread**: closing a `ComposePanel` mid-send must not delete it (`close_panel` skips; the send-completion callback deletes). Panel timers are parented (`QTimer(self)`) so they can't fire on a dead widget.
 - **`_BulkMoveWorker`**: belongs to `core.actions` and runs inside the NED process (moves during trash/archive/rules). The desktop never moves files itself; it dispatches to the daemon and reacts to SSE.
 - **Thread panel double-buffer**: rapid `H`/`i` toggling leaves several web loads in flight — `_SwapGuard` ensures only the newest request may swap, each at most once.
-- **Sync**: daemon-side `core.sync.run_sync` (parallel mbsync per account; `sync_mail_command` fallback only when `smtp_accounts` empty) + `notmuch new` + filter rules. Desktop triggers `POST /api/v1/sync`, then shows the daemon's returned summary. `refresh_tab_titles` batches per-tab thread counts into one `count_batch` call.
+- **Sync**: daemon-side `ned.sync.run_sync` (parallel mbsync per account; `sync_mail_command` fallback only when `smtp_accounts` empty) + `notmuch new` + filter rules. The daemon's scheduler owns periodic sync (`settings.sync_mail_interval` in the ned config; `-1` disables) — the desktop only triggers `POST /api/v1/sync` on startup and manual `` ` `` and shows the daemon's returned summary. `refresh_tab_titles` batches per-tab thread counts into one `count_batch` call.
 - **Signatures**: insertion is structural (`sig_edit`); seeds must keep `quoted_tail` populated or account-switch placement degrades to append-at-end.
 - **Compose is a closed key surface**: `_allow_global_key` gates the global fallthrough in `Panel.keyPressEvent` (single-key *and* prefix-timeout paths) against `keymap.COMPOSE_ALLOWED_GLOBALS`, so list/thread hotkeys can never act on hidden panels from compose — even unbound Ctrl chords leaking up from the editor/fields. Adding a global binding that should be reachable while composing means adding it to `COMPOSE_ALLOWED_GLOBALS` + a `test_compose_keys.py` case.
 - **Escape in compose is one-directional** (`escape_focus` = `self.setFocus()`): it exits the editor/fields to the chrome and never re-enters the editor — do not 'restore' the old toggle or the two-mode model breaks.
@@ -466,7 +440,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Topological dependency order in theme key resolution**: In `terminal_theme_to_lazarus`, evaluate keys in dependency order (`bg`, `fg`, `fg_dim` before dependent keys like `fg_date` and `fg_subject_irrelevant`).
 - **Contrast in custom item delegates vs standard Qt widgets**: Standard Qt widgets (`TagPanel` / `QTreeView`) automatically invert text to `QPalette.HighlightedText` on selection. Custom item delegates (`CardDelegate` in `search.py`) manually paint text pens; painting an opaque bright `bg_highlight` without inverting text causes an unreadable contrast clash. Use a modern 25% alpha blend wash (`bg_highlight` over `bg` when high-contrast) so distinct column colors (`fg_from`, `fg_subject_unread`, `fg_tags`) stay readable on any theme.
 - **Fine-grained row removals vs model reset**: In `SearchModel.refresh_thread`, use `beginRemoveRows` / `endRemoveRows` when a thread leaves a query rather than `beginResetModel`. Full resets blow away scroll position, delegate state, and cursor focus.
-- **Daemon owns every index write**: the desktop never shells out to `notmuch` — not even for sends. `SendmailThread` builds MIME + PGP + msmtp locally (client-side), then asks the daemon to `index_new()` and `modify_tags(+replied)`. Guard destructive actions from redundant work when nothing is marked.
+- **Daemon owns every index write and every send**: the desktop never shells out to `notmuch` and never invokes msmtp. `SendmailThread` builds MIME + PGP locally (client-side), then hands the finished bytes to `NedClient.send_message` (`POST /api/v1/send` raw mode) — the daemon pipes to msmtp, saves the sent copy, indexes, and broadcasts. Guard destructive actions from redundant work when nothing is marked.
 - **Lazy initialization of secondary windows & WebEngine warmup**: Never instantiate dialogs (`HelpWindow`) during `app.py` bootstrap. Defer Chromium warmup to `QTimer.singleShot(0, self._warm_webengine)` to drop cold startup from ~760ms to ~110ms.
 - **1-to-1 mapping vs convoluted fallback chains**: Multi-item fallback chains (`[14, 6, 12, 4, 'fg']`) were relics of 8-color vs 16-color VT100 terminals. In modern truecolor Qt GUI apps where 100% of bundled themes define all 16 colors, clean 1-to-1 mappings are vastly clearer and maintainable.
 - **URL percent-decoding in REST routes**: Browser clients URL-encode path parameters (e.g. `@` as `%40` in message IDs like `CABsu...%40mail.gmail.com`). Always unquote path segments with `urllib.parse.unquote()` before querying `notmuch show -- id:...` or file actions, otherwise notmuch searches for literal `%40` and fails to find the message.
@@ -524,10 +498,10 @@ All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
 | `POST` | `/api/v1/threads/{id}/star` | Toggle flagged tag (`{"flag": bool}`). |
 | `GET` | `/api/v1/tags` | List all known Notmuch tags with thread counts. |
 | `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q`. |
-| `GET` | `/api/v1/accounts` | List configured sender accounts: `{"accounts": [...]}`. |
-| `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {...}}`. |
+| `GET` | `/api/v1/accounts` | Sender accounts + identity: `{"accounts": [...], "email": {acct: addr}, "gnupg_keyid": {acct: key\|None}}`. |
+| `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {acct: text}, "signatures_html": {acct: html}}`. |
 | `GET` | `/api/v1/reply-seed` | Generate reply recipient headers, quoted body, and signature. |
-| `POST` | `/api/v1/send` | Send outbound message via `msmtp`. |
+| `POST` | `/api/v1/send` | Send outbound mail via `msmtp` — field/multipart mode (PWA) or **raw mode** (`{"account": ..., "message_b64": <RFC822 bytes>}`) for clients that build rich MIME themselves. |
 | `POST` | `/api/v1/sync` | Trigger IMAP sync + `notmuch new` + filter rules. |
 | `GET` | `/api/v1/events` | Server-Sent Events (SSE) stream for cache invalidation. |
 | `GET` | `/` | Serves bundled mobile PWA web application. |
