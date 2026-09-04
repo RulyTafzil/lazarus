@@ -146,14 +146,12 @@ class Dodo(QApplication):
         from .controller import AppController
         self.controller = AppController(self, self.main_window)
 
-        # set timer to sync email periodically
+        # Sync lifecycle: the NED daemon owns periodic IMAP sync (its
+        # scheduler runs from settings.sync_mail_interval in the ned config).
+        # The desktop only triggers one sync at startup so the inbox is
+        # fresh, then reacts to daemon invalidation events.
         self.sync_thread: SyncMailThread | None = None
-        self.sync_timer: QTimer | None = None
-        if settings.sync_mail_interval != -1:
-            self.sync_mail()
-            self.sync_timer = QTimer(self)
-            self.sync_timer.timeout.connect(self.sync_mail)
-            self.sync_timer.start(settings.sync_mail_interval * 1000)
+        self.sync_mail()
 
         self.aboutToQuit.connect(self._cleanup_sync)
 

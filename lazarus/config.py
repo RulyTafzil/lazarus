@@ -78,17 +78,15 @@ def _validate_settings() -> list[str]:
     """Validate settings after config.py has run.
 
     Returns a list of human-readable error messages (empty means ok).
-    Kept deliberately strict for required/mail-routing settings, lenient
-    for cosmetic ones.
+    Mail-routing settings are *optional* in the desktop config: the
+    compose panel sources accounts/signatures from the NED daemon's
+    config via the API. Values present here are still shape-checked
+    (config typos should not silently corrupt UI behavior).
     """
     errors: list[str] = []
 
-    # -- required fields --------------------------------------------------
-    if not settings.email_address:
-        errors.append(
-            "email_address is required — set settings.email_address in config.py"
-        )
-    elif isinstance(settings.email_address, dict):
+    # -- optional mail fields (validate shape when present) ---------------
+    if isinstance(settings.email_address, dict):
         if not settings.email_address:
             errors.append("email_address dict is empty — add at least one account")
         for acct, addr in settings.email_address.items():
@@ -102,14 +100,11 @@ def _validate_settings() -> list[str]:
                 errors.append(
                     f"email_address has account {acct!r} not in smtp_accounts {settings.smtp_accounts!r}"
                 )
-    elif isinstance(settings.email_address, str):
+    elif isinstance(settings.email_address, str) and settings.email_address:
         if '@' not in settings.email_address:
             errors.append(f"email_address = {settings.email_address!r} looks like it is missing '@'")
 
-    if not settings.sent_dir and settings.sent_dir is not None:
-        # '' means unset; None means intentionally discarded; dict means per-account.
-        errors.append("sent_dir is required — set settings.sent_dir in config.py")
-    elif isinstance(settings.sent_dir, dict):
+    if isinstance(settings.sent_dir, dict):
         for acct, path in settings.sent_dir.items():
             if path is not None and not isinstance(path, str):
                 errors.append(f"sent_dir[{acct!r}] must be a string or None, got {type(path).__name__}")
@@ -119,12 +114,10 @@ def _validate_settings() -> list[str]:
                     f"sent_dir[{acct!r}] = {path!r} starts with '~Mail' — did you mean '~/Mail/...'?"
                 )
 
-    # -- smtp_accounts sanity ---------------------------------------------
+    # -- smtp_accounts sanity (optional now; shape-check only when set) ---
     if not isinstance(settings.smtp_accounts, list):
         errors.append(f"smtp_accounts must be a list, got {type(settings.smtp_accounts).__name__}")
-    elif not settings.smtp_accounts:
-        errors.append("smtp_accounts is empty — add at least ['default']")
-    else:
+    elif settings.smtp_accounts:
         for i, acct in enumerate(settings.smtp_accounts):
             if not isinstance(acct, str) or not acct.strip():
                 errors.append(f"smtp_accounts[{i}] must be a non-empty string, got {acct!r}")

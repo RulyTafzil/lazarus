@@ -186,6 +186,19 @@ class ClientStub:
         self.count_calls: list[tuple] = []
         self.index_new_calls = 0
         self.sync_result: tuple[bool, str] = (True, 'Sync completed (no new mail)')
+        # Mail identity served to the compose panel (accounts + signatures
+        # come from the daemon, never from local config).
+        self.accounts_info: dict = {
+            'accounts': ['default'],
+            'email': {'default': ''},
+            'gnupg_keyid': {'default': None},
+        }
+        self.signatures_info: dict = {
+            'use_signature': True,
+            'signatures': {},
+            'signatures_html': {},
+        }
+        self.send_message_calls: list[tuple[str, bytes]] = []
 
     # -- recording helpers ---------------------------------------------
     def ping(self) -> bool:
@@ -271,6 +284,16 @@ class ClientStub:
 
     def get_signatures(self) -> dict:
         return {'signatures': {}}
+
+    def get_accounts_detail(self) -> dict:
+        return self.accounts_info
+
+    def get_signatures_detail(self) -> dict:
+        return self.signatures_info
+
+    def send_message(self, account: str, message_bytes: bytes) -> tuple[bool, str]:
+        self.send_message_calls.append((account, message_bytes))
+        return (True, 'Message sent successfully')
 
     def get_accounts(self) -> list[str]:
         return ['default']

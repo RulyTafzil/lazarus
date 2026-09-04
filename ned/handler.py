@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import email
 import email.policy
+import base64
 from http import HTTPStatus
 import http.server
 import json
@@ -238,7 +239,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/v1/accounts":
-            self.send_json({"accounts": service.get_configured_accounts()})
+            self.send_json(service.get_accounts_detail())
             return
 
         if path == "/api/v1/signatures":
@@ -539,6 +540,28 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             body_text = body_json.get("body_text", "") or body_json.get("body", "")
             in_reply_to = body_json.get("in_reply_to", "")
             references = body_json.get("references", "")
+
+            # Raw-mode: the client already built the full RFC822 message
+            # (rich HTML + inline images + PGP + custom headers). The daemon
+            # only pipes it to msmtp, saves the sent copy, and indexes it.
+            raw_b64 = body_json.get("message_b64")
+            if raw_b64:
+                if not account:
+                    account = service.get_configured_accounts()[0]
+                try:
+                    raw_bytes = base64.b64decode(raw_b64, validate=True)
+                except Exception:
+                    self.send_error_json("Invalid message_b64 payload")
+                    return
+                with mutation_lock:
+                    ok, err_or_msg = service.send_raw(account, raw_bytes)
+                if ok:
+                    broadcaster.broadcast_invalidate("threads", reason="send")
+                    self.send_json({"status": "ok", "message": err_or_msg, "ok": True})
+                else:
+                    self.send_error_json(
+                        f"Send failed: {err_or_msg}", HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
 
         if not to:
             self.send_error_json("To field is required")

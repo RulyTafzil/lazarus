@@ -208,19 +208,23 @@ def test_ned_accounts_and_signatures(tmp_path, monkeypatch):
     try:
         conn = UnixHTTPConnection(sock_path)
 
-        # GET /api/v1/accounts returns {"accounts": [...]}
+        # GET /api/v1/accounts returns accounts + per-account mail identity
         conn.request("GET", "/api/v1/accounts")
         resp = conn.getresponse()
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
-        assert data == {"accounts": ["work", "personal"]}
+        assert data["accounts"] == ["work", "personal"]
+        assert set(data["email"]) == {"work", "personal"}
+        assert set(data["gnupg_keyid"]) == {"work", "personal"}
 
-        # GET /api/accounts legacy alias returns {"accounts": [...]}
+        # GET /api/accounts legacy alias keeps the same shape
         conn.request("GET", "/api/accounts")
         resp = conn.getresponse()
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
-        assert data == {"accounts": ["work", "personal"]}
+        assert data["accounts"] == ["work", "personal"]
+        assert set(data["email"]) == {"work", "personal"}
+        assert set(data["gnupg_keyid"]) == {"work", "personal"}
 
         # GET /api/v1/signatures
         conn.request("GET", "/api/v1/signatures")
@@ -318,6 +322,58 @@ def test_ned_expunge_endpoint(tmp_path, monkeypatch):
         assert resp.status == 200
         data = json.loads(resp.read().decode("utf-8"))
         assert data == {"status": "ok", "tagged": 3, "ok": True}
+        conn.close()
+    finally:
+        daemon.stop()
+
+
+def test_ned_send_raw_mode(tmp_path, monkeypatch):
+    """POST /api/v1/send with message_b64 pipes the raw RFC822 bytes to
+    the account's command, saves a sent copy, and indexes."""
+    from ned import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    out = tmp_path / "out.eml"
+    sent = tmp_path / "Sent"
+
+    monkeypatch.setattr(service.settings, "smtp_accounts", ["default"])
+    monkeypatch.setattr(service.settings, "email_address", "Me <me@example.com>")
+    monkeypatch.setattr(
+        service.settings, "send_mail_command", f"sh -c 'cat > {out}'")
+    monkeypatch.setattr(service.settings, "sent_dir", str(sent))
+    monkeypatch.setattr(service.notmuch, "new", lambda no_hooks=True: None)
+    # A proper Maildir sent folder (cur/new/tmp), as mbsync would create.
+    for sub in ("cur", "new", "tmp"):
+        (sent / sub).mkdir(parents=True, exist_ok=True)
+
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+    try:
+        import base64
+        conn = UnixHTTPConnection(sock_path)
+        raw = b"From: Me <me@example.com>\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n"
+        payload = json.dumps({
+            "account": "default",
+            "message_b64": base64.b64encode(raw).decode("ascii"),
+        })
+        conn.request("POST", "/api/v1/send", body=payload,
+                     headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data == {"status": "ok", "message": "Message sent successfully", "ok": True}
+
+        # The raw bytes went through the send command untouched…
+        assert out.read_bytes() == raw
+        # …and a sent copy landed in the Maildir.
+        assert list((sent / "new").iterdir()) or list((sent / "cur").iterdir())
+
+        # Invalid base64 is rejected cleanly.
+        bad = json.dumps({"account": "default", "message_b64": "not*base64!!"})
+        conn.request("POST", "/api/v1/send", body=bad,
+                     headers={"Content-Type": "application/json"})
+        resp_bad = conn.getresponse()
+        assert resp_bad.status == 400
         conn.close()
     finally:
         daemon.stop()

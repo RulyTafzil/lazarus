@@ -197,17 +197,34 @@ def build_mailto_seed(msg: dict) -> ComposeSeed:
     return seed
 
 
-def build_reply_seed(msg: dict, *, to_all: bool) -> ComposeSeed:
+def build_reply_seed(msg: dict, *, to_all: bool,
+                     self_addresses: Optional[set[str]] = None) -> ComposeSeed:
+    """Build the reply seed.
+
+    :param self_addresses: optional collection of *this user's* email
+        addresses (``'Name <addr>'`` or bare addresses). When given, the
+        reply-all self filter matches against them instead of the
+        ``settings.email_address`` config — used by clients that source
+        mail identity from the daemon (API accounts) rather than their
+        own settings module. When ``None``, falls back to
+        :func:`ned.util.email_is_me` (daemon-side path).
+    """
+    def _is_me(e: str) -> bool:
+        if self_addresses is None:
+            return util.email_is_me(e)
+        mine = {util.strip_email_address(a).casefold() for a in self_addresses}
+        return util.strip_email_address(e).casefold() in mine
+
     seed = ComposeSeed()
     senders = util.get_header_addresses(msg.get('headers', {}), ['Reply-To', 'From'])
     recipients = util.get_header_addresses(msg.get('headers', {}), ['To', 'Cc'])
 
     if not to_all:
-        external_senders = [(n, e) for n, e in senders if not util.email_is_me(e)]
+        external_senders = [(n, e) for n, e in senders if not _is_me(e)]
         if external_senders:
             seed.to_text = email.utils.formataddr(external_senders[0])
         else:
-            external_recipients = [(n, e) for n, e in recipients if not util.email_is_me(e)]
+            external_recipients = [(n, e) for n, e in recipients if not _is_me(e)]
             if external_recipients:
                 seed.to_text = email.utils.formataddr(external_recipients[0])
             elif senders:
@@ -215,7 +232,7 @@ def build_reply_seed(msg: dict, *, to_all: bool) -> ComposeSeed:
             elif recipients:
                 seed.to_text = email.utils.formataddr(recipients[0])
     else:
-        send_to = [(n, e) for n, e in senders + recipients if not util.email_is_me(e)]
+        send_to = [(n, e) for n, e in senders + recipients if not _is_me(e)]
         if send_to:
             seed.to_text = email.utils.formataddr(send_to.pop(0))
             if send_to:

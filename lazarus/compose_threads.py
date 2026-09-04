@@ -18,24 +18,20 @@
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
 """Background send thread.
 
-:class:`SendmailThread` builds and sends the MIME message via msmtp.
-(An external-editor escape hatch used to live here as ``EditorThread``;
-it was removed — the built-in ``RichTextEditor`` is the only compose
-editor now.)
+:class:`SendmailThread` builds the MIME message locally (preserving rich
+HTML, inline images, and PGP) and hands the finished bytes to the NED
+daemon — ``POST /api/v1/send`` raw mode. The daemon owns msmtp, the sent
+copy, and indexing; the desktop never shells out to a send command.
 """
 
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread
-import mailbox
 import email.parser
-import shlex
-from subprocess import PIPE, Popen, TimeoutExpired
 import traceback
 import logging
 
-from . import settings
 from . import pgp_util
 from . import mime_builder
 
@@ -89,62 +85,27 @@ class SendmailThread(QThread):
             if self.panel.pgp_encrypt:
                 eml = pgp_util.encrypt(eml)
 
-            # Send
-            if isinstance(settings.send_mail_command, dict):
-                cmd = settings.send_mail_command[account]
-            else:
-                cmd = settings.send_mail_command
-            # Substitute {account} before splitting — account names are
-            # controlled via settings.smtp_accounts, but avoid shell
-            # injection by using shlex.split + shell=False.
-            cmd = cmd.replace('{account}', account)
-            argv = shlex.split(cmd)
-            sendmail = Popen(argv, stdin=PIPE, stdout=PIPE,
-                             stderr=PIPE, encoding='utf8', shell=False)
-            stdout, stderr = sendmail.communicate(eml.as_string(), timeout=30)
-            # communicate waits; no separate wait() needed
+            # Send via NED: the daemon pipes the finished message to
+            # msmtp, saves the sent copy, and indexes it. The desktop
+            # config carries no mail settings — msmtp/sent_dir live in
+            # the daemon's ned config.
+            from .client import get_client
+            ok, msg_ = get_client().send_message(account, eml.as_bytes())
 
-            if sendmail.returncode == 0:
-                # Save to sent folder
-                if isinstance(settings.sent_dir, dict):
-                    sent_dir = settings.sent_dir[account]
-                else:
-                    sent_dir = settings.sent_dir
-                if sent_dir is not None:
-                    try:
-                        m = mailbox.MaildirMessage(eml.as_bytes())
-                        m.set_flags('S')
-                        mailbox.Maildir(sent_dir).add(m)
-                    except OSError as e:
-                        logger.warning('Failed to save sent mail to %s: %s', sent_dir, e)
-
-                # The notmuch index is owned by the NED daemon: ask it to
-                # pick up the new sent file and tag the replied original.
-                from .client import get_client
-                client = get_client()
-                try:
-                    client.index_new()
-                except Exception as e:
-                    logger.warning('NED index after send failed: %s', e)
-
+            if ok:
                 if ((self.panel.mode == 'reply' or
                      self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
                     try:
-                        client.modify_tags(
+                        get_client().modify_tags(
                             f'id:{self.panel.msg["id"]}', add=['replied'])
                     except Exception as e:
                         logger.warning('NED +replied tag failed: %s', e)
+                self.send_error = ''
                 self.send_success = True
             else:
-                err = (stderr or '').strip()[:300]
-                self.send_error = f'msmtp exited {sendmail.returncode}'
-                if err:
-                    self.send_error += f': {err}'
+                self.send_error = msg_ or 'send failed'
                 self.send_success = False
-        except TimeoutExpired:
-            self.send_error = 'timed out after 30s'
-            logger.warning('msmtp timed out after 30s for account %s', account)
         except pgp_util.GpgError as e:
             self.send_error = f'GPG error: {e}'
         except Exception as e:

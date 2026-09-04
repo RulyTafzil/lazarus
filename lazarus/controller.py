@@ -651,9 +651,6 @@ class AppController(QObject):
             self._ned_stop_event.set()
         if self._ned_watcher_thread is not None and self._ned_watcher_thread.is_alive():
             self._ned_watcher_thread.join(timeout=0.5)
-        timer = getattr(self.app, 'sync_timer', None)
-        if timer is not None and timer.isActive():
-            timer.stop()
         thread = getattr(self.app, 'sync_thread', None)
         if thread is not None and thread.isRunning():
             thread.stop()

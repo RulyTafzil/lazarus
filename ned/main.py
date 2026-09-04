@@ -73,8 +73,8 @@ def main() -> int:
     parser.add_argument(
         "--sync-interval",
         type=int,
-        default=0,
-        help="Periodic background sync interval in seconds (default: 0 = disabled)",
+        default=None,
+        help="Periodic background sync interval in seconds (default: settings.sync_mail_interval; -1 disables)",
     )
     parser.add_argument(
         "--log-level",
@@ -129,12 +129,20 @@ def main() -> int:
 
     port = args.port or getattr(settings, "web_port", 8080)
 
+    # Background sync scheduler: CLI flag wins, otherwise follow the NED
+    # config (settings.sync_mail_interval; -1 disables). The desktop no
+    # longer runs its own sync timer — the daemon owns periodic sync.
+    sync_interval = args.sync_interval
+    if sync_interval is None:
+        cfg_interval = getattr(settings, "sync_mail_interval", 300)
+        sync_interval = cfg_interval if cfg_interval and cfg_interval > 0 else None
+
     daemon = NedDaemon(
         socket_path=args.socket,
         tcp_host=host,
         tcp_port=port,
         enable_tcp=not args.no_tcp,
-        sync_interval_seconds=args.sync_interval,
+        sync_interval_seconds=sync_interval,
     )
 
     def _shutdown_handler(sig: int, frame: object) -> None:

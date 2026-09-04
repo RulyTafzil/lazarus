@@ -254,7 +254,8 @@ Rules execute automatically following each sync cycle, scoped by `filter_scope_q
 
 ## Multiple accounts
 
-Configure multiple accounts in **NED** config (`~/.config/ned/config.py`):
+Configure multiple accounts in the **NED** config (`~/.config/ned/config.py`) —
+the desktop compose discovers them via the API:
 
 ```python
 ned.settings.smtp_accounts = ['personal', 'work']
@@ -267,10 +268,6 @@ ned.settings.sent_dir = {
     'work': '~/Mail/work/Sent',
 }
 ```
-
-> The desktop GUI composes/sends locally and reads its own
-> `~/.config/lazarus/config.py` — mirror the same `smtp_accounts`,
-> `email_address`, `sent_dir` there when using the desktop's compose panel.
 
 In the compose panel, press `[` and `]` to cycle between active sender accounts.
 
