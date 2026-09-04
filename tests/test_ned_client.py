@@ -212,7 +212,7 @@ def test_ping_and_health_unix(running_ned_unix):
     assert health.get("service") == "ned"
 
 
-@patch("lazarus.server.service.search_threads")
+@patch("lazarus.core.service.search_threads")
 def test_search(mock_search, running_ned_unix):
     """Test search endpoint returns thread list."""
     _, sock_path = running_ned_unix
@@ -228,7 +228,7 @@ def test_search(mock_search, running_ned_unix):
     mock_search.assert_called_with("tag:inbox", limit=10, offset=0)
 
 
-@patch("lazarus.server.service.get_thread_messages")
+@patch("lazarus.core.service.get_thread_messages")
 def test_get_thread(mock_get_thread, running_ned_unix):
     """Test get_thread returns thread data or 404."""
     _, sock_path = running_ned_unix
@@ -248,7 +248,7 @@ def test_get_thread(mock_get_thread, running_ned_unix):
     assert exc_info.value.status == 404
 
 
-@patch("lazarus.server.service.get_part_data")
+@patch("lazarus.core.service.get_part_data")
 def test_get_part_and_part_data(mock_get_part, running_ned_unix):
     """Test downloading message parts and attachments."""
     _, sock_path = running_ned_unix
@@ -264,7 +264,7 @@ def test_get_part_and_part_data(mock_get_part, running_ned_unix):
     assert filename == "document.pdf"
 
 
-@patch("lazarus.server.service.modify_tags")
+@patch("lazarus.core.service.modify_tags")
 def test_modify_tags(mock_tags, running_ned_unix):
     """Test modifying tags."""
     _, sock_path = running_ned_unix
@@ -276,11 +276,11 @@ def test_modify_tags(mock_tags, running_ned_unix):
     mock_tags.assert_called_with(["thread:123"], add_tags=["unread"], remove_tags=["inbox"])
 
 
-@patch("lazarus.server.service.archive_thread")
-@patch("lazarus.server.service.unarchive_thread")
-@patch("lazarus.server.service.trash_thread")
-@patch("lazarus.server.service.untrash_thread")
-@patch("lazarus.server.service.toggle_flag")
+@patch("lazarus.core.service.archive_thread")
+@patch("lazarus.core.service.unarchive_thread")
+@patch("lazarus.core.service.trash_thread")
+@patch("lazarus.core.service.untrash_thread")
+@patch("lazarus.core.service.toggle_flag")
 def test_thread_actions(
     mock_star, mock_untrash, mock_trash, mock_unarchive, mock_archive, running_ned_unix
 ):
@@ -311,10 +311,10 @@ def test_thread_actions(
     mock_star.assert_called_with("t1", flag=False)
 
 
-@patch("lazarus.server.service.get_all_tags")
-@patch("lazarus.server.service.get_contacts")
-@patch("lazarus.server.service.get_reply_seed")
-@patch("lazarus.server.service.get_signatures")
+@patch("lazarus.core.service.get_all_tags")
+@patch("lazarus.core.service.get_contacts")
+@patch("lazarus.core.service.get_reply_seed")
+@patch("lazarus.core.service.get_signatures")
 def test_metadata_queries(
     mock_sigs, mock_reply, mock_contacts, mock_tags, running_ned_unix
 ):
@@ -344,7 +344,7 @@ def test_metadata_queries(
     assert isinstance(accounts, list)
 
 
-@patch("lazarus.server.service.send_email")
+@patch("lazarus.core.service.send_email")
 def test_send_email_json_and_multipart(mock_send, running_ned_unix):
     """Test sending plain email via JSON and email with attachments via multipart."""
     _, sock_path = running_ned_unix
@@ -382,7 +382,7 @@ def test_send_email_json_and_multipart(mock_send, running_ned_unix):
     assert called_att[0][2] == b"Sample data"
 
 
-@patch("lazarus.server.service.sync_mail")
+@patch("lazarus.core.service.sync_mail")
 def test_sync_mail(mock_sync, running_ned_unix):
     """Test mail synchronization."""
     _, sock_path = running_ned_unix
@@ -488,7 +488,7 @@ def test_cli_ping_and_health(running_ned_unix, capsys):
     assert '"status": "ok"' in out
 
 
-@patch("lazarus.server.service.get_all_tags")
+@patch("lazarus.core.service.get_all_tags")
 def test_cli_tags(mock_tags, running_ned_unix, capsys):
     """Test CLI tags command."""
     _, sock_path = running_ned_unix
