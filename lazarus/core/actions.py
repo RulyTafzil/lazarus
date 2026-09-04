@@ -105,6 +105,47 @@ class _BulkMoveWorker(threading.Thread):
             time.sleep(0.01)
         return False
 
+    def _try_move(self, src: str, dst: str) -> None:
+        """Move ``src`` → ``dst``, tolerating renames that land after planning.
+
+        The queue can hold a batch for a moment after ``move_to_trash`` /
+        ``move_to_archive`` plan it, and in that window the source path can
+        go stale: notmuch (``maildir.synchronize_flags``) renames files when
+        tags change the Maildir flags, and a concurrent mbsync rewrites
+        ``,U=`` annotations / flags. Renaming a stale path silently loses
+        the move — the message stays in its folder with the tag applied.
+
+        So on a missing source we follow the file by its stem (same dir +
+        cur/new sibling, see ``_resolve_stale_path``) and re-derive the
+        destination basename from the resolved name so the final Maildir
+        flags match.
+        """
+        if not os.path.exists(src):
+            resolved = _resolve_stale_path(src)
+            if resolved is None or resolved == src:
+                logger.debug('skip (already moved): %s', os.path.basename(src))
+                return
+            src = resolved
+            dst = _unique_dest(os.path.join(
+                os.path.dirname(dst),
+                _strip_uid_annotation(os.path.basename(resolved))))
+        try:
+            os.rename(src, dst)
+        except OSError as e:
+            # Second chance: renamed between the existence check and the
+            # syscall (narrow race with flag-sync / mbsync).
+            resolved = _resolve_stale_path(src)
+            if resolved is not None and resolved != src and os.path.exists(resolved):
+                try:
+                    os.rename(resolved, _unique_dest(os.path.join(
+                        os.path.dirname(dst),
+                        _strip_uid_annotation(os.path.basename(resolved)))))
+                    return
+                except OSError as e2:
+                    logger.warning('move failed: %s → %s: %s', resolved, dst, e2)
+                    return
+            logger.warning('move failed: %s → %s: %s', src, dst, e)
+
     def run(self) -> None:
         while True:
             item = self.queue.get()
@@ -129,13 +170,7 @@ class _BulkMoveWorker(threading.Thread):
             if not isinstance(item, tuple):
                 continue
             src, dst = item
-            if not os.path.exists(src):
-                logger.debug('skip (already moved): %s', src)
-                continue
-            try:
-                os.rename(src, dst)
-            except OSError as e:
-                logger.warning('move failed: %s → %s: %s', src, dst, e)
+            self._try_move(src, dst)
 
 
 # Singleton worker, started on first use and kept alive for the session.
@@ -251,12 +286,20 @@ def _unique_dest(path: str) -> str:
 
 
 def _resolve_stale_path(f: str) -> Optional[str]:
-    """Resolve a file path that may have changed flags or directory."""
+    """Resolve a file path that may have changed flags or directory.
+
+    Message identity is the maildir *stem* (the name before ``:2,``):
+    read/flag renames (``:2,S``… a notmuch ``maildir.synchronize_flags``
+    side effect) and ``new/``↔``cur/`` moves preserve it.  We compare
+    stems for *exact equality* — never a prefix — so a match is always
+    the same message (unique names are unique per maildir), and a
+    different stem means the file is gone (return ``None``: skip the
+    move, never guess).
+    """
     if os.path.exists(f):
         return f
     parent = os.path.dirname(f)
-    stem = os.path.basename(f)
-    stem_base = stem.rsplit(':2,', 1)[0] if ':2,' in stem else stem
+    stem_base = _stem_of(os.path.basename(f))
 
     candidates = [parent]
     if os.path.basename(parent) in ('new', 'cur'):
@@ -269,11 +312,16 @@ def _resolve_stale_path(f: str) -> Optional[str]:
     for directory in candidates:
         try:
             for entry in os.listdir(directory):
-                if entry.startswith(stem_base):
+                if _stem_of(entry) == stem_base:
                     return os.path.join(directory, entry)
         except OSError:
             pass
     return None
+
+
+def _stem_of(filename: str) -> str:
+    """Maildir stem: the unique name without the ``:2,`` flag suffix."""
+    return filename.rsplit(':2,', 1)[0] if ':2,' in filename else filename
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +460,14 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
         if not _is_trash_path(f):
             logger.debug('expunge: not in trash folder: %s', f)
             continue
+
+        # Re-resolve right before the rename: the collect above may be a
+        # beat old, and mbsync / flag-sync can rename the file meanwhile.
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('expunge: file gone: %s', os.path.basename(f))
+            continue
+        f = resolved
 
         dirname = os.path.dirname(f)
         basename = os.path.basename(f)

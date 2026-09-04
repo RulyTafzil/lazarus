@@ -136,3 +136,48 @@ def test_move_to_trash_resolves_mbsync_flag_rename(notmuch_stub, maildir):
     trash = os.path.join(maildir, 'default', 'Trash', 'cur')
     assert _wait_until(lambda: any('msg-42' in f for f in os.listdir(trash)))
     assert not os.path.exists(actual)
+
+
+def test_worker_resolves_rename_after_planning(maildir):
+    """A filename change that lands AFTER planning must not lose the move.
+
+    The queue can hold a batch for a moment; notmuch flag-sync or a
+    concurrent mbsync may rename the source in that window. The worker
+    must follow the file by stem and move it anyway (regression for the
+    NED daemon path where the tag lands but the file stays in INBOX).
+    """
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    trash_cur = os.path.join(maildir, 'default', 'Trash', 'cur')
+    src = _write(os.path.join(cur, 'msg-7,U=11:2,S'))
+    moves = actions.plan_trash_moves([src], maildir)
+    assert moves == [(src, os.path.join(trash_cur, 'msg-7:2,S'))]
+
+    # External renamer strikes AFTER planning, BEFORE the worker runs.
+    renamed = os.path.join(cur, 'msg-7,U=11:2,FS')
+    os.rename(src, renamed)
+
+    from lazarus.core import actions as core_actions
+    core_actions.get_worker().enqueue(moves)
+    assert _wait_until(lambda: any('msg-7' in f for f in os.listdir(trash_cur)))
+    # Moved with the CURRENT flags, and nothing left in INBOX.
+    assert os.path.exists(os.path.join(trash_cur, 'msg-7:2,FS'))
+    assert not os.path.exists(renamed)
+
+
+def test_resolve_stale_path_exact_stem_no_wrong_file(maildir, tmp_path):
+    """Stale-path resolution matches the stem EXACTLY — never a prefix.
+
+    A flag-change rename is the same message (`m-plain:2,RS` -> the file
+    `m-plain:2,S` still present); a prefix-sharing sibling with a longer
+    name is a different message and must NOT be claimed.
+    """
+    from lazarus.core.actions import _resolve_stale_path as rsp
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    _write(os.path.join(cur, 'm-plain:2,S'))
+    _write(os.path.join(cur, 'm-plain_extra:2,S'))   # different message
+
+    assert rsp(os.path.join(cur, 'm-plain:2,RS')) == os.path.join(cur, 'm-plain:2,S')
+    # Intended file gone; only the prefix sibling (wrong file!) exists.
+    assert rsp(os.path.join(cur, 'm-plain_extra:2,RS')) == os.path.join(cur, 'm-plain_extra:2,S')
+    # A distinct stem with only a prefix-sharing unrelated file -> gone.
+    assert rsp(os.path.join(cur, 'm-plainX:2,RS')) is None
