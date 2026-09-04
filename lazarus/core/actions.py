@@ -461,6 +461,14 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
             logger.debug('expunge: not in trash folder: %s', f)
             continue
 
+        # Re-resolve right before the rename: the collect above may be a
+        # beat old, and mbsync / flag-sync can rename the file meanwhile.
+        resolved = _resolve_stale_path(f)
+        if resolved is None:
+            logger.debug('expunge: file gone: %s', os.path.basename(f))
+            continue
+        f = resolved
+
         dirname = os.path.dirname(f)
         basename = os.path.basename(f)
 
