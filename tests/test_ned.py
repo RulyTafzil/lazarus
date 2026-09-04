@@ -424,7 +424,7 @@ def test_ned_openapi_and_canonical_routes(tmp_path, monkeypatch):
 
 
 def test_modify_tags_query_handling(monkeypatch):
-    """modify_tags preserves queries (with colons, spaces, parens, or *) and formats IDs."""
+    """modify_tags preserves queries as raw Notmuch queries and explicitly formats threads and messages."""
     import subprocess
     from ned import notmuch, service
 
@@ -437,33 +437,116 @@ def test_modify_tags_query_handling(monkeypatch):
     monkeypatch.setattr(notmuch, "tag", mock_tag)
 
     # Marked batch query (regression test for t m)
-    service.modify_tags(["tag:marked AND (tag:inbox)"], add_tags=["work"], remove_tags=["marked"])
+    service.modify_tags(queries=["tag:marked AND (tag:inbox)"], add_tags=["work"], remove_tags=["marked"])
     assert captured[-1] == ("+work -marked", "tag:marked AND (tag:inbox)")
 
     # Single tag query
-    service.modify_tags(["tag:unread"], add_tags=["todo"], remove_tags=[])
+    service.modify_tags(queries=["tag:unread"], add_tags=["todo"], remove_tags=[])
     assert captured[-1] == ("+todo", "tag:unread")
 
-    # Raw 16-hex thread ID
-    service.modify_tags(["0000000000001234"], add_tags=["flagged"], remove_tags=[])
-    assert captured[-1] == ("+flagged", "thread:0000000000001234")
-
-    # Already prefixed thread query
-    service.modify_tags(["thread:0000000000001234"], add_tags=["flagged"], remove_tags=[])
-    assert captured[-1] == ("+flagged", "thread:0000000000001234")
-
-    # Raw message ID
-    service.modify_tags(["abc@example.com"], add_tags=["replied"], remove_tags=[])
-    assert captured[-1] == ("+replied", "id:abc@example.com")
-
-    # Angle bracket message ID
-    service.modify_tags(["<abc@example.com>"], add_tags=["replied"], remove_tags=[])
-    assert captured[-1] == ("+replied", "id:abc@example.com")
-
     # Wildcard query
-    service.modify_tags(["*"], add_tags=["archive"], remove_tags=[])
+    service.modify_tags(queries=["*"], add_tags=["archive"], remove_tags=[])
     assert captured[-1] == ("+archive", "*")
 
     # Multiple queries joined with or
-    service.modify_tags(["tag:marked", "tag:todo"], add_tags=["urgent"], remove_tags=[])
+    service.modify_tags(queries=["tag:marked", "tag:todo"], add_tags=["urgent"], remove_tags=[])
     assert captured[-1] == ("+urgent", "tag:marked or tag:todo")
+
+    # Explicit threads
+    service.modify_tags(threads=["0000000000001234"], add_tags=["flagged"], remove_tags=[])
+    assert captured[-1] == ("+flagged", "thread:0000000000001234")
+
+    # Already prefixed thread query in threads list
+    service.modify_tags(threads=["thread:0000000000001234"], add_tags=["flagged"], remove_tags=[])
+    assert captured[-1] == ("+flagged", "thread:0000000000001234")
+
+    # Explicit messages (raw and angle-bracketed)
+    service.modify_tags(messages=["abc@example.com"], add_tags=["replied"], remove_tags=[])
+    assert captured[-1] == ("+replied", "id:abc@example.com")
+
+    service.modify_tags(messages=["<abc@example.com>"], add_tags=["replied"], remove_tags=[])
+    assert captured[-1] == ("+replied", "id:abc@example.com")
+
+    # Legacy ids compatibility parameter
+    service.modify_tags(ids=["thread:0000000000001234", "<msg1@host>"], add_tags=["read"], remove_tags=[])
+    assert captured[-1] == ("+read", "thread:0000000000001234 or id:msg1@host")
+
+
+def test_ned_tag_endpoints(tmp_path, monkeypatch):
+    """Test POST /api/v1/tags, POST /api/v1/threads/{id}/tags, and POST /api/v1/messages/{id}/tags."""
+    from ned import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+
+    calls: list[dict] = []
+
+    def mock_service_modify(queries=(), add_tags=(), remove_tags=(), *, threads=(), messages=(), ids=()):
+        calls.append({
+            "queries": list(queries),
+            "threads": list(threads),
+            "messages": list(messages),
+            "ids": list(ids),
+            "add": list(add_tags),
+            "remove": list(remove_tags),
+        })
+        return True
+
+    monkeypatch.setattr(service, "modify_tags", mock_service_modify)
+
+    try:
+        conn = UnixHTTPConnection(sock_path)
+
+        # 1. POST /api/v1/tags with queries, threads, and messages
+        payload = json.dumps({
+            "queries": ["tag:unread"],
+            "threads": ["0000000000001234"],
+            "messages": ["m1@example.com"],
+            "add": ["reviewed"],
+            "remove": ["unread"],
+        })
+        conn.request("POST", "/api/v1/tags", body=payload, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        assert json.loads(resp.read().decode("utf-8")) == {"status": "ok", "ok": True}
+        assert calls[-1] == {
+            "queries": ["tag:unread"],
+            "threads": ["0000000000001234"],
+            "messages": ["m1@example.com"],
+            "ids": [],
+            "add": ["reviewed"],
+            "remove": ["unread"],
+        }
+
+        # 2. POST /api/v1/threads/{id}/tags
+        t_payload = json.dumps({"add": ["flagged"], "remove": ["unread"]})
+        conn.request("POST", "/api/v1/threads/0000000000001234/tags", body=t_payload,
+                     headers={"Content-Type": "application/json"})
+        resp2 = conn.getresponse()
+        assert resp2.status == 200
+        assert json.loads(resp2.read().decode("utf-8")) == {"status": "ok", "ok": True}
+        assert calls[-1]["threads"] == ["0000000000001234"]
+        assert calls[-1]["add"] == ["flagged"]
+        assert calls[-1]["remove"] == ["unread"]
+
+        # 3. POST /api/v1/messages/{id}/tags
+        m_payload = json.dumps({"add": ["replied"], "remove": []})
+        conn.request("POST", "/api/v1/messages/msg-123/tags", body=m_payload,
+                     headers={"Content-Type": "application/json"})
+        resp3 = conn.getresponse()
+        assert resp3.status == 200
+        assert json.loads(resp3.read().decode("utf-8")) == {"status": "ok", "ok": True}
+        assert calls[-1]["messages"] == ["msg-123"]
+        assert calls[-1]["add"] == ["replied"]
+        assert calls[-1]["remove"] == []
+
+        # 4. Error response when missing tags
+        conn.request("POST", "/api/v1/threads/t1/tags", body=json.dumps({}),
+                     headers={"Content-Type": "application/json"})
+        resp_err = conn.getresponse()
+        assert resp_err.status == 400
+
+        conn.close()
+    finally:
+        daemon.stop()

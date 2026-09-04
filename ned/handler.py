@@ -295,19 +295,37 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         # Tag modification
         if path == "/api/v1/tags":
             body = self._read_json_body()
-            queries = body.get("queries") or body.get("ids") or []
+            queries = body.get("queries")
+            threads = body.get("threads")
+            messages = body.get("messages")
             query = body.get("query")
-            if query and not queries:
+            ids = body.get("ids")
+            if not queries and query:
                 queries = [query]
             if isinstance(queries, str):
                 queries = [queries]
+            if isinstance(threads, str):
+                threads = [threads]
+            if isinstance(messages, str):
+                messages = [messages]
+            if not queries and not threads and not messages and ids:
+                queries = ids if isinstance(ids, list) else [ids]
             add_tags = body.get("add", [])
             remove_tags = body.get("remove", [])
-            if not queries or (not add_tags and not remove_tags):
-                self.send_error_json("queries and add/remove tags required")
+            if not queries and not threads and not messages:
+                self.send_error_json("queries, threads, or messages required")
+                return
+            if not add_tags and not remove_tags:
+                self.send_error_json("add or remove tags required")
                 return
             with mutation_lock:
-                ok = service.modify_tags(queries, add_tags=add_tags, remove_tags=remove_tags)
+                ok = service.modify_tags(
+                    queries=queries or [],
+                    threads=threads or [],
+                    messages=messages or [],
+                    add_tags=add_tags,
+                    remove_tags=remove_tags,
+                )
             if ok:
                 broadcaster.broadcast_invalidate("threads", reason="tag")
                 self.send_json({"status": "ok", "ok": True})
@@ -441,6 +459,45 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"status": "ok", "starred": flag, "ok": True})
             else:
                 self.send_error_json("Failed toggling flag", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        # Single thread tagging: /api/v1/threads/{id}/tags
+        m_thread_tags = re.match(r"^/api/v1/threads/([^/]+)/tags$", path)
+        if m_thread_tags:
+            thread_id = urllib.parse.unquote(m_thread_tags.group(1))
+            body = self._read_json_body()
+            add_tags = body.get("add", [])
+            remove_tags = body.get("remove", [])
+            if not add_tags and not remove_tags:
+                self.send_error_json("add or remove tags required")
+                return
+            with mutation_lock:
+                ok = service.modify_tags(threads=[thread_id], add_tags=add_tags, remove_tags=remove_tags)
+            if ok:
+                broadcaster.broadcast_invalidate("thread", thread_id, reason="tag")
+                broadcaster.broadcast_invalidate("threads", reason="tag")
+                self.send_json({"status": "ok", "ok": True})
+            else:
+                self.send_error_json("Failed modifying thread tags", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        # Single message tagging: /api/v1/messages/{id}/tags
+        m_msg_tags = re.match(r"^/api/v1/messages/([^/]+)/tags$", path)
+        if m_msg_tags:
+            msg_id = urllib.parse.unquote(m_msg_tags.group(1))
+            body = self._read_json_body()
+            add_tags = body.get("add", [])
+            remove_tags = body.get("remove", [])
+            if not add_tags and not remove_tags:
+                self.send_error_json("add or remove tags required")
+                return
+            with mutation_lock:
+                ok = service.modify_tags(messages=[msg_id], add_tags=add_tags, remove_tags=remove_tags)
+            if ok:
+                broadcaster.broadcast_invalidate("threads", reason="tag")
+                self.send_json({"status": "ok", "ok": True})
+            else:
+                self.send_error_json("Failed modifying message tags", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         # Expunge trash (irreversible: flags matching files with the Maildir T flag)

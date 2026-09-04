@@ -149,8 +149,8 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     # Mock service functions called by NED
     service_calls = []
 
-    def mock_modify_tags(queries, add_tags, remove_tags):
-        service_calls.append(("tag", queries, add_tags, remove_tags))
+    def mock_modify_tags(queries=(), add_tags=(), remove_tags=(), *, threads=(), messages=(), ids=()):
+        service_calls.append(("tag", list(queries), list(add_tags), list(remove_tags), list(threads), list(messages)))
         return True
 
     def mock_archive(q):
@@ -174,13 +174,13 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     panel.tag_thread("+starred -unread")
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 1
-    assert service_calls[-1] == ("tag", ["thread:0000000000001234"], ["starred"], ["unread"])
+    assert service_calls[-1] == ("tag", [], ["starred"], ["unread"], ["0000000000001234"], [])
 
     # Test archive single thread (tag-only: removes inbox, unread)
     panel.archive_thread()
     assert panel.app.updated_thread == "0000000000001234"
     assert len(service_calls) == 2
-    assert service_calls[-1] == ("tag", ["thread:0000000000001234"], [], ["inbox", "unread"])
+    assert service_calls[-1] == ("tag", [], [], ["inbox", "unread"], ["0000000000001234"], [])
 
     # Test archive to local single thread (file move)
     panel.archive_to_local()
@@ -208,11 +208,11 @@ def test_desktop_actions_via_ned(running_ned, monkeypatch):
     marked_panel = DummySearchPanel(marked=True)
     marked_panel.tag_thread("+reviewed", mode="tag marked")
     assert marked_panel.app.refreshed
-    assert service_calls[-1] == ("tag", ["tag:marked"], ["reviewed"], ["marked"])
+    assert service_calls[-1] == ("tag", ["tag:marked"], ["reviewed"], ["marked"], [], [])
     assert ("Tagged marked", "info") in marked_panel.app.messages
 
     marked_panel.archive_thread()
-    assert service_calls[-1] == ("tag", ["tag:marked"], [], ["inbox", "unread", "marked"])
+    assert service_calls[-1] == ("tag", ["tag:marked"], [], ["inbox", "unread", "marked"], [], [])
     assert ("Archived marked", "info") in marked_panel.app.messages
 
     marked_panel.archive_to_local()
@@ -296,14 +296,17 @@ def test_desktop_thread_model_via_ned(qapp, running_ned, monkeypatch):
 
     # Test tagging message via NED
     tag_calls = []
-    monkeypatch.setattr(
-        service, "modify_tags", lambda queries, add_tags, remove_tags: tag_calls.append((queries, add_tags, remove_tags)) or True
-    )
+
+    def mock_modify_tags(queries=(), add_tags=(), remove_tags=(), *, threads=(), messages=(), ids=()):
+        tag_calls.append((list(queries), list(add_tags), list(remove_tags), list(messages)))
+        return True
+
+    monkeypatch.setattr(service, "modify_tags", mock_modify_tags)
 
     idx = model.index(0, 0, QModelIndex())
     model.tag_message(idx, "+starred -unread")
     assert len(tag_calls) == 1
-    assert tag_calls[0] == (["id:msg-123"], ["starred"], ["unread"])
+    assert tag_calls[0] == ([], ["starred"], ["unread"], ["msg-123"])
     assert "starred" in model.message_at(idx)["tags"]
     assert "unread" not in model.message_at(idx)["tags"]
 

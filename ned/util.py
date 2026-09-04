@@ -43,6 +43,32 @@ from typing import List, Tuple, Dict, Optional
 
 from . import settings
 
+__all__ = [
+    "w3m_html2text",
+    "linkify",
+    "html2html",
+    "html2text",
+    "html_to_plain",
+    "simple_escape",
+    "decode_header",
+    "colorize_text",
+    "message_parts",
+    "is_attachment",
+    "find_content",
+    "body_text",
+    "body_html",
+    "quote_body_text",
+    "sanitize_filename",
+    "write_attachments",
+    "get_header_addresses",
+    "strip_email_address",
+    "email_is_me",
+    "email_smtp_account_index",
+    "chop_s",
+    "separate_headers",
+    "wrap_message",
+]
+
 
 # -- re-exports from split modules (backward compat) ----------------------
 # Prefer importing from the owning module directly in new code; these

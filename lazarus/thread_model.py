@@ -316,7 +316,7 @@ class ThreadModel(QAbstractItemModel):
         from .client import get_client
         add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
         remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
-        get_client().modify_tags(f'id:{msg_id}', add=add_tags, remove=remove_tags)
+        get_client().modify_message_tags(msg_id, add=add_tags, remove=remove_tags)
         if 'tags' in m:
             tset = set(m['tags'])
             for t in tag_expr.split():

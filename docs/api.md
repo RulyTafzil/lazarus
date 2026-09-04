@@ -118,11 +118,27 @@ includes the quoted original and, when `use_signature`, the signature).
 
 ### Mutations (serialized by the daemon's mutation lock)
 
-#### `POST /api/v1/tags` — modify tags
+#### `POST /api/v1/tags` — modify tags on queries, threads, or messages
 ```json
-{ "queries": ["thread:0000…", "tag:unread"], "add": ["replied"], "remove": [] }
+{
+  "queries": ["tag:marked AND (tag:inbox)", "tag:unread"],
+  "threads": ["0000000000001234"],
+  "messages": ["msgid@example.com"],
+  "add": ["reviewed"],
+  "remove": ["marked"]
+}
 ```
-Legacy input forms `ids: [...]` and `query: "<single query>"` are still accepted.
+Accepts optional `queries`, `threads`, and `messages` arrays. At least one target must be provided along with at least one tag in `add` or `remove`. Every item in `queries` is treated strictly as an unparsed Notmuch query. Legacy input forms `ids: [...]` and `query: "<single query>"` are still accepted.
+
+#### `POST /api/v1/threads/{id}/tags` — modify tags on a single thread
+```json
+{ "add": ["reviewed"], "remove": ["unread"] }
+```
+
+#### `POST /api/v1/messages/{id}/tags` — modify tags on a single message
+```json
+{ "add": ["replied"], "remove": [] }
+```
 
 #### `POST /api/v1/threads/{id}/archive|trash|unarchive|untrash`
 | Action | Effect |

@@ -266,14 +266,55 @@ def test_get_part_and_part_data(mock_get_part, running_ned_unix):
 
 @patch("ned.service.modify_tags")
 def test_modify_tags(mock_tags, running_ned_unix):
-    """Test modifying tags."""
+    """Test modifying tags via queries, threads, or messages."""
     _, sock_path = running_ned_unix
     mock_tags.return_value = True
 
     client = NedClient.unix(sock_path)
     ok = client.modify_tags("thread:123", add=["unread"], remove=["inbox"])
     assert ok is True
-    mock_tags.assert_called_with(["thread:123"], add_tags=["unread"], remove_tags=["inbox"])
+    mock_tags.assert_called_with(
+        queries=["thread:123"],
+        threads=[],
+        messages=[],
+        add_tags=["unread"],
+        remove_tags=["inbox"],
+    )
+
+    # Test explicit threads and messages lists
+    ok = client.modify_tags(threads=["t1"], messages=["m1"], add=["reviewed"])
+    assert ok is True
+    mock_tags.assert_called_with(
+        queries=[],
+        threads=["t1"],
+        messages=["m1"],
+        add_tags=["reviewed"],
+        remove_tags=[],
+    )
+
+
+@patch("ned.service.modify_tags")
+def test_modify_thread_and_message_tags(mock_tags, running_ned_unix):
+    """Test dedicated single thread and single message tag endpoints."""
+    _, sock_path = running_ned_unix
+    mock_tags.return_value = True
+
+    client = NedClient.unix(sock_path)
+    ok = client.modify_thread_tags("thread:t100", add=["flagged"], remove=["unread"])
+    assert ok is True
+    mock_tags.assert_called_with(
+        threads=["t100"],
+        add_tags=["flagged"],
+        remove_tags=["unread"],
+    )
+
+    ok = client.modify_message_tags("msg<id1>@host", add=["replied"], remove=[])
+    assert ok is True
+    mock_tags.assert_called_with(
+        messages=["msg<id1>@host"],
+        add_tags=["replied"],
+        remove_tags=[],
+    )
 
 
 @patch("ned.service.archive_thread")

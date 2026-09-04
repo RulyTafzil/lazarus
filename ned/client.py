@@ -464,24 +464,73 @@ class NedClient:
 
     def modify_tags(
         self,
-        queries: Union[list[str], str],
+        queries: Union[Sequence[str], str] = (),
         add: Optional[Sequence[str]] = None,
         remove: Optional[Sequence[str]] = None,
         *,
+        threads: Optional[Union[Sequence[str], str]] = None,
+        messages: Optional[Union[Sequence[str], str]] = None,
         add_tags: Optional[Sequence[str]] = None,
         remove_tags: Optional[Sequence[str]] = None,
     ) -> bool:
-        """Add or remove tags matching one or more queries."""
-        q_list = [queries] if isinstance(queries, str) else list(queries)
+        """Add or remove tags matching queries, threads, or messages."""
+        q_list = [queries] if isinstance(queries, str) else list(queries or [])
+        t_list = [threads] if isinstance(threads, str) else list(threads or [])
+        m_list = [messages] if isinstance(messages, str) else list(messages or [])
         final_add = list(add or add_tags or [])
         final_remove = list(remove or remove_tags or [])
 
-        payload = {
-            "queries": q_list,
+        payload: dict[str, Any] = {
             "add": final_add,
             "remove": final_remove,
         }
+        if q_list:
+            payload["queries"] = q_list
+        if t_list:
+            payload["threads"] = t_list
+        if m_list:
+            payload["messages"] = m_list
         res = self._request_json("POST", "/api/v1/tags", json_body=payload)
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def modify_thread_tags(
+        self,
+        thread_id: str,
+        add: Optional[Sequence[str]] = None,
+        remove: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Modify tags on a single thread via POST /api/v1/threads/{id}/tags."""
+        clean_id = urllib.parse.unquote(thread_id).removeprefix("thread:")
+        payload = {
+            "add": list(add or []),
+            "remove": list(remove or []),
+        }
+        res = self._request_json(
+            "POST",
+            f"/api/v1/threads/{urllib.parse.quote(clean_id, safe='')}/tags",
+            json_body=payload,
+        )
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
+
+    def modify_message_tags(
+        self,
+        message_id: str,
+        add: Optional[Sequence[str]] = None,
+        remove: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Modify tags on a single message via POST /api/v1/messages/{id}/tags."""
+        clean_id = urllib.parse.unquote(message_id).removeprefix("id:")
+        if clean_id.startswith("<") and clean_id.endswith(">"):
+            clean_id = clean_id[1:-1]
+        payload = {
+            "add": list(add or []),
+            "remove": list(remove or []),
+        }
+        res = self._request_json(
+            "POST",
+            f"/api/v1/messages/{urllib.parse.quote(clean_id, safe='')}/tags",
+            json_body=payload,
+        )
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 
     def search_messages(

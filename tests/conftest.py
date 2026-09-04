@@ -180,6 +180,8 @@ class ClientStub:
         self.thread_trees: dict[str, list] = {}  # thread_id -> tree
         self.search_calls: list[str] = []
         self.modify_tags_calls: list[tuple] = []
+        self.modify_thread_tags_calls: list[tuple] = []
+        self.modify_message_tags_calls: list[tuple] = []
         self.trash_calls: list[str] = []
         self.untrash_calls: list[str] = []
         self.archive_calls: list[str] = []
@@ -243,9 +245,29 @@ class ClientStub:
     def get_part(self, msg_id: str, part_id: int) -> bytes:
         return b'stub-part'
 
-    def modify_tags(self, queries, add=None, remove=None) -> bool:
-        q_list = [queries] if isinstance(queries, str) else list(queries)
-        self.modify_tags_calls.append((q_list, list(add or []), list(remove or [])))
+    def modify_tags(
+        self,
+        queries=(),
+        add=None,
+        remove=None,
+        *,
+        threads=None,
+        messages=None,
+        add_tags=None,
+        remove_tags=None,
+    ) -> bool:
+        q_list = [queries] if isinstance(queries, str) else list(queries or [])
+        final_add = list(add or add_tags or [])
+        final_remove = list(remove or remove_tags or [])
+        self.modify_tags_calls.append((q_list, final_add, final_remove))
+        return True
+
+    def modify_thread_tags(self, thread_id: str, add=None, remove=None) -> bool:
+        self.modify_thread_tags_calls.append((thread_id, list(add or []), list(remove or [])))
+        return True
+
+    def modify_message_tags(self, message_id: str, add=None, remove=None) -> bool:
+        self.modify_message_tags_calls.append((message_id, list(add or []), list(remove or [])))
         return True
 
     def archive_thread(self, thread_or_query) -> bool:

@@ -155,7 +155,7 @@ class MarkableActionsMixin:
             remove_tags = list(remove_tags)
             if 'marked' not in add_tags and 'marked' not in remove_tags:
                 remove_tags.append('marked')
-            ok = client.modify_tags(self._marked_query(), add=add_tags, remove=remove_tags)
+            ok = client.modify_tags(queries=[self._marked_query()], add=add_tags, remove=remove_tags)
             if not ok:
                 self.app.status_message('Tag error', 'error')
                 return
@@ -165,7 +165,7 @@ class MarkableActionsMixin:
             thread_id = self._current_thread_id()
             if not thread_id:
                 return
-            ok = client.modify_tags(f'thread:{thread_id}', add=add_tags, remove=remove_tags)
+            ok = client.modify_thread_tags(thread_id, add=add_tags, remove=remove_tags)
             if not ok:
                 self.app.status_message('Tag error', 'error')
                 return
@@ -186,7 +186,7 @@ class MarkableActionsMixin:
         client = get_client()
         if self._has_marked_threads():
             marked_query = self._marked_query()
-            ok = client.modify_tags(marked_query, remove=['inbox', 'unread', 'marked'])
+            ok = client.modify_tags(queries=[marked_query], remove=['inbox', 'unread', 'marked'])
             if not ok:
                 self.app.status_message('Archive error', 'error')
                 return
@@ -206,7 +206,7 @@ class MarkableActionsMixin:
                 'warning')
             return
         self._advance_selection()
-        ok = client.modify_tags(f'thread:{thread_id}', remove=['inbox', 'unread'])
+        ok = client.modify_thread_tags(thread_id, remove=['inbox', 'unread'])
         if not ok:
             self.app.status_message('Archive error', 'error')
             return

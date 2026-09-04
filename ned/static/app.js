@@ -599,9 +599,9 @@
 
       // Auto-mark unread tag removed locally if present
       if (data.tags.includes('unread')) {
-        api('/api/tags', {
+        api(`/api/threads/${encodeURIComponent(threadId)}/tags`, {
           method: 'POST',
-          body: JSON.stringify({ ids: [`thread:${threadId}`], add: [], remove: ['unread'] })
+          body: JSON.stringify({ add: [], remove: ['unread'] })
         }).catch(() => {});
       }
     } catch (err) {
@@ -918,10 +918,9 @@
     if (toAdd.length === 0 && toRemove.length === 0) return;
 
     try {
-      await api('/api/tags', {
+      await api(`/api/threads/${encodeURIComponent(threadId)}/tags`, {
         method: 'POST',
         body: JSON.stringify({
-          ids: [`thread:${threadId}`],
           add: toAdd,
           remove: toRemove,
         })

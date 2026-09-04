@@ -111,8 +111,8 @@ class SendmailThread(QThread):
                      self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
                     try:
-                        get_client().modify_tags(
-                            f'id:{self.panel.msg["id"]}', add=['replied'])
+                        get_client().modify_message_tags(
+                            self.panel.msg["id"], add=['replied'])
                     except Exception as e:
                         logger.warning('NED +replied tag failed: %s', e)
                 self.send_error = ''

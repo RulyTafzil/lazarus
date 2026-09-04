@@ -175,6 +175,7 @@ def test_tag_bar_empty_expr_is_noop(ctl, mw, qapp, client_stub):
     ctl.tag_bar('tag')
     ctl.command_bar.accept()
     assert client_stub.modify_tags_calls == []
+    assert client_stub.modify_thread_tags_calls == []
 
 
 def test_tag_bar_typed_expr_dispatches(ctl, mw, qapp, client_stub):
@@ -183,8 +184,8 @@ def test_tag_bar_typed_expr_dispatches(ctl, mw, qapp, client_stub):
     ctl.tag_bar('tag')
     ctl.command_bar.setPlainText('+work')
     ctl.command_bar.accept()
-    assert len(client_stub.modify_tags_calls) == 1
-    assert client_stub.modify_tags_calls[0][1] == ['work']
+    assert len(client_stub.modify_thread_tags_calls) == 1
+    assert client_stub.modify_thread_tags_calls[0] == ('t1', ['work'], [])
 
 
 def test_tag_bar_marked_expr_dispatches(ctl, mw, qapp, client_stub):
@@ -204,7 +205,8 @@ def test_mark_and_advance(ctl, mw, qapp, client_stub):
     client_stub.threads = [make_thread('t1', 'A'), make_thread('t2', 'B')]
     ctl.open_search('tag:inbox')
     ctl.mark_and_advance()
-    assert client_stub.modify_tags_calls[0][1] == ['marked']
+    assert len(client_stub.modify_thread_tags_calls) == 1
+    assert client_stub.modify_thread_tags_calls[0] == ('t1', ['marked'], [])
     assert mw.tabs.currentWidget().tree.currentIndex().row() == 1
 
 
