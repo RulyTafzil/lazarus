@@ -33,8 +33,8 @@ import threading
 import time
 from typing import Callable, List, Optional, Set, Tuple
 
-from .. import notmuch
-from .. import settings
+from . import notmuch
+from . import settings
 
 logger = logging.getLogger(__name__)
 

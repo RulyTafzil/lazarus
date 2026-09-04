@@ -15,11 +15,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Lazarus. If not, see <https://www.gnu.org/licenses/>.
-"""Top-level standalone entry point for ned_client."""
+"""Top-level standalone entry point for the ``ned-client`` CLI."""
 
 import sys
-from lazarus.ned.client import *  # noqa: F401, F403
-from lazarus.ned.client import main
+
+from ned.client import *  # noqa: F401, F403
+from ned.client import main
 
 if __name__ == "__main__":
     sys.exit(main())

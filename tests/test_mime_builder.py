@@ -2,7 +2,7 @@
 import email
 import os
 
-from lazarus.mime_builder import ComposeData, build_message, _guess_mime
+from ned.mime_builder import ComposeData, build_message, _guess_mime
 
 
 def _data(**overrides) -> ComposeData:

@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 
-from .. import config, settings
+from . import config, settings
 from .daemon import NedDaemon, get_default_socket_path
 
 logger = logging.getLogger("ned")
@@ -82,8 +82,22 @@ def main() -> int:
         default="INFO",
         help="Log level (default: INFO)",
     )
+    parser.add_argument(
+        "--init-config",
+        action="store_true",
+        help="Generate ~/.config/ned/config.py from ~/.config/lazarus/config.py and exit",
+    )
 
     args = parser.parse_args()
+
+    if args.init_config:
+        try:
+            cfg_path = config.init_config()
+            print(f"Wrote NED config: {cfg_path} — review and edit it.")
+            return 0
+        except Exception as e:
+            print(f"Failed to init config: {e}", file=sys.stderr)
+            return 1
 
     # Configure logging
     logging.basicConfig(
@@ -91,9 +105,10 @@ def main() -> int:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    # Load configuration: search ned/config.py first, then lazarus/config.py
+    # Load configuration: NED is standalone and reads only ~/.config/ned/config.py.
+    # (The daemon does not follow the desktop's ~/.config/lazarus/config.py.)
     try:
-        cfg_path, _ = config.load_config(app_names=("ned", "lazarus"))
+        cfg_path = config.load_config()
         logger.info("Loaded configuration from %s", cfg_path)
     except Exception as e:
         logger.warning("Could not load configuration: %s", e)

@@ -34,7 +34,7 @@ def test_reply_seed_addresses_and_subject():
 
 
 def test_reply_seed_skips_self(monkeypatch):
-    monkeypatch.setattr('lazarus.compose_model.settings.email_address',
+    monkeypatch.setattr('ned.compose_model.settings.email_address',
                         'Bob <bob@example.com>')
     seed = build_reply_seed(_msg(), to_all=False)
     assert 'bob@example.com' not in seed.to_text

@@ -32,8 +32,8 @@ import socketserver
 import threading
 from typing import Optional
 
-from .. import settings
-from ..core import service
+from . import settings
+from . import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 from .handler import NedRequestHandler

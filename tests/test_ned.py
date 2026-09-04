@@ -5,10 +5,12 @@ import json
 import os
 import socket
 
-from lazarus.ned.concurrency import MutationLock
-from lazarus.ned.daemon import NedDaemon
-from lazarus.ned.events import EventBroadcaster, broadcaster
-from lazarus import settings
+import pytest
+
+from ned.concurrency import MutationLock
+from ned.daemon import NedDaemon
+from ned.events import EventBroadcaster, broadcaster
+from ned import settings
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -167,26 +169,32 @@ def test_ned_sse_events(tmp_path):
         daemon.stop()
 
 
-def test_ned_config_cascade(tmp_path, monkeypatch):
-    from lazarus.config import _config_path
+def test_ned_config_is_ned_only(tmp_path, monkeypatch):
+    """NED reads ~/.config/ned/config.py only — never the desktop's lazarus config."""
+    from ned.config import config_path, load_config, ConfigError
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    path, _ = _config_path(("ned", "lazarus"))
-    assert path is None
 
-    # Only lazarus exists -> loads lazarus
+    # Only the desktop config exists → NED must refuse to follow it.
     lazarus_dir = tmp_path / "lazarus"
     lazarus_dir.mkdir()
-    (lazarus_dir / "config.py").write_text("settings.web_port = 8081\n")
-    path, _ = _config_path(("ned", "lazarus"))
-    assert path == str(lazarus_dir / "config.py")
+    (lazarus_dir / "config.py").write_text("import lazarus\nsettings.web_port = 8081\n")
+    assert config_path() == str(tmp_path / "ned" / "config.py")
+    with pytest.raises(ConfigError):
+        load_config()
 
-    # Both exist -> ned takes priority
+    # A ned config is found and loaded (and lazarus' value is ignored).
     ned_dir = tmp_path / "ned"
     ned_dir.mkdir()
-    (ned_dir / "config.py").write_text("settings.web_port = 8082\n")
-    path, _ = _config_path(("ned", "lazarus"))
-    assert path == str(ned_dir / "config.py")
+    (ned_dir / "config.py").write_text(
+        "import ned.settings as settings\n"
+        "settings.email_address = 'Me <me@example.com>'\n"
+        "settings.smtp_accounts = ['default']\n"
+        "settings.sent_dir = '~/Mail/Sent'\n"
+        "settings.web_port = 8082\n"
+    )
+    assert load_config() == str(ned_dir / "config.py")
+    assert settings.web_port == 8082
 
 
 def test_ned_accounts_and_signatures(tmp_path, monkeypatch):
@@ -230,7 +238,7 @@ def test_ned_accounts_and_signatures(tmp_path, monkeypatch):
 
 
 def test_ned_get_part_attachment(tmp_path, monkeypatch):
-    from lazarus.core import service
+    from ned import service
 
     sock_path = str(tmp_path / "test_ned.sock")
     daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
@@ -271,8 +279,8 @@ def test_ned_include_html_on_thread_fetch(monkeypatch):
     body for HTML-only mail; that regression now lives in the daemon's
     fetch (``get_thread_messages``), so pin it at this layer.
     """
-    from lazarus.core import service as core_service
-    import lazarus.notmuch as nm
+    from ned import service as core_service
+    import ned.notmuch as nm
 
     calls: list = []
 
@@ -295,7 +303,7 @@ def test_ned_include_html_on_thread_fetch(monkeypatch):
 
 
 def test_ned_expunge_endpoint(tmp_path, monkeypatch):
-    from lazarus.core import service
+    from ned import service
 
     sock_path = str(tmp_path / "test_ned.sock")
     daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)

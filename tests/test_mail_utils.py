@@ -106,6 +106,7 @@ def test_wrap_message_keeps_quotes():
 
 def test_email_is_me(monkeypatch):
     import lazarus.settings as settings
+    # The desktop's utility surface is wired to see lazarus.settings.
     settings.email_address = 'Bob <bob@example.com>'
     assert util.email_is_me('bob@example.com')
     assert not util.email_is_me('alice@example.com')
@@ -146,6 +147,6 @@ def test_w3m_html2text(monkeypatch):
     def fake_run(*args, **kwargs):
         return FakeProc()
 
-    monkeypatch.setattr('lazarus.html_utils.subprocess.run', fake_run)
+    monkeypatch.setattr('ned.html_utils.subprocess.run', fake_run)
     out = html_utils.w3m_html2text('<b>bold</b>')
     assert 'bold' in out

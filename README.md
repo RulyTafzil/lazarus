@@ -56,14 +56,21 @@ Lazarus acts as a frontend for standard Unix email utilities:
 
 ## Installation
 
-Lazarus requires Python 3.10+ and [PyQt6](https://riverbankcomputing.com/software/pyqt/intro) 6.2+.
+Two independent distributions come from this repository — pick either or both:
 
-Install via pipx:
-
+**Headless daemon only (zero Qt dependencies):**
 ```bash
 git clone https://forge.rulytafzil.com/Home/lazarus.git
 cd lazarus
-pipx install -e .
+pipx install -e ./ned
+# installs: ned (daemon), ned-client (CLI)
+```
+
+The daemon reads configuration from `~/.config/ned/config.py` only (generate from your desktop config with `ned --init-config`) and serves any client over a Unix domain socket or Tailscale TCP.
+
+**Desktop GUI (+ bundled daemon):**
+```bash
+cd lazarus && pipx install .
 ```
 
 This installs three executables in your path:
@@ -83,19 +90,20 @@ lazarus --install-desktop
 
 ### 1. Configuration
 
-Set your email address and sent folder in `~/.config/ned/config.py` (or `~/.config/lazarus/config.py`):
+The desktop reads `~/.config/lazarus/config.py`; the daemon reads `~/.config/ned/config.py` (`ned --init-config` generates it from the lazarus file, rewiring `lazarus.settings` → `ned.settings`). NED does not follow the desktop config.
+
+Set your email address and sent folder (ned example):
 
 ```python
-import lazarus
+import ned.settings as settings
 
 # Required settings
-lazarus.settings.email_address = 'Your Name <you@example.com>'
-lazarus.settings.sent_dir = '~/Mail/default/Sent'
+settings.email_address = 'Your Name <you@example.com>'
+settings.sent_dir = '~/Mail/default/Sent'
 
 # Common optional settings
-lazarus.settings.mail_root = '~/Mail'
-lazarus.settings.archive_dir = '~/Mail/Archive'
-lazarus.settings.thread_pane_position = 'right'
+settings.mail_root = '~/Mail'
+settings.archive_dir = '~/Mail/Archive'
 ```
 
 ### 2. Start NED
@@ -246,19 +254,23 @@ Rules execute automatically following each sync cycle, scoped by `filter_scope_q
 
 ## Multiple accounts
 
-Configure multiple accounts in `config.py`:
+Configure multiple accounts in **NED** config (`~/.config/ned/config.py`):
 
 ```python
-lazarus.settings.smtp_accounts = ['personal', 'work']
-lazarus.settings.email_address = {
+ned.settings.smtp_accounts = ['personal', 'work']
+ned.settings.email_address = {
     'personal': 'Me <me@personal.com>',
     'work': 'Me <me@work.com>',
 }
-lazarus.settings.sent_dir = {
+ned.settings.sent_dir = {
     'personal': '~/Mail/personal/Sent',
     'work': '~/Mail/work/Sent',
 }
 ```
+
+> The desktop GUI composes/sends locally and reads its own
+> `~/.config/lazarus/config.py` — mirror the same `smtp_accounts`,
+> `email_address`, `sent_dir` there when using the desktop's compose panel.
 
 In the compose panel, press `[` and `]` to cycle between active sender accounts.
 
@@ -287,10 +299,10 @@ Tailscale provides an encrypted WireGuard mesh network between your devices with
    ```
    Or set it permanently in `~/.config/ned/config.py`:
    ```python
-   import lazarus
-   lazarus.settings.web_host = '100.82.14.95'
-   lazarus.settings.web_port = 8080
-   lazarus.settings.web_token = 'your-secret-token'
+   import ned.settings as settings
+   settings.web_host = '100.82.14.95'
+   settings.web_port = 8080
+   settings.web_token = 'your-secret-token'
    ```
 4. Open `http://100.82.14.95:8080` in your phone browser and install it as a home screen app:
    - **iOS Safari:** Tap Share, then **Add to Home Screen**.

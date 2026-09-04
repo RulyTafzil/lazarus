@@ -39,13 +39,13 @@ from typing import Any
 
 from . import actions
 from . import sync
-from .. import compose_model
-from .. import mail_utils
-from .. import mime_builder
-from .. import notmuch
-from .. import rules
-from .. import settings
-from .. import signature
+from . import compose_model
+from . import mail_utils
+from . import mime_builder
+from . import notmuch
+from . import rules
+from . import settings
+from . import signature
 
 logger = logging.getLogger(__name__)
 

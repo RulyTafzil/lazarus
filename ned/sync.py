@@ -32,9 +32,9 @@ import signal
 import subprocess
 from typing import Callable, List, Optional, Tuple
 
-from .. import notmuch
-from .. import rules
-from .. import settings
+from . import notmuch
+from . import rules
+from . import settings
 
 logger = logging.getLogger(__name__)
 

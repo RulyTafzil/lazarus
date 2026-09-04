@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import lazarus.notmuch as nm
+import ned.notmuch as nm
 
 
 @pytest.fixture
