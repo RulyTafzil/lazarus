@@ -317,7 +317,7 @@ If a link is to a host in this list, it will be opened without confirmation, eve
 """
 
 # visual
-theme = themes.nord
+theme: dict[str, Any] = themes.nord
 """[DEPRECATED] Initial fallback GUI theme.
 
 Theme selection is managed in-app via the theme picker

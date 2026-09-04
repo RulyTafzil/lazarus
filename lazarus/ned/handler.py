@@ -159,6 +159,11 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self._handle_events_stream()
             return
 
+        # Health / Ping
+        if path in ("/api/v1/ping", "/api/v1/health"):
+            self.send_json({"status": "ok", "service": "ned", "version": "1.0"})
+            return
+
         # API Routes
         if path in ("/api/v1/search", "/api/v1/threads"):
             query = qs.get("q", ["tag:inbox"])[0]
@@ -317,7 +322,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # Flag / star thread
-        m_star = re.match(r"^/api/v1/threads/([^/]+)/star$", path)
+        m_star = re.match(r"^/api/v1/threads/([^/]+)/(?:star|flag)$", path)
         if m_star:
             thread_id = urllib.parse.unquote(m_star.group(1))
             body = self._read_json_body()
@@ -327,7 +332,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="star")
                 broadcaster.broadcast_invalidate("threads", reason="star")
-                self.send_json({"status": "ok", "starred": flag})
+                self.send_json({"status": "ok", "starred": flag, "flag": flag})
             else:
                 self.send_error_json("Failed toggling flag", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
