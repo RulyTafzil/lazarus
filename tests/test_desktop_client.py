@@ -312,12 +312,18 @@ def test_desktop_thread_model_via_ned(qapp, running_ned, monkeypatch):
 
 
 def test_desktop_sse_bridge_and_cleanup(qapp, running_ned):
-    bridge = _NedEventBridge()
+    bridge = _NedEventBridge(qapp)
     received_threads = []
     received_thread_id = []
 
-    bridge.invalidate_threads.connect(lambda: received_threads.append(True))
-    bridge.invalidate_thread.connect(lambda tid: received_thread_id.append(tid))
+    def on_threads():
+        received_threads.append(True)
+
+    def on_thread(tid):
+        received_thread_id.append(tid)
+
+    bridge.invalidate_threads.connect(on_threads)
+    bridge.invalidate_thread.connect(on_thread)
 
     client = get_client()
     stop_ev = threading.Event()
@@ -350,6 +356,14 @@ def test_desktop_sse_bridge_and_cleanup(qapp, running_ned):
     watcher.join(timeout=1.0)
     assert not watcher.is_alive()
     assert time.time() - t0 < 0.8
+
+    try:
+        bridge.invalidate_threads.disconnect(on_threads)
+        bridge.invalidate_thread.disconnect(on_thread)
+    except Exception:
+        pass
+    for _ in range(5):
+        qapp.processEvents()
 
 
 def test_ensure_daemon_spawn_command(monkeypatch, tmp_path):
