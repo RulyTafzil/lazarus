@@ -8,7 +8,7 @@
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
-- **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons); `lazarus-web` (mobile web server + REST API)
+- **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons); `lazarus-web` (mobile web server + REST API); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED)
 - **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` → `app.main()`); `lazarus.server.main:main` (`lazarus-web`)
 - **Config**: `~/.config/lazarus/config.py` (loaded via `lazarus.config.load_config()` — exec + typed validation; see `lazarus/config.py`)
 - **State**: `QSettings('lazarus','lazarus')` — geometry, splitter, open searches
@@ -89,7 +89,9 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   │   ├── events.py       # EventBroadcaster: SSE invalidation broadcaster
 │   │   ├── handler.py      # NedRequestHandler: /api/v1/ routes, legacy aliases, SSE, static
 │   │   ├── daemon.py       # NedDaemon: Unix domain socket + TCP listeners + sync scheduler
+│   │   ├── client.py       # NedClient: zero-dependency Unix socket & HTTP client library
 │   │   └── main.py         # ned CLI entry point
+│   ├── ned_client.py       # Top-level standalone entry point for NedClient
 │   ├── server/             # Legacy mobile web server & service helpers
 │   │   ├── app.py          # Threaded HTTP server, route handlers, auth, static file serving
 │   │   ├── service.py      # Core business logic: queries, threads, tags, contacts, send
@@ -443,8 +445,16 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **No-cache headers on static PWA assets**: Static files (`app.js`, `app.css`) served by `lazarus-web` must use `Cache-Control: no-cache, must-revalidate` so client updates are immediately applied upon browser refresh.
 - **Zero Qt imports in `lazarus.core`**: The `lazarus.core` package is strictly headless with zero Qt dependencies. Any background threading must use standard library `threading.Thread`, not `QThread`.
 - **`threading.Thread` vs Qt main loop signal marshalling**: When background threads in `core.actions` complete batches, wire desktop listeners through `_QtBatchDoneBridge(QObject)` with a `pyqtSignal()`. Emitting the signal safely marshals the callback onto Qt's main event loop before invoking `app.refresh_panels()`.
+- **Non-blocking socket select polling for SSE streams**: On Unix domain sockets, standard blocking `readline()` does not reliably wake up when another thread calls `shutdown()` or `close()`. Using `select.select([raw_sock], [], [], 0.2)` with non-blocking sockets allows event listener threads to check stop events and shut down cleanly within milliseconds without hanging during test teardown.
+- **Cascading config resolution**: NED searches for its own configuration at `~/.config/ned/config.py` first, then falls back to `~/.config/lazarus/config.py`.
 
 ### Architecture and roadmap
+
+#### Notmuch Email Daemon (NED) roadmap
+1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
+2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
+3. Phase 3 (next): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`.
+4. Phase 4: Retire `lazarus-server` in favor of `ned`.
 
 #### Decoupled domain engine (`lazarus.core`)
 The codebase follows a clear separation between headless domain primitives and presentation layers:
