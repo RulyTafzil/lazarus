@@ -90,15 +90,25 @@ lazarus --install-desktop
 
 ### 1. Configuration
 
-The desktop reads `~/.config/lazarus/config.py`; the daemon reads `~/.config/ned/config.py` (`ned --init-config` generates it from the lazarus file, rewiring `lazarus.settings` → `ned.settings`). NED does not follow the desktop config.
+The **daemon** config `~/.config/ned/config.py` is the single source of mail
+identity: accounts, From addresses, PGP keys, signatures, send, sync, and
+filter rules. Generate it from an existing desktop config with
+`ned --init-config`.
 
-Set your email address and sent folder (ned example):
+The **desktop** config `~/.config/lazarus/config.py` is UI-only (themes,
+fonts, tags, keymap) — the compose panel pulls accounts/signatures from the
+NED API and sends through the daemon, so no mail settings are needed here
+(any old `email_address`/`smtp_accounts`/`sent_dir` lines can simply be
+removed).
+
+Set your email identity in the ned config (example):
 
 ```python
 import ned.settings as settings
 
 # Required settings
 settings.email_address = 'Your Name <you@example.com>'
+settings.smtp_accounts = ['default']
 settings.sent_dir = '~/Mail/default/Sent'
 
 # Common optional settings
@@ -203,10 +213,10 @@ Lazarus includes a built-in rich-text compose editor:
 - **Inline images and attachments:** Paste or drag-and-drop images directly into the body. Add file attachments with `a`.
 - **Address autocomplete:** Recipient suggestions populate from your notmuch address history.
 - **Cc and Bcc rows:** Reveal or hide extra header rows with `M-c` and `M-b`.
-- **Signatures:** Per-account signatures insert automatically above quoted text (`~/.config/lazarus/<account>/signature` or `signature.html`).
+- **Signatures:** Per-account signatures insert automatically above quoted text (`~/.config/ned/<account>/signature` or `signature.html`; served to the desktop via the NED API).
 - **Multiple accounts:** Switch sending accounts with `[` / `]` or the From dropdown. The From header and signature update instantly.
-- **PGP:** Toggle signing with `p` and encryption with `e` (requires `gnupg_keyid`).
-- **Send:** `C-s` sends via msmtp in the background. `<escape>` exits to the panel chrome.
+- **PGP:** Toggle signing with `p` and encryption with `e` (requires a per-account `gnupg_keyid` in the ned config).
+- **Send:** `C-s` builds the message locally and hands it to NED, which runs msmtp, saves the sent copy, and indexes it. `<escape>` exits to the panel chrome.
 
 ### Themes
 
@@ -227,12 +237,13 @@ Lazarus bundles over 600 pre-compiled native themes:
 
 ## Mail filter rules
 
-Define filter rules in `config.py` to tag or move incoming mail automatically:
+Define filter rules in the **NED** config (`~/.config/ned/config.py` — rules
+run daemon-side):
 
 ```python
-from lazarus.rules import Rule
+from ned.rules import Rule
 
-lazarus.settings.filter_rules = [
+ned.settings.filter_rules = [
     Rule(
         query='from:notifications@github.com',
         tag_add=['github'],

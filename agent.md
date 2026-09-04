@@ -106,7 +106,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 ├── tools/
 │   ├── import_themes.py          # Zero-dep CLI for theme inspection, truecolor swatches, compilation, and export
 │   └── mapping.json              # Clean 1-to-1 mapping from terminal/ANSI properties to Lazarus's 19 semantic keys
-├── tests/                  # 404 tests (pytest, offscreen Qt, notmuch stubbed)
+├── tests/                  # 408 tests (pytest, offscreen Qt, notmuch stubbed)
 ├── images/                 # README screenshots (compose.webp, catppucin/gruvbox/nord.webp)
 ├── docs/                   # Sphinx (Makefile, make.bat, source/)
 ├── README.md
@@ -366,10 +366,6 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `theme_overrides` | `{}` | `{theme_name: {key: value}}` per-theme corrections — hex, source-palette ANSI index, named terminal color, or another Lazarus key |
 | `default_heuristic` | `{}` | Replaces lines of the built-in terminal-theme mapping for every pack theme; `theme_overrides[theme]` wins over it |
 | `colormap.py` | (file) | `~/.config/lazarus/themes/colormap.py` — auto-created, never overwritten, generated from `DEFAULT_TERMINAL_MAP`; defines the above two settings |
-| `sync_mail_command` | `'offlineimap'` | **Fallback only**: used when `smtp_accounts` is empty; otherwise parallel `mbsync -V <acct>` runs |
-| `sync_mail_interval` | `300` | Auto-sync seconds; `-1` disables |
-| `send_mail_command` | `'msmtp -a "{account}" -t'` | `str` or `{account: cmd}` |
-| `smtp_accounts` | `['default']` | Account names; drives parallel sync + compose From dropdown |
 | `file_browser_command` | `"nautilus '{dir}'"` | Reveal-after-save; `{dir}` placeholder |
 | `file_picker_command` | `None` | Optional picker; `{tempfile}` out list |
 | `web_browser_command` | `''` | Empty → desktop default browser |
@@ -381,10 +377,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `default_to_html` | `False` | Thread view HTML default |
 | `wrap_message` / `wrap_column` | `True` / `78` | Plaintext wrapping |
 | `remove_temp_dirs` | `'ask'` | `always/never/ask` attachment temp cleanup |
-| `gnupg_home` / `gnupg_keyid` | `None` | PGP home/key |
-| `filter_rules` | `[]` | `List[Rule]` — auto after sync + `C-r` |
-| `filter_scope_query` | `'tag:inbox and tag:unread'` | Scopes rules as `(scope) and (rule.query)` |
-| `use_signature` | `True` | Per-account sig insertion — rich mode uses `signature.html` directly, plain mode uses `signature` |
+| `gnupg_home` | `None` | PGP home dir (optional — desktop-only; key ids come from the daemon) |
 | `tag_hotkeys` | `{}` | `{'1':'Urgent',...}` → `1-9` toggles |
 | `tag_icons` | inbox/unread/attachment/sent/replied/flagged/marked/signed | NerdFont icons |
 | `nerd_font` | `''` | NerdFont family for glyphs; empty = auto-pick installed `* Nerd Font`, else `tag_font` |
@@ -399,8 +392,13 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 | `message_css` | — | Theme-aware CSS template (`{bg,fg,...}` placeholders) |
 | `message2html_filters` | `[]` | Custom renderers `(msg→HTML\|None)` |
 
-### Per-Account Signatures (`signature.py`)
-`$XDG_CONFIG_HOME/lazarus/<account>/signature` (plain) + `signature.html` (optional), per `smtp_accounts` entry. Rich-text compose inserts `signature.html` directly (its plain-text rendering is derived via `html_utils.html_to_plain` so the block can still be located for account switches); plaintext compose (or no HTML file) uses the plain block. Swapped on `[`/`]` account cycle; placement is structural (`compose_model.sig_edit` — exact block + exact quote anchor), so no content-marker scanning and no newline drift.
+*(Mail-routing settings — `email_address`, `sent_dir`, `smtp_accounts`, `send_mail_command`,
+`sync_mail_command`/`sync_mail_interval`, `filter_rules`/`filter_scope_query`, `use_signature` —
+were **moved to the daemon** (see `ned/settings.py`, configured in `~/.config/ned/config.py`).
+The desktop no longer reads them; leftover entries in the lazarus config are ignored.)*
+
+### Per-Account Signatures (`ned/signature.py`)
+`$XDG_CONFIG_HOME/ned/<account>/signature` (plain) + `signature.html` (optional), per `settings.smtp_accounts` entry in the **ned** config. The desktop compose fetches them via `GET /api/v1/signatures` (plain + HTML). Rich-text compose inserts `signature.html` directly (its plain-text rendering is derived via `html_utils.html_to_plain` so the block can still be located for account switches); plaintext compose (or no HTML file) uses the plain block. Swapped on `[`/`]` account cycle; placement is structural (`compose_model.sig_edit` — exact block + exact quote anchor), so no content-marker scanning and no newline drift.
 
 ## Ruly's Setup
 - **Mail**: `~/Mail/` — Gmail (`RulyTafzil@gmail.com/`) + `contact@RulyTafzil.com`
