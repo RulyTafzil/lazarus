@@ -1014,9 +1014,9 @@
         api('/api/accounts'),
         api('/api/signatures').catch(() => ({ use_signature: true, signatures: {} })),
       ]);
-      state.accounts = Array.isArray(accData) ? accData : (accData && accData.accounts ? accData.accounts : []);
-      state.signatures = (sigData && sigData.signatures) ? sigData.signatures : (sigData || {});
-      state.useSignature = (sigData && typeof sigData.use_signature === 'boolean') ? sigData.use_signature : true;
+      state.accounts = accData.accounts || [];
+      state.signatures = sigData.signatures || {};
+      state.useSignature = sigData.use_signature !== false;
 
       el.composeAccountSelect.innerHTML = '';
       state.accounts.forEach(acct => {

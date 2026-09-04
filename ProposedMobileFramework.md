@@ -79,6 +79,8 @@ All endpoints are versioned under `/api/v1/`.
 | `POST` | `/api/v1/threads/{id}/untrash` | Restore trashed thread from `Trash/cur/` to `INBOX/cur/`. |
 | `GET` | `/api/v1/tags` | List all known Notmuch tags with thread counts. |
 | `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q` via `notmuch address`. |
+| `GET` | `/api/v1/accounts` | List configured sender accounts: `{"accounts": [...]}`. |
+| `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {...}}`. |
 | `GET` | `/api/v1/reply-seed` | Generate reply recipient headers, quoted body, and signature. |
 | `POST` | `/api/v1/send` | Send outbound message via `msmtp`. |
 | `POST` | `/api/v1/sync` | Trigger IMAP sync + `notmuch new` + filter rules. |

@@ -604,18 +604,12 @@ class NedClient:
     def get_accounts(self) -> list[str]:
         """Fetch list of configured SMTP sender account identifiers."""
         data = self._request_json("GET", "/api/v1/accounts")
-        if isinstance(data, dict) and "accounts" in data and isinstance(data["accounts"], list):
-            return data["accounts"]
-        return data if isinstance(data, list) else []
+        return list(data.get("accounts", [])) if isinstance(data, dict) else []
 
     def get_signatures(self) -> dict[str, str]:
         """Fetch mapping of account identifiers to their email signature text."""
         data = self._request_json("GET", "/api/v1/signatures")
-        if isinstance(data, dict):
-            if "signatures" in data and isinstance(data["signatures"], dict):
-                return data["signatures"]
-            return data
-        return {}
+        return dict(data.get("signatures", {})) if isinstance(data, dict) else {}
 
     def sync_mail(self) -> tuple[bool, str]:
         """Trigger background mail synchronization (mbsync + notmuch new)."""
