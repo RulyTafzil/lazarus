@@ -307,6 +307,9 @@ Tailscale provides an encrypted WireGuard mesh network between your devices with
    ```bash
    ned --host 100.82.14.95 --port 8080
    ```
+   (Tailscale binds are allowed without a token — WireGuard is the transport. Binding a
+   plain LAN or public address requires `settings.web_token`/`--token` or `--allow-insecure`;
+   NED refuses unauthenticated non-loopback, non-Tailscale binds.)
    Or set it permanently in `~/.config/ned/config.py`:
    ```python
    import ned.settings as settings

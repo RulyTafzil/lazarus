@@ -473,7 +473,7 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 
 #### Transports and IPC
 - **Local IPC (Unix domain socket)**: `/run/user/$UID/ned/ned.sock` (or `~/.local/share/lazarus/ned/ned.sock`). Communicates using HTTP/1.1 over Unix domain stream sockets with sub-millisecond latency.
-- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1`. Refuses unauthenticated `0.0.0.0` bindings.
+- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1`. Refuses an **unauthenticated** TCP bind on any non-loopback, non-Tailscale host (LAN `192.168.x.x`, `0.0.0.0`, …) unless `settings.web_token`/`--token` is set or `--allow-insecure` is passed (`ned.daemon.insecure_tcp_error`).
 - **Systemd service**: Unit file provided at `contrib/ned.service` for user systemd management (`systemctl --user enable --now ned`).
 
 #### API v1 specification
