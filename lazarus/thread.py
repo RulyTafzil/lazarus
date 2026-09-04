@@ -440,8 +440,7 @@ class ThreadPanel(panel.Panel):
         inactive.loadFinished.connect(self._on_load_finished)
 
         if self.html_mode:
-            if 'filename' in m and len(m['filename']) != 0:
-                self.image_handler.set_message(m['filename'][0])
+            self.image_handler.set_message(m)
             page = inactive.page()
             if page is not None:
                 page.setUrl(QUrl('message:html'))

@@ -22,7 +22,7 @@ Extracted from ``thread.py`` to keep that module focused on the
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Union
 
 from PyQt6.QtCore import QBuffer, QIODevice, QObject, QUrl, QUrlQuery
 from PyQt6.QtWidgets import QMessageBox
@@ -118,37 +118,85 @@ class MessageHandler(QWebEngineUrlSchemeHandler):
 
 
 class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
-    """Serve ``cid:`` URLs by reading the raw message file."""
+    """Serve ``cid:`` URLs by reading message parts or the raw message file."""
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
         self.message: Optional[email.message.Message] = None
+        self.message_json: Optional[dict] = None
+        self.message_id: str = ''
+        self.cid_map: dict[str, tuple[int, str]] = {}
 
-    def set_message(self, filename: str) -> None:
-        """Parse the raw message file for ``cid:`` lookups.
+    def set_message(self, message_or_filename: Union[str, dict, None]) -> None:
+        """Parse the message for ``cid:`` lookups.
 
-        The path comes from the notmuch index and can be stale — e.g. a
-        background trash/archive batch moved the file and ``notmuch new``
-        has not re-indexed yet.  A missing file means no embedded images
-        for this render, not an error, so tolerate it instead of raising
-        out of a Qt slot.
+        Accepts either a notmuch message dict or a local filename. When
+        given a message dict, maps part IDs and downloads bytes via NED
+        on demand. If a local file is available, also parses it with
+        BytesParser as fallback.
         """
-        try:
-            with open(filename, 'rb') as f:
-                self.message = email.parser.BytesParser().parse(f)
-        except OSError as e:
-            logger.debug('set_message: cannot read %s: %s', filename, e)
-            self.message = None
+        self.message = None
+        self.message_json = None
+        self.message_id = ''
+        self.cid_map.clear()
+
+        if not message_or_filename:
+            return
+
+        filename: Optional[str] = None
+        if isinstance(message_or_filename, dict):
+            self.message_json = message_or_filename
+            self.message_id = str(message_or_filename.get('id', ''))
+            for part in util.message_parts(message_or_filename):
+                cid = part.get('content-id')
+                if cid and 'id' in part:
+                    clean_cid = str(cid).strip('<>').strip()
+                    ctype = str(part.get('content-type') or 'application/octet-stream')
+                    try:
+                        self.cid_map[clean_cid] = (int(part['id']), ctype)
+                    except (ValueError, TypeError):
+                        pass
+            files = message_or_filename.get('filename')
+            if isinstance(files, list) and files:
+                filename = files[0]
+            elif isinstance(files, str):
+                filename = files
+        elif isinstance(message_or_filename, str):
+            filename = message_or_filename
+
+        if filename:
+            try:
+                with open(filename, 'rb') as f:
+                    self.message = email.parser.BytesParser().parse(f)
+            except OSError as e:
+                logger.debug('set_message: cannot read %s: %s', filename, e)
+                self.message = None
 
     def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
         if request is None:
             return
         cid = request.requestUrl().toString()[len('cid:'):]
-        content_type = None
+        clean_cid = cid.strip('<>').strip()
+
+        if clean_cid in self.cid_map and self.message_id:
+            part_id, ctype = self.cid_map[clean_cid]
+            try:
+                from .client import get_client
+                content = get_client().get_part(self.message_id, part_id)
+                if content:
+                    buf = QBuffer(parent=self)
+                    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                    buf.write(content)
+                    buf.close()
+                    request.reply(ctype.encode('latin1'), buf)
+                    return
+            except Exception as e:
+                logger.debug('requestStarted: failed fetching cid part %s: %s', clean_cid, e)
+
         if self.message:
             for part in self.message.walk():
-                if ("Content-id" in part
-                        and part["Content-id"] == f'<{cid}>'):
+                part_cid = part.get("Content-id")
+                if part_cid and part_cid.strip('<>').strip() == clean_cid:
                     content_type = part.get_content_type()
                     buf = QBuffer(parent=self)
                     buf.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -157,9 +205,9 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
                         buf.write(payload)
                     buf.close()
                     request.reply(content_type.encode('latin1'), buf)
-                    break
-        if not content_type:
-            request.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
+                    return
+
+        request.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
 
 
 class RemoteBlockingUrlRequestInterceptor(QWebEngineUrlRequestInterceptor):

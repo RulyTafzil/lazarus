@@ -280,6 +280,10 @@ def get_message_raw(message_id: str) -> dict[str, Any]:
     return flat[0]
 
 
+_PART_METADATA_CACHE: dict[str, dict[int, tuple[str, str]]] = {}
+_PART_METADATA_CACHE_MAX = 64
+
+
 def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
     """Retrieve raw bytes for an attachment part."""
     clean_id = urllib.parse.unquote(message_id).removeprefix('id:').strip('<>')
@@ -292,27 +296,37 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
     filename = f'part-{part_id}'
     content_type = 'application/octet-stream'
 
-    # Try resolving filename and content type from show metadata
-    try:
-        r = notmuch.run(
-            'show',
-            '--format=json',
-            '--decrypt=true',
-            '--',
-            f'id:{clean_id}',
-            check=True,
-        )
-        data = json.loads(r.stdout)
-        flat: list[dict[str, Any]] = []
-        _flatten_messages(data, flat)
-        if flat:
-            for part in mail_utils.message_parts(flat[0]):
-                if part.get('id') == part_id:
-                    filename = part.get('filename') or filename
-                    content_type = part.get('content-type') or content_type
-                    break
-    except Exception:
-        pass
+    # Check cache first for metadata mapping
+    if clean_id not in _PART_METADATA_CACHE:
+        try:
+            r = notmuch.run(
+                'show',
+                '--format=json',
+                '--decrypt=true',
+                '--',
+                f'id:{clean_id}',
+                check=True,
+            )
+            data = json.loads(r.stdout)
+            flat: list[dict[str, Any]] = []
+            _flatten_messages(data, flat)
+            parts_meta: dict[int, tuple[str, str]] = {}
+            if flat:
+                for part in mail_utils.message_parts(flat[0]):
+                    pid = part.get('id')
+                    if pid is not None:
+                        fname = part.get('filename') or f'part-{pid}'
+                        ctype = part.get('content-type') or 'application/octet-stream'
+                        parts_meta[int(pid)] = (fname, ctype)
+            if len(_PART_METADATA_CACHE) >= _PART_METADATA_CACHE_MAX:
+                _PART_METADATA_CACHE.pop(next(iter(_PART_METADATA_CACHE)))
+            _PART_METADATA_CACHE[clean_id] = parts_meta
+        except Exception:
+            pass
+
+    cached = _PART_METADATA_CACHE.get(clean_id, {}).get(part_id)
+    if cached:
+        filename, content_type = cached
 
     return (content, content_type, filename)
 

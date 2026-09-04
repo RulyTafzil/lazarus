@@ -39,7 +39,7 @@ Canonical endpoint names (no aliases):
     GET   /api/v1/events                      SSE invalidation stream
     GET   /api/v1/openapi.json                this document
     POST  /api/v1/tags                        modify tags on queries
-    POST  /api/v1/threads/{id}/archive        -inbox -unread (tag only)
+    POST  /api/v1/threads/{id}/archive        -inbox -unread and move to Archive
     POST  /api/v1/threads/{id}/trash          +trash + file move
     POST  /api/v1/threads/{id}/unarchive      restore to inbox
     POST  /api/v1/threads/{id}/untrash        restore from trash
@@ -194,7 +194,7 @@ def build_spec() -> dict[str, Any]:
             "/api/v1/openapi.json": {
                 "get": {"summary": "This OpenAPI description", "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}},
             },
-            "/api/v1/threads/{id}/archive": {"post": {"summary": "Archive thread (-inbox -unread, tag only)", "responses": {"200": {"description": "{status: ok}"}}}},
+            "/api/v1/threads/{id}/archive": {"post": {"summary": "Archive thread: -inbox -unread and move to Archive", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/trash": {"post": {"summary": "Trash thread (+trash -inbox -unread + move to Trash)", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/unarchive": {"post": {"summary": "Restore archived thread to inbox", "responses": {"200": {"description": "{status: ok}"}}}},
             "/api/v1/threads/{id}/untrash": {"post": {"summary": "Restore trashed thread from Trash to INBOX", "responses": {"200": {"description": "{status: ok}"}}}},

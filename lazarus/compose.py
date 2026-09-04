@@ -143,7 +143,11 @@ class ComposePanel(panel.Panel):
             self._quoted_tail = seed.quoted_tail
             self._insert_signature()
         elif msg and mode == 'forward':
-            seed = compose_model.build_forward_seed(msg)
+            from .client import get_client
+            seed = compose_model.build_forward_seed(
+                msg,
+                fetch_part=lambda mid, pid: get_client().get_part(mid, pid),
+            )
             self.subject_field.setText(seed.subject)
             for d in seed.temp_dirs:
                 self.temp_dirs.append(d)

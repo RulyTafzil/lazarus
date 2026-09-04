@@ -61,9 +61,12 @@ class SendmailThread(QThread):
 
             # In-Reply-To and References
             if self.panel.msg and 'id' in self.panel.msg:
-                msg_id = f'<{self.panel.msg["id"]}>'
+                clean_id = str(self.panel.msg["id"]).strip('<>')
+                msg_id = f'<{clean_id}>'
                 eml['In-Reply-To'] = msg_id
-                refs = [msg_id]
+                resolved_refs: Optional[str] = None
+
+                # Try local file parse first when available
                 if ('filename' in self.panel.msg and
                         len(self.panel.msg['filename']) != 0):
                     try:
@@ -71,11 +74,22 @@ class SendmailThread(QThread):
                             old_msg = email.parser.BytesParser().parse(
                                 f, headersonly=True)
                             if 'References' in old_msg:
-                                refs = (old_msg['References'].split()
-                                        + refs)
+                                refs = old_msg['References'].split() + [msg_id]
+                                resolved_refs = ' '.join(refs)
                     except OSError:
-                        logger.debug("Couldn't open message for References")
-                eml['References'] = ' '.join(refs)
+                        logger.debug("Couldn't open message locally for References")
+
+                # If local file was inaccessible (remote daemon or moved file), resolve via NED API
+                if resolved_refs is None:
+                    try:
+                        from .client import get_client
+                        seed = get_client().get_reply_seed(clean_id)
+                        if seed and seed.get('references'):
+                            resolved_refs = str(seed['references'])
+                    except Exception as exc:
+                        logger.debug("Could not resolve References from NED daemon: %s", exc)
+
+                eml['References'] = resolved_refs or msg_id
 
             # PGP
             if self.panel.pgp_sign:
