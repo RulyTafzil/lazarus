@@ -36,7 +36,6 @@ import traceback
 import logging
 
 from . import settings
-from . import notmuch
 from . import pgp_util
 from . import mime_builder
 
@@ -119,12 +118,23 @@ class SendmailThread(QThread):
                     except OSError as e:
                         logger.warning('Failed to save sent mail to %s: %s', sent_dir, e)
 
-                notmuch.new(no_hooks=settings.no_hooks_on_send)
+                # The notmuch index is owned by the NED daemon: ask it to
+                # pick up the new sent file and tag the replied original.
+                from .client import get_client
+                client = get_client()
+                try:
+                    client.index_new()
+                except Exception as e:
+                    logger.warning('NED index after send failed: %s', e)
 
                 if ((self.panel.mode == 'reply' or
                      self.panel.mode == 'replyall') and
                         self.panel.msg and 'id' in self.panel.msg):
-                    notmuch.tag('+replied', 'id:' + self.panel.msg['id'])
+                    try:
+                        client.modify_tags(
+                            f'id:{self.panel.msg["id"]}', add=['replied'])
+                    except Exception as e:
+                        logger.warning('NED +replied tag failed: %s', e)
                 self.send_success = True
             else:
                 err = (stderr or '').strip()[:300]

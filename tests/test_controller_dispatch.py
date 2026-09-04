@@ -14,7 +14,7 @@ from tests.conftest import make_thread
 
 
 @pytest.fixture
-def mw(qapp, fake_app, notmuch_stub):
+def mw(qapp, fake_app, client_stub):
     win = mainwindow.MainWindow(fake_app)
     yield win
 
@@ -24,9 +24,9 @@ def ctl(mw, fake_app):
     return AppController(fake_app, mw)  # type: ignore[arg-type]
 
 
-def test_refresh_tab_titles_batches_one_count(ctl, mw, notmuch_stub, qapp):
+def test_refresh_tab_titles_batches_one_count(ctl, mw, client_stub, qapp):
     """All dirty search tabs are refreshed with a SINGLE count --batch."""
-    notmuch_stub.threads = [
+    client_stub.threads = [
         make_thread('t1', 'Subject 1'),
         make_thread('t2', 'Subject 2'),
     ]
@@ -39,24 +39,24 @@ def test_refresh_tab_titles_batches_one_count(ctl, mw, notmuch_stub, qapp):
     for p in dirty:
         p._dirty_title = True
 
-    notmuch_stub.count_calls.clear()
+    client_stub.count_calls.clear()
     ctl.refresh_tab_titles()
 
     # Exactly one batched invocation, never one-per-tab.
-    batch_calls = [c for c in notmuch_stub.count_calls if c[0] == '__batch__']
+    batch_calls = [c for c in client_stub.count_calls if c[0] == '__batch__']
     assert len(batch_calls) == 1
-    per_tab = [c for c in notmuch_stub.count_calls if c[0] != '__batch__']
+    per_tab = [c for c in client_stub.count_calls if c[0] != '__batch__']
     assert per_tab == []
     # Results were applied back, clearing each panel's dirty title.
     assert all(not p.title_dirty for p in dirty)
 
 
-def test_refresh_tab_titles_no_batch_when_none_dirty(ctl, mw, notmuch_stub, qapp):
+def test_refresh_tab_titles_no_batch_when_none_dirty(ctl, mw, client_stub, qapp):
     """With every search tab already clean, the refresh is a cheap no-op."""
     ctl.open_search('tag:inbox')
     # Force the panel deterministically clean (construction may have left
     # it dirty pending an async has_refreshed). No subprocess allowed.
     mw.tabs.widget(0)._dirty_title = False
-    notmuch_stub.count_calls.clear()
+    client_stub.count_calls.clear()
     ctl.refresh_tab_titles()
-    assert notmuch_stub.count_calls == []
+    assert client_stub.count_calls == []

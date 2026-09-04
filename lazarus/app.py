@@ -32,7 +32,6 @@ from . import settings
 from . import themes
 from . import helpwindow
 from . import mainwindow
-from . import actions
 from . import address_completer
 from .webengine import LOCAL_PROTOCOLS
 
@@ -124,6 +123,24 @@ class Dodo(QApplication):
         self.command_bar = self.main_window.command_bar
         self.lastWindowClosed.connect(self.quit)
 
+        # Require the daemon. Lazarus is a pure NED client — no local
+        # fallback. Spawns NED if it is not already running; exit with a
+        # clear diagnostic when it cannot be reached. Must happen before
+        # the controller starts its SSE watcher and the sync timer.
+        from . import client as ned_client
+        if not ned_client.ensure_daemon(timeout=5.0):
+            from PyQt6.QtWidgets import QMessageBox
+            msg = (
+                'Could not reach the NED daemon.\n\n'
+                'Lazarus requires NED (it owns the notmuch index and all '
+                'mail writes). Start it with:\n'
+                '  systemctl --user start ned\n'
+                'or simply relaunch lazarus (it spawns NED automatically).'
+            )
+            logger.error(msg)
+            QMessageBox.critical(None, 'Lazarus — NED unreachable', msg)
+            sys.exit(1)
+
         # Controller owns panel registry + commands; Dodo keeps only the
         # app-lifecycle methods below (see the shim note near show_help).
         from .controller import AppController
@@ -139,12 +156,6 @@ class Dodo(QApplication):
             self.sync_timer.start(settings.sync_mail_interval * 1000)
 
         self.aboutToQuit.connect(self._cleanup_sync)
-
-        # Refresh panels after background file moves (filter, trash,
-        # archive) complete and notmuch new finishes re-indexing.
-        # Registered through actions (not a one-off connect against the
-        # first worker instance) so a recreated worker keeps the wiring.
-        actions.set_batch_done_listener(self.controller.refresh_panels)
 
         # Preload the address book in the background so autocomplete
         # is ready by the time the user opens the compose panel.

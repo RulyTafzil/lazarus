@@ -52,7 +52,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── __init__.py         # re-exports app/themes/settings/keymap/util
 │   ├── __main__.py         # app.main() entry
 │   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, sync timer, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
-│   ├── client.py           # Desktop client singleton (get_client, is_ned_active, ensure_daemon)
+│   ├── client.py           # NedClient singleton + ensure_daemon (desktop is NED-only, spawns daemon at startup)
 │   ├── controller.py       # AppController(QObject) + SyncMailThread + _NedEventBridge — panel registry, sync engine, SSE invalidation
 │   ├── mainwindow.py       # MainWindow(QMainWindow) — splitter, tabs, preview, status bar
 │   ├── panel.py            # Panel(QWidget) base — keychords, dirty flag, debounce
@@ -64,7 +64,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── editor.py           # RichTextEditor(QTextEdit) — inline images, paste/drag-drop, formatting toolbar, plaintext mode
 │   ├── compose_threads.py  # SendmailThread (msmtp + sent save)
 │   ├── mime_builder.py     # ComposeData dataclass + build_message() (multipart/related)
-│   ├── actions.py          # MarkableActionsMixin + _BulkMoveWorker + move/expunge helpers
+│   ├── actions.py          # MarkableActionsMixin (NED-only) + core.actions re-exports
 │   ├── rules.py            # Rule dataclass + apply_rules() (filter engine)
 │   ├── tag.py              # TagPanel + TagModel
 │   ├── commandbar.py       # CommandBar(QPlainTextEdit) — centered modal overlay, grow-to-content, bg tag loader, history, search/tag/theme modes
@@ -148,8 +148,8 @@ QApplication
      — the SOLE PanelApp implementer.
       └── controller.AppController (QObject) — panel registry + SyncMailThread; the single
           PanelApp interface the global keymap and panels dispatch to. app.py imports no
-          panel modules (cycle broken at runtime); actions._BulkMoveWorker wired via
-          set_batch_done_listener().
+          panel modules (cycle broken at runtime).
+
 
 QMainWindow
  └── MainWindow (mainwindow.py)
@@ -176,7 +176,7 @@ Helpers:
  ├── AddressCompleter(QCompleter) — notmuch address preload thread, MatchContains
  ├── MessagePage/Handler, EmbeddedImageHandler, RemoteBlockingUrlRequestInterceptor (webengine.py)
  ├── SendmailThread (compose_threads.py — QThread)
- └── _BulkMoveWorker(QThread) + MarkableActionsMixin (actions.py)
+ └── MarkableActionsMixin (actions.py) — NED-only mutations via NedClient
 ```
 
 ### Data Flow
@@ -190,12 +190,12 @@ Compose:  fields (To/Cc/Bcc/Subject/From) + RichTextEditor + attachments + inlin
           Signature: seeds provide the quote (ComposeSeed.quoted_tail); _insert_signature
             places the sig block structurally via compose_model.sig_edit (no markers);
             HTML sig file used in rich mode, plain block otherwise.
-Sync:     SyncMailThread (parallel mbsync -V per account + notmuch new)
-            → controller.refresh_panels() → rules.apply_rules(filter_rules, filter_scope_query)
-            (auto after sync; C-r manual) → moves enqueued to _BulkMoveWorker
-Tag/Move: MarkableActionsMixin.tag/archive/delete → notmuch.tag() → collect_files()
-            → _resolve_stale_path() → _BulkMoveWorker.enqueue([(src,dst)]) (serial QThread)
-            → notmuch new (--no-hooks) → batch_done → refresh_panels (listener-registered)
+Sync:     SyncMailThread (triggers POST /api/v1/sync on NED)
+            → daemon: parallel mbsync per account + notmuch new + rules.apply_rules
+            → SSE invalidate → controller refresh_panels (C-r manual: /api/v1/rules)
+Tag/Move: MarkableActionsMixin.tag/archive/delete → NedClient modify_tags/trash/archive
+            (all moves run daemon-side via core.actions, serialized by mutation_lock)
+            → SSE invalidate → controller refresh
 Delete:   d → +trash tag + move files to [Gmail]/Trash or [account]/Trash; d d → expunge (irreversible)
 Archive:  a → -inbox -unread; A → archive_to_local → move to ~/Mail/Archive
 ```
@@ -407,7 +407,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **Run**: `lazarus` (or `python -m lazarus`); editable `pipx install -e .`
 - **Type check**: `mypy lazarus` (pipx venv) — **must stay at 0 errors**; `disallow_untyped_defs = True`
 - **Lint**: `pyflakes lazarus` — clean apart from intentional re-exports in `__init__.py`/`util.py`
-- **Tests**: 412 tests — `python -m pytest` from the repo root, run with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.notmuch` stubbed per test, `lazarus.settings` snapshot/restored, tmp Maildir fixtures.
+- **Tests**: 401+ tests — `python -m pytest` from the repo root with the **pipx venv python** (`~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest`). Conftest: `QT_QPA_PLATFORM=offscreen`, `AA_ShareOpenGLContexts` before QApplication, QSettings → tmp, `lazarus.settings` snapshot/restored, tmp Maildir fixtures. The desktop is NED-only, so tests get an **autouse `client_stub` fixture** (fake `NedClient` returned by `lazarus.client.get_client`) — panels never touch a live daemon. `tests/test_desktop_client.py` opts out (`REAL_GET_CLIENT`) and runs a real `NedDaemon` on a temp socket; core-side tests still stub `lazarus.notmuch` via `notmuch_stub`.
 - **Logs**: `settings.log_level='DEBUG'` + `log_file='~/.local/share/lazarus/lazarus.log'`
 - **Conventions**: file headers keep `Aleks Kissinger` copyright for Dodo-derived code; Lazarus-new files carry the Ruly header. Keep `key_string`, `message_css`, `LOCAL_PROTOCOLS`, and the `lazarus.util` re-exports stable — part of the public `config.py` surface.
 - **Adding keys**: add to `keymap.global_keymap` (or `tag_keymap`/`compose_keymap`/`command_bar_keymap`); local `search_keymap`/`thread_keymap` exist only for user overrides.
@@ -419,20 +419,20 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **WebEngine under pytest**: constructing `QWebEngineView`/pages segfaults offscreen — model logic is tested via stubs; only a bare scheme handler (no view) is safe (`test_webengine.py`).
 - **Test widget hygiene**: shown top-level widgets (panels, windows, completer popups) must be closed/deleted at test end — garbage-collecting them mid-paint in a later test segfaults the shared offscreen QApplication. New test files should include the close/deleteLater fixture.
 - **`deleteLater` vs running QThread**: closing a `ComposePanel` mid-send must not delete it (`close_panel` skips; the send-completion callback deletes). Panel timers are parented (`QTimer(self)`) so they can't fire on a dead widget.
-- **`_BulkMoveWorker`**: singleton; both `batch_done` receivers (`notmuch new` + `refresh_panels`) are wired inside `actions` (`set_batch_done_listener`) so a recreated worker stays connected.
+- **`_BulkMoveWorker`**: belongs to `core.actions` and runs inside the NED process (moves during trash/archive/rules). The desktop never moves files itself; it dispatches to the daemon and reacts to SSE.
 - **Thread panel double-buffer**: rapid `H`/`i` toggling leaves several web loads in flight — `_SwapGuard` ensures only the newest request may swap, each at most once.
-- **Sync**: `sync_mail_command` is ignored whenever `smtp_accounts` is non-empty (default) — parallel mbsync path. `refresh_tab_titles` batches per-tab thread counts into one `notmuch count --batch`.
+- **Sync**: daemon-side `core.sync.run_sync` (parallel mbsync per account; `sync_mail_command` fallback only when `smtp_accounts` empty) + `notmuch new` + filter rules. Desktop triggers `POST /api/v1/sync`, then shows the daemon's returned summary. `refresh_tab_titles` batches per-tab thread counts into one `count_batch` call.
 - **Signatures**: insertion is structural (`sig_edit`); seeds must keep `quoted_tail` populated or account-switch placement degrades to append-at-end.
 - **Compose is a closed key surface**: `_allow_global_key` gates the global fallthrough in `Panel.keyPressEvent` (single-key *and* prefix-timeout paths) against `keymap.COMPOSE_ALLOWED_GLOBALS`, so list/thread hotkeys can never act on hidden panels from compose — even unbound Ctrl chords leaking up from the editor/fields. Adding a global binding that should be reachable while composing means adding it to `COMPOSE_ALLOWED_GLOBALS` + a `test_compose_keys.py` case.
 - **Escape in compose is one-directional** (`escape_focus` = `self.setFocus()`): it exits the editor/fields to the chrome and never re-enters the editor — do not 'restore' the old toggle or the two-mode model breaks.
-- **`notmuch count --batch`** exists (`count_batch`) — prefer it over N subprocesses (TagModel, tab titles).
+- **`notmuch count --batch`** (`count_batch`) — daemon-side batching for TagModel/tabs; the desktop goes through `NedClient.count_batch` (default `output=threads`, matching `lazarus.notmuch.count` defaults).
 - **HTML parity in reply/forward**: `notmuch show` elides `text/html` parts unless `--include-html` is passed. Every call site that produces displayed/quoted body content must pass `--include-html` (+ `--decrypt=true` for parity with the preview) or HTML-only emails reply with an **empty body** — e.g. `search._thread_latest_message` must mirror `thread_model._fetch_full_thread` (pinned by `test_list_reply_quotes_html_only_email`).
 - **No eager imports in `__init__.py`**: Importing submodules like `themes` must not transitively import `app` or PyQt6/WebEngine. CLI developer tools (`tools/import_themes.py`) must remain pure Python stdlib with 0 external dependencies so they run on standard system Python without requiring a venv.
 - **ANSI escape sequences throw off terminal string width padding**: 24-bit truecolor escape codes (`\033[48;2;...m`) have byte length but zero terminal column width. When formatting multi-column CLI outputs, pad the visible text components with fixed widths rather than wrapping the whole colorized string in `<width>`, otherwise columns will be misaligned.
 - **Topological dependency order in theme key resolution**: In `terminal_theme_to_lazarus`, evaluate keys in dependency order (`bg`, `fg`, `fg_dim` before dependent keys like `fg_date` and `fg_subject_irrelevant`).
 - **Contrast in custom item delegates vs standard Qt widgets**: Standard Qt widgets (`TagPanel` / `QTreeView`) automatically invert text to `QPalette.HighlightedText` on selection. Custom item delegates (`CardDelegate` in `search.py`) manually paint text pens; painting an opaque bright `bg_highlight` without inverting text causes an unreadable contrast clash. Use a modern 25% alpha blend wash (`bg_highlight` over `bg` when high-contrast) so distinct column colors (`fg_from`, `fg_subject_unread`, `fg_tags`) stay readable on any theme.
 - **Fine-grained row removals vs model reset**: In `SearchModel.refresh_thread`, use `beginRemoveRows` / `endRemoveRows` when a thread leaves a query rather than `beginResetModel`. Full resets blow away scroll position, delegate state, and cursor focus.
-- **Non-blocking `notmuch new` in bulk thread actions**: Run `notmuch.new()` inside the `_BulkMoveWorker` QThread right after file renames rather than stalling the Qt main thread. Guard destructive actions (`delete_thread`, `archive_thread`) from running redundant shell subprocesses if no threads are marked.
+- **Daemon owns every index write**: the desktop never shells out to `notmuch` — not even for sends. `SendmailThread` builds MIME + PGP + msmtp locally (client-side), then asks the daemon to `index_new()` and `modify_tags(+replied)`. Guard destructive actions from redundant work when nothing is marked.
 - **Lazy initialization of secondary windows & WebEngine warmup**: Never instantiate dialogs (`HelpWindow`) during `app.py` bootstrap. Defer Chromium warmup to `QTimer.singleShot(0, self._warm_webengine)` to drop cold startup from ~760ms to ~110ms.
 - **1-to-1 mapping vs convoluted fallback chains**: Multi-item fallback chains (`[14, 6, 12, 4, 'fg']`) were relics of 8-color vs 16-color VT100 terminals. In modern truecolor Qt GUI apps where 100% of bundled themes define all 16 colors, clean 1-to-1 mappings are vastly clearer and maintainable.
 - **URL percent-decoding in REST routes**: Browser clients URL-encode path parameters (e.g. `@` as `%40` in message IDs like `CABsu...%40mail.gmail.com`). Always unquote path segments with `urllib.parse.unquote()` before querying `notmuch show -- id:...` or file actions, otherwise notmuch searches for literal `%40` and fails to find the message.
@@ -445,8 +445,8 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 - **`threading.Thread` vs Qt main loop signal marshalling**: When background threads in `core.actions` complete batches, wire desktop listeners through `_QtBatchDoneBridge(QObject)` with a `pyqtSignal()`. Emitting the signal safely marshals the callback onto Qt's main event loop before invoking `app.refresh_panels()`.
 - **Non-blocking socket select polling for SSE streams**: On Unix domain sockets, standard blocking `readline()` does not reliably wake up when another thread calls `shutdown()` or `close()`. Using `select.select([raw_sock], [], [], 0.2)` with non-blocking sockets allows event listener threads to check stop events and shut down cleanly within milliseconds without hanging during test teardown.
 - **`core.actions._get_collector()` is a swappable seam, not dead code**: move actions resolve the collector through `lazarus.actions.collect_files` when it differs from core's — that's how tests inject file lists (`monkeypatch.setattr(actions, 'collect_files', ...)` in `tests/test_maildir_concurrency.py` and the desktop path) and how a UI-level collector could replace core collection. Do not “simplify” it away; the headless daemon resolves it to the core collector since `lazarus.actions` is never imported there.
-- **`is_ned_active()` is TTL-cached** (2s, keyed on the NED env vars) because it sits on every hot path (panel refresh, keypress actions, autocomplete). Polling loops that must see a fresh answer (daemon spawn) call `is_ned_active(force=True)`.
-- **Desktop expunge is routed through the daemon when NED is active**: `POST /api/v1/expunge` (under `mutation_lock`) so the irreversible trash flagging runs inside the daemon's single-writer boundary; the local `actions.expunge_trash()` path is the NED-less fallback only.
+- **`is_ned_active()` is gone**: Lazarus is NED-only. `lazarus.app` calls `client.ensure_daemon(timeout=5)` at startup and exits with a dialog if the daemon cannot be reached (NED spawns itself as a child process). `LAZARUS_DISABLE_NED=1` only suppresses spawning for diagnostics — it never enables a local fallback.
+- **Desktop mutations are always daemon-routed**: expunge (`POST /api/v1/expunge`), rules (`POST /api/v1/rules`), index-after-send (`POST /api/v1/index`), message fetch (`GET /api/v1/messages/{id}`) — all under `mutation_lock`. Desktop `actions.expunge_trash()` etc. exist only as daemon-side helpers.
 - **`get_part_data` canonical order is `(content, content_type, filename)`** across `core.service`, `ned.handler`, and `NedClient.get_part_data`. Keep the layers in that order — the sibling tests (`test_ned.py`, `test_ned_client.py`) pin it.
 - **Sync summary is single-sourced**: `SyncMailThread` stores `via_ned`/`sync_message`; when the daemon ran the sync its pre-formatted summary is shown as-is, otherwise `parse_sync_stats()` (core.sync) feeds the status bar. Never re-implement the `Far:` regex in the controller.
 - **SSE invalidations are debounced** (150ms single-shot timer in `AppController`) so a desktop action that mutates via NED — which triggers both the local refresh and a daemon-broadcast invalidation — coalesces into one panel pass.
@@ -478,12 +478,15 @@ All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
 | `GET` | `/api/v1/threads` | Search threads (`q`, `limit`, `offset`). |
 | `GET` | `/api/v1/threads/{id}` | Fetch full thread tree with messages and metadata. |
 | `GET` | `/api/v1/messages/{id}/parts/{part_id}` | Download decoded message body part or binary attachment. |
+| `GET` | `/api/v1/messages/{id}` | Fetch one message's raw notmuch-show dict (cheap view refresh). |
 | `POST` | `/api/v1/tags` / `/api/v1/tag` | Modify tags (`{"queries": [...], "add": [...], "remove": [...]}` or legacy `ids`). |
 | `POST` | `/api/v1/threads/{id}/archive` | Archive thread (`-inbox -unread` + move to `Archive/cur/`). |
 | `POST` | `/api/v1/threads/{id}/trash` | Trash thread (`+trash -inbox -unread` + move to `Trash/cur/`). |
 | `POST` | `/api/v1/threads/{id}/unarchive` | Restore archived thread to `inbox`. |
 | `POST` | `/api/v1/threads/{id}/untrash` | Restore trashed thread from `Trash/cur/` to `INBOX/cur/`. |
 | `POST` | `/api/v1/expunge` | Flag every `tag:trash` file with the Maildir `T` flag (irreversible). |
+| `POST` | `/api/v1/rules` | Apply configured filter rules (`C-r` on desktop); returns `matched`. |
+| `POST` | `/api/v1/index` | Run `notmuch new --no-hooks` (sent-mail appends from the desktop). |
 | `POST` | `/api/v1/threads/{id}/star` | Toggle flagged tag (`{"flag": bool}`). |
 | `GET` | `/api/v1/tags` | List all known Notmuch tags with thread counts. |
 | `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q`. |
@@ -508,7 +511,7 @@ data: {"scope": "thread", "id": "0000000000001234", "reason": "tag"}
 #### Notmuch Email Daemon (NED) roadmap
 1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
 2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
-3. Phase 3 (completed): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`, wired to SSE invalidation stream.
+3. Phase 3+ (completed): Lazarus desktop is a pure NED client — no local notmuch mode, no `is_ned_active` fallback, no desktop worker. Desktop spawns NED at startup (2026-09).
 4. Phase 4 (completed): Retire `lazarus-server` in favor of `ned`, then remove `lazarus.server` + the `lazarus-web`/`lazarus-server` entry points entirely (2026-09).
 
 #### Decoupled domain engine (`lazarus.core`)

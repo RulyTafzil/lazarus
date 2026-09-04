@@ -138,30 +138,6 @@ def test_expunge_skips_already_trashed(notmuch_stub, maildir):
     assert notmuch_stub.tag_calls == []
 
 
-def test_batch_done_listener_invoked(notmuch_stub, maildir, inbox_file, qapp):
-    """The registered app-level listener runs after each move batch.
-
-    This is the wiring the app uses for refresh_panels — registered via
-    set_batch_done_listener so it survives worker recreation."""
-    calls = []
-    actions.set_batch_done_listener(lambda: calls.append(1))
-    try:
-        # Drain any batch_done queued by earlier tests (worker is a
-        # session singleton) before recording the baseline.
-        for _ in range(10):
-            qapp.processEvents()
-        baseline = len(calls)
-        notmuch_stub.files = [inbox_file]
-        actions.move_to_trash('tag:inbox')
-
-        def got_callback():
-            qapp.processEvents()
-            return len(calls) > baseline
-        assert _wait_until(got_callback)
-    finally:
-        actions.set_batch_done_listener(None)
-
-
 def test_worker_runs_notmuch_new_after_batch(notmuch_stub, maildir, inbox_file, qapp):
     """After a move batch lands, notmuch new fires exactly once more.
 
@@ -182,7 +158,7 @@ def test_worker_runs_notmuch_new_after_batch(notmuch_stub, maildir, inbox_file, 
     assert notmuch_stub.new_calls == baseline + 1
 
 
-def test_delete_thread_skips_marked_check_when_none_marked(notmuch_stub, inbox_file):
+def test_delete_thread_skips_marked_check_when_none_marked(client_stub, inbox_file):
     class FakePanel(actions.MarkableActionsMixin):
         def __init__(self):
             self.app = type('App', (), {
@@ -198,10 +174,10 @@ def test_delete_thread_skips_marked_check_when_none_marked(notmuch_stub, inbox_f
         def _current_thread_tags(self):
             return {'inbox'}
 
-    notmuch_stub.files = [inbox_file]
     p = FakePanel()
     p.delete_thread()
-    queries = [call[1] for call in notmuch_stub.tag_calls]
-    assert 'tag:marked' not in queries
-    assert 'thread:t123' in queries
+    # NED-only: the delete is dispatched to the daemon as a trash call for
+    # the single thread — never as a local tag on the marked query.
+    assert client_stub.trash_calls == ['t123']
+    assert not any('tag:marked' in q for q in client_stub.trash_calls)
 

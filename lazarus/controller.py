@@ -47,9 +47,6 @@ from PyQt6.QtCore import QObject, QSettings, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from . import settings
-from . import rules
-from . import actions
-from . import notmuch
 from .protocols import ThreadList, ThreadView, LIST_METHODS, THREAD_METHODS
 
 if TYPE_CHECKING:
@@ -58,9 +55,6 @@ if TYPE_CHECKING:
     from .panel import Panel
 
 logger = logging.getLogger(__name__)
-
-
-from .core.sync import SyncResult, run_sync, parse_sync_stats
 
 
 class _NedEventBridge(QObject):
@@ -73,8 +67,9 @@ class _NedEventBridge(QObject):
 class SyncMailThread(QThread):
     """A QThread used for syncing local Maildir and notmuch with IMAP.
 
-    Delegates to NED daemon if active, or lazarus.core.sync.run_sync,
-    emitting progress signals for UI status bars.
+    Delegates the sync to the NED daemon (``POST /api/v1/sync``) — the
+    daemon runs mbsync, notmuch new, and filter rules, then returns a
+    pre-formatted summary message.
     """
 
     progress = pyqtSignal(str)
@@ -84,41 +79,27 @@ class SyncMailThread(QThread):
         self._stopping = False
         self.sync_stderr: str = ''
         self.sync_rc: int = 0
-        self.sync_summaries: list[str] = []
-        self.notmuch_stderr: str = ''
-        self.notmuch_rc: int = 0
-        self.result: SyncResult | None = None
-        # Set when the sync ran through the NED daemon: the daemon already
-        # applied filter rules and returned a pre-formatted summary message.
-        self.via_ned = False
         self.sync_message: str = ''
+        self.notmuch_rc: int = 0
+        self.notmuch_stderr: str = ''
 
     def run(self) -> None:
-        """Run sync cycle via NED or core.sync."""
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            self.via_ned = True
-            self.progress.emit("Syncing mail via NED...")
+        """Run the sync cycle via NED."""
+        from .client import get_client
+        self.progress.emit("Syncing mail via NED...")
+        try:
             ok, msg = get_client().sync_mail()
-            if ok:
-                self.sync_rc = 0
-                self.notmuch_rc = 0
-                self.sync_message = msg
-            else:
-                self.sync_rc = 1
-                self.sync_stderr = msg
+        except Exception as e:
+            self.sync_rc = 1
+            self.sync_stderr = str(e)
             return
-
-        self.result = run_sync(
-            progress_callback=self.progress.emit,
-            cancel_check=lambda: self._stopping,
-            apply_rules=False,
-        )
-        self.sync_rc = self.result.sync_rc
-        self.notmuch_rc = self.result.notmuch_rc
-        self.sync_stderr = self.result.sync_stderr
-        self.notmuch_stderr = self.result.notmuch_stderr
-        self.sync_summaries = self.result.sync_summaries
+        if ok:
+            self.sync_rc = 0
+            self.notmuch_rc = 0
+            self.sync_message = msg
+        else:
+            self.sync_rc = 1
+            self.sync_stderr = msg
 
     def stop(self) -> None:
         """Terminate sync execution and wait for the thread to finish."""
@@ -157,11 +138,12 @@ class AppController(QObject):
         """Start background SSE listener thread bridging invalidations to Qt."""
         if os.environ.get("LAZARUS_DISABLE_NED") == "1":
             return
-        from .client import get_client, is_ned_active
-        if not is_ned_active():
-            # No daemon at startup: skip the watcher entirely. Without
-            # this guard, watch_events( reconnect=True) would retry a
-            # failed socket connect every second for the app's lifetime.
+        from .client import get_client
+        try:
+            if not get_client().ping():
+                logger.info("NED not reachable at startup; SSE watcher disabled")
+                return
+        except Exception:
             logger.info("NED not reachable at startup; SSE watcher disabled")
             return
         client = get_client()
@@ -460,20 +442,13 @@ class AppController(QObject):
         self.app.sync_thread = t
 
         def done() -> None:
-            if not t.via_ned and t.notmuch_rc == 0 and settings.filter_rules:
-                # In NED mode the daemon already applied filter rules as
-                # part of /api/v1/sync; applying them again here would
-                # write to the index outside the daemon's lock.
-                try:
-                    rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
-                except Exception as e:
-                    logger.warning('Error applying filter rules: %s', e)
+            # The daemon applied filter rules as part of /api/v1/sync.
             self.refresh_panels()
             self.refresh_tab_titles()
             # Parse mbsync summary for status bar
             if t.sync_rc != 0:
                 if t.sync_stderr:
-                    logger.error('mbsync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
+                    logger.error('sync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
                 msg = f'Sync error (exit {t.sync_rc})'
                 if t.sync_stderr:
                     msg += f': {t.sync_stderr[:200]}'
@@ -485,22 +460,10 @@ class AppController(QObject):
                 if t.notmuch_stderr:
                     msg += f': {t.notmuch_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
-            elif t.sync_message:
-                # NED path: the daemon returned a pre-formatted summary
-                # (e.g. "Sync completed (+3 new)").
-                self.status_message(t.sync_message, 'info')
             else:
-                # Aggregate Far: stats across all accounts
-                new, flagged, expunged, deleted = parse_sync_stats(t.sync_summaries)
-                bits = []
-                if new != 0: bits.append(f'+{new} new')
-                if flagged != 0: bits.append(f'*{flagged} flagged')
-                if expunged != 0: bits.append(f'{expunged} cleaned')
-                if deleted != 0: bits.append(f'{deleted} deleted')
-                if bits:
-                    self.status_message('Sync: ' + ', '.join(bits), 'info')
-                else:
-                    self.status_message('Sync: up to date', 'info')
+                # The daemon returned a pre-formatted summary
+                # (e.g. "Sync completed (+3 new)").
+                self.status_message(t.sync_message or 'Sync: up to date', 'info')
             if not quiet:
                 title = self.main_window.windowTitle()
                 self.main_window.setWindowTitle(title.replace(' [syncing]', ''))
@@ -522,8 +485,9 @@ class AppController(QObject):
         if not settings.filter_rules:
             self.status_message('No filter_rules configured', 'info')
             return
+        from .client import get_client
         try:
-            n = rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+            n = get_client().apply_filter_rules()
         except Exception as e:
             logger.warning('Error applying filter rules: %s', e)
             self.status_message(f'Error applying filter rules: {e}', 'error')
@@ -532,11 +496,14 @@ class AppController(QObject):
         self.status_message(f'Applied filter rules ({n} matched)', 'info')
 
     def expunge_trash(self) -> None:
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            count = get_client().count('tag:trash', output='files')
-        else:
-            count = notmuch.count('tag:trash', output='files')
+        from .client import get_client
+        client = get_client()
+        try:
+            count = client.count('tag:trash', output='files')
+        except Exception as e:
+            logger.warning('Could not count trash: %s', e)
+            self.status_message('Trash error', 'error')
+            return
         if count == 0:
             self.status_message('Trash is empty', 'info')
             return
@@ -548,12 +515,9 @@ class AppController(QObject):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        if is_ned_active():
-            # Route through the daemon so the expunge (file flag renames +
-            # index writes) runs inside its single-writer mutation lock.
-            tagged = get_client().expunge_trash()
-        else:
-            tagged = actions.expunge_trash()
+        # The daemon runs the expunge (file flag renames + index writes)
+        # inside its single-writer mutation lock.
+        tagged = client.expunge_trash()
         self.refresh_panels()
         if tagged:
             self.status_message(f'{tagged} message{"s" if tagged != 1 else ""} will be expunged on next sync', 'info')
@@ -580,11 +544,8 @@ class AppController(QObject):
         dirty = [w for w in panels
                  if isinstance(w, search_mod.SearchPanel) and w.title_dirty]
         if dirty:
-            from .client import get_client, is_ned_active
-            if is_ned_active():
-                counts = get_client().count_batch([w.q for w in dirty])
-            else:
-                counts = notmuch.count_batch([w.q for w in dirty])
+            from .client import get_client
+            counts = get_client().count_batch([w.q for w in dirty])
             for w, n in zip(dirty, counts):
                 w.apply_thread_count(n)
 
@@ -696,12 +657,6 @@ class AppController(QObject):
         thread = getattr(self.app, 'sync_thread', None)
         if thread is not None and thread.isRunning():
             thread.stop()
-        # Join bulk-move worker so Quit never races a pending batch_done emit.
-        try:
-            from . import actions as actions_mod
-            actions_mod.shutdown_worker()
-        except Exception:
-            pass
 
     def prompt_quit(self) -> None:
         self._save_open_searches()

@@ -1,7 +1,4 @@
 """Reply/forward from the search list (r / R / C-y without opening)."""
-import json
-import subprocess
-
 import pytest
 
 from lazarus import mainwindow
@@ -11,7 +8,7 @@ from tests.conftest import make_thread, make_message
 
 
 @pytest.fixture
-def mw(qapp, fake_app, notmuch_stub):
+def mw(qapp, fake_app, client_stub):
     win = mainwindow.MainWindow(fake_app)
     win.resize(1000, 700)
     win.show()
@@ -23,67 +20,14 @@ def ctl(mw, fake_app):
     return AppController(fake_app, mw)  # type: ignore[arg-type]
 
 
-def _stub_show(notmuch_stub, monkeypatch, messages):
-    """notmuch.show for a thread returns *messages* as one thread."""
-    import lazarus.notmuch as nm
-
-    def fake_run(*args, **kwargs):
-        if args and args[0] == 'show':
-            thread = [[m, []] for m in messages]  # each message its own tree
-            out = json.dumps([thread])
-        elif args and args[0] == 'count':
-            out = '1\n'
-        else:  # 'search' --output=messages
-            out = json.dumps(['x'])
-        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
-
-    monkeypatch.setattr(nm, 'run', fake_run)
+def _stub_show(client_stub, messages):
+    """NED get_thread returns *messages* as one thread's roots."""
+    client_stub.thread_trees['t1'] = [[[m, []] for m in messages]]
 
 
-def _stub_show_html(notmuch_stub, monkeypatch, html_only_msg):
-    """notmuch.show returns an HTML-only message, but elides the HTML part
-    unless ``--include-html`` was passed — mirroring real notmuch, whose
-    ``show`` omits ``text/html`` parts by default.  Lets the test prove the
-    list reply path requests the part instead of getting an empty body.
-
-    Returns the list of ``show`` invocations (args tuples) for assertions.
-    """
-    import lazarus.notmuch as nm
-    show_calls: list = []
-
-    def fake_run(*args, **kwargs):
-        if args and args[0] == 'show':
-            show_calls.append(args)
-            if '--include-html' in args:
-                msgs = [html_only_msg]
-            else:
-                elided = dict(html_only_msg, body=[])
-                msgs = [elided]
-            thread = [[m, []] for m in msgs]
-            out = json.dumps([thread])
-        elif args and args[0] == 'count':
-            out = '1\n'
-        else:
-            out = json.dumps(['x'])
-        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
-
-    monkeypatch.setattr(nm, 'run', fake_run)
-    return show_calls
-
-
-def _stub_show_empty(monkeypatch):
-    import lazarus.notmuch as nm
-
-    def fake_run(*args, **kwargs):
-        if args and args[0] == 'show':
-            out = '[]'
-        elif args and args[0] == 'count':
-            out = '1\n'
-        else:
-            out = json.dumps(['x'])
-        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
-
-    monkeypatch.setattr(nm, 'run', fake_run)
+def _stub_show_empty(client_stub):
+    """NED returns no messages for the thread."""
+    client_stub.thread_trees['t1'] = []
 
 
 def _capture_open_compose(ctl, monkeypatch):
@@ -94,20 +38,20 @@ def _capture_open_compose(ctl, monkeypatch):
     return calls
 
 
-def _open_list(ctl, mw, notmuch_stub):
-    notmuch_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'Bye')]
+def _open_list(ctl, mw, client_stub):
+    client_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'Bye')]
     ctl.open_search('tag:inbox')
     sp = mw.tabs.currentWidget()
     assert isinstance(sp, SearchPanel)
     return sp
 
 
-def test_list_reply_uses_most_recent_message(ctl, mw, qapp, notmuch_stub,
+def test_list_reply_uses_most_recent_message(ctl, mw, qapp, client_stub,
                                              monkeypatch):
     older = make_message('m1', 'First', timestamp=100)
     newer = make_message('m2', 'Latest', timestamp=200)
-    _stub_show(notmuch_stub, monkeypatch, [older, newer])
-    sp = _open_list(ctl, mw, notmuch_stub)
+    _stub_show(client_stub, [older, newer])
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
 
     sp.reply(to_all=True)
@@ -116,30 +60,29 @@ def test_list_reply_uses_most_recent_message(ctl, mw, qapp, notmuch_stub,
     assert msg['id'] == 'm2'  # most recent, not the first
 
 
-def test_list_reply_plain(ctl, mw, qapp, notmuch_stub, monkeypatch):
-    _stub_show(notmuch_stub, monkeypatch, [make_message('m1', 'Hi')])
-    sp = _open_list(ctl, mw, notmuch_stub)
+def test_list_reply_plain(ctl, mw, qapp, client_stub, monkeypatch):
+    _stub_show(client_stub, [make_message('m1', 'Hi')])
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
     sp.reply(to_all=False)
     assert calls[0][0] == 'reply'
 
 
-def test_list_forward(ctl, mw, qapp, notmuch_stub, monkeypatch):
-    _stub_show(notmuch_stub, monkeypatch, [make_message('m1', 'Hi')])
-    sp = _open_list(ctl, mw, notmuch_stub)
+def test_list_forward(ctl, mw, qapp, client_stub, monkeypatch):
+    _stub_show(client_stub, [make_message('m1', 'Hi')])
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
     sp.forward()
     assert calls[0][0] == 'forward'
 
 
-def test_list_reply_quotes_html_only_email(ctl, mw, qapp, notmuch_stub,
+def test_list_reply_quotes_html_only_email(ctl, mw, qapp, client_stub,
                                           monkeypatch):
     """Reply-from-list to an HTML-only email must quote its body.
 
-    Real notmuch ``show`` elides ``text/html`` parts unless
-    ``--include-html`` is passed, so the list path must request the same
-    parts the thread preview does — otherwise the reply body comes back
-    empty (a regression distinct from the previewed path, which works).
+    NED's thread fetch always requests ``--include-html`` (see
+    ``test_ned_include_html_on_thread_fetch`` in test_ned.py), so the list
+    path receives the HTML part and the reply quotes its plaintext form.
     """
     from lazarus import compose_model
 
@@ -155,13 +98,12 @@ def test_list_reply_quotes_html_only_email(ctl, mw, qapp, notmuch_stub,
         'tags': ['inbox'], 'crypto': {}, 'match': True,
         'filename': ['/tmp/html1'], 'content-type': 'text/html',
     }
-    show_calls = _stub_show_html(notmuch_stub, monkeypatch, html_only)
-    sp = _open_list(ctl, mw, notmuch_stub)
+    _stub_show(client_stub, [html_only])
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
 
     sp.reply(to_all=False)
 
-    assert any('--include-html' in args for args in show_calls)
     mode, msg = calls[0]
     assert mode == 'reply'
     seed = compose_model.build_reply_seed(msg, to_all=False)
@@ -170,9 +112,9 @@ def test_list_reply_quotes_html_only_email(ctl, mw, qapp, notmuch_stub,
     assert '> Hello' in seed.body   # quoted
 
 
-def test_reply_no_messages_warns(ctl, mw, qapp, notmuch_stub, monkeypatch):
-    _stub_show_empty(monkeypatch)
-    sp = _open_list(ctl, mw, notmuch_stub)
+def test_reply_no_messages_warns(ctl, mw, qapp, client_stub, monkeypatch):
+    _stub_show_empty(client_stub)
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
     statuses: list = []
     monkeypatch.setattr(ctl, 'status_message',
@@ -182,10 +124,10 @@ def test_reply_no_messages_warns(ctl, mw, qapp, notmuch_stub, monkeypatch):
     assert statuses[0][0] == 'No message to reply to'
 
 
-def test_controller_reply_list_focused(ctl, mw, qapp, notmuch_stub, monkeypatch):
+def test_controller_reply_list_focused(ctl, mw, qapp, client_stub, monkeypatch):
     """With the list focused (no preview), r replies the selected thread."""
-    _stub_show(notmuch_stub, monkeypatch, [make_message('m1', 'Hi')])
-    sp = _open_list(ctl, mw, notmuch_stub)
+    _stub_show(client_stub, [make_message('m1', 'Hi')])
+    sp = _open_list(ctl, mw, client_stub)
     calls = _capture_open_compose(ctl, monkeypatch)
     sp.tree.setFocus()
     qapp.processEvents()
@@ -193,7 +135,7 @@ def test_controller_reply_list_focused(ctl, mw, qapp, notmuch_stub, monkeypatch)
     assert calls[0][0] == 'reply'
 
 
-def test_controller_reply_preview_focused(ctl, mw, qapp, notmuch_stub,
+def test_controller_reply_preview_focused(ctl, mw, qapp, client_stub,
                                          monkeypatch):
     """With the thread preview focused, r replies its current message."""
     from tests.test_controller import FakeThreadPanel

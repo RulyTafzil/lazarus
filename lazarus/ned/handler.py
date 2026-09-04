@@ -201,6 +201,18 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(content)
             return
 
+        # Single message (raw notmuch-show dict; used for cheap view refreshes)
+        m_msg = re.match(r"^/api/v1/messages/([^/]+)$", path)
+        if m_msg:
+            msg_id = urllib.parse.unquote(m_msg.group(1))
+            try:
+                msg = service.get_message_raw(msg_id)
+            except Exception:
+                self.send_error_json("Message not found", HTTPStatus.NOT_FOUND)
+                return
+            self.send_json(msg)
+            return
+
         if path == "/api/v1/tags":
             self.send_json(service.get_all_tags())
             return
@@ -433,6 +445,25 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 tagged = service.expunge_trash()
             broadcaster.broadcast_invalidate("threads", reason="expunge")
             self.send_json({"status": "ok", "tagged": tagged, "ok": True})
+            return
+
+        # Apply filter rules (C-r on the desktop)
+        if path == "/api/v1/rules":
+            with mutation_lock:
+                matched = service.apply_filter_rules()
+            broadcaster.broadcast_invalidate("threads", reason="rules")
+            self.send_json({"status": "ok", "matched": matched, "ok": True})
+            return
+
+        # Index new files on disk (sent-mail appends, external changes)
+        if path == "/api/v1/index":
+            with mutation_lock:
+                ok = service.index_new()
+            if ok:
+                broadcaster.broadcast_invalidate("threads", reason="index")
+                self.send_json({"status": "ok", "ok": True})
+            else:
+                self.send_error_json("notmuch new failed", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         # Mail synchronization

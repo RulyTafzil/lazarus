@@ -3,15 +3,12 @@
 import http.client
 import json
 import os
-from pathlib import Path
 import socket
-import time
-import pytest
 
-from lazarus.ned.concurrency import MutationLock, mutation_lock
-from lazarus.ned.daemon import NedDaemon, get_default_socket_path
+from lazarus.ned.concurrency import MutationLock
+from lazarus.ned.daemon import NedDaemon
 from lazarus.ned.events import EventBroadcaster, broadcaster
-from lazarus import notmuch, settings
+from lazarus import settings
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
@@ -267,6 +264,35 @@ def test_ned_get_part_attachment(tmp_path, monkeypatch):
     finally:
         daemon.stop()
 
+def test_ned_include_html_on_thread_fetch(monkeypatch):
+    """NED's thread fetch always requests HTML parts.
+
+    The list-reply path used to miss ``--include-html`` and quote an empty
+    body for HTML-only mail; that regression now lives in the daemon's
+    fetch (``get_thread_messages``), so pin it at this layer.
+    """
+    from lazarus.core import service as core_service
+    import lazarus.notmuch as nm
+
+    calls: list = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(args)
+        return type('R', (), {'stdout': '[]'})()
+
+    monkeypatch.setattr(nm, 'run', fake_run)
+    monkeypatch.setattr(core_service.notmuch, 'run', fake_run)
+
+    try:
+        core_service.get_thread_messages('thread:abc123')
+    except Exception:
+        pass  # empty DB output is fine; the arg contract is what we assert
+
+    show_args = [a for a in calls if a and a[0] == 'show']
+    assert show_args, 'get_thread_messages must invoke notmuch show'
+    assert '--include-html' in show_args[0]
+    assert '--decrypt=true' in show_args[0]
+
 
 def test_ned_expunge_endpoint(tmp_path, monkeypatch):
     from lazarus.core import service
@@ -275,7 +301,6 @@ def test_ned_expunge_endpoint(tmp_path, monkeypatch):
     daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
     daemon.start()
 
-    expunged: list[int] = []
     monkeypatch.setattr(service, "expunge_trash", lambda: 3)
 
     try:

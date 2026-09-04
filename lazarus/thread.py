@@ -42,8 +42,6 @@ from . import settings
 from . import util
 from . import keymap
 from . import panel
-from . import actions
-from . import notmuch
 from .protocols import PanelApp
 from .webengine import (
     MessagePage,
@@ -573,16 +571,18 @@ class ThreadPanel(panel.Panel):
         self.app.status_message('Archived message', 'info')
 
     def archive_message_to_local(self) -> None:
-        """Move the current message's files to the local Archive."""
+        """Move the current message's files to the local Archive (via NED)."""
         m = self.current_message
-        actions.move_to_archive('id:' + m['id'])
+        from .client import get_client
+        get_client().archive_thread('id:' + m['id'])
         self.app.status_message('Archived message to local', 'info')
         self.app.update_single_thread(self.thread_id, m['id'])
 
     def delete_message(self) -> None:
         """Move the current message to Trash and advance the cursor."""
         m = self.current_message
-        actions.move_to_trash('id:' + m['id'])
+        from .client import get_client
+        get_client().trash_thread('id:' + m['id'])
         self.app.status_message('Moved message to trash', 'info')
         self.next_message()
         self.app.update_single_thread(self.thread_id, m['id'])
@@ -623,17 +623,11 @@ class ThreadPanel(panel.Panel):
         for part in util.message_parts(m):
             if not util.is_attachment(part):
                 continue
-            from .client import get_client, is_ned_active
-            if is_ned_active():
-                try:
-                    content = get_client().get_part(m['id'], int(part['id']))
-                except Exception:
-                    continue
-            else:
-                try:
-                    content = notmuch.show_part(part['id'], m['id'])
-                except subprocess.CalledProcessError:
-                    continue
+            from .client import get_client
+            try:
+                content = get_client().get_part(m['id'], int(part['id']))
+            except Exception:
+                continue
             if not content:
                 continue
             filename = util.sanitize_filename(part.get('filename', 'attachment'))

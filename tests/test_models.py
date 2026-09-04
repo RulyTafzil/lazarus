@@ -1,5 +1,4 @@
-"""Qt models — SearchModel, ThreadModel, TagModel (notmuch stubbed)."""
-import json
+"""Qt models — SearchModel, ThreadModel, TagModel (NED client stubbed)."""
 
 from PyQt6.QtCore import Qt, QModelIndex
 
@@ -13,15 +12,15 @@ from tests.conftest import make_thread, make_message
 # SearchModel
 # ---------------------------------------------------------------------------
 
-def test_search_model_loads_threads(notmuch_stub, qapp):
-    notmuch_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'World')]
+def test_search_model_loads_threads(client_stub, qapp):
+    client_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'World')]
     model = SearchModel('tag:inbox')
     assert model.num_threads == 2
     assert model.thread_id(model.index(0, 0)) == 't1'
 
 
-def test_search_model_filters_by_query(notmuch_stub, qapp):
-    notmuch_stub.threads = [
+def test_search_model_filters_by_query(client_stub, qapp):
+    client_stub.threads = [
         make_thread('t1', 'Hello', tags=['inbox']),
         make_thread('t2', 'Hi', tags=['unread']),
     ]
@@ -29,8 +28,8 @@ def test_search_model_filters_by_query(notmuch_stub, qapp):
     assert model.num_threads == 1
 
 
-def test_refresh_thread_in_place_no_reset(notmuch_stub, qapp):
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+def test_refresh_thread_in_place_no_reset(client_stub, qapp):
+    client_stub.threads = [make_thread('t1', 'Hello')]
     model = SearchModel('tag:inbox')
     reset = {'n': 0}
     changed = {'n': 0}
@@ -38,15 +37,15 @@ def test_refresh_thread_in_place_no_reset(notmuch_stub, qapp):
     model.dataChanged.connect(lambda *_: changed.__setitem__('n', changed['n'] + 1))
 
     # mutate the row's subject via a re-query
-    notmuch_stub.threads[0]['subject'] = 'Changed'
+    client_stub.threads[0]['subject'] = 'Changed'
     model.refresh_thread('t1')
     assert reset['n'] == 0
     assert changed['n'] == 1
     assert model.d[0]['subject'] == 'Changed'
 
 
-def test_refresh_thread_noop_when_unchanged(notmuch_stub, qapp):
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+def test_refresh_thread_noop_when_unchanged(client_stub, qapp):
+    client_stub.threads = [make_thread('t1', 'Hello')]
     model = SearchModel('tag:inbox')
     reset = {'n': 0}
     changed = {'n': 0}
@@ -56,33 +55,32 @@ def test_refresh_thread_noop_when_unchanged(notmuch_stub, qapp):
     assert reset['n'] == 0 and changed['n'] == 0
 
 
-def test_refresh_thread_row_removed_on_drop(notmuch_stub, qapp):
-    notmuch_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'Bye')]
+def test_refresh_thread_row_removed_on_drop(client_stub, qapp):
+    client_stub.threads = [make_thread('t1', 'Hello'), make_thread('t2', 'Bye')]
     model = SearchModel('tag:inbox')
     removed = []
     reset = {'n': 0}
     model.rowsRemoved.connect(lambda parent, first, last: removed.append((first, last)))
     model.modelReset.connect(lambda: reset.__setitem__('n', reset['n'] + 1))
     # t1 stops matching the query
-    notmuch_stub.threads = [make_thread('t2', 'Bye')]
+    client_stub.threads = [make_thread('t2', 'Bye')]
     model.refresh_thread('t1')
     assert removed == [(0, 0)]
     assert reset['n'] == 0
     assert model.num_threads == 1
 
 
-def test_search_model_error_keeps_stale_data(notmuch_stub, qapp):
-    notmuch_stub.threads = [make_thread('t1', 'Hello')]
+def test_search_model_error_keeps_stale_data(client_stub, qapp):
+    client_stub.threads = [make_thread('t1', 'Hello')]
     model = SearchModel('tag:inbox')
 
     def boom(*a, **k):
-        import subprocess
-        raise subprocess.CalledProcessError(1, 'notmuch', stderr='db locked')
+        raise RuntimeError('NED unreachable')
 
-    import lazarus.notmuch as nm
-    import pytest
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(nm, 'search_json', boom)
+    monkeypatch = __import__('pytest').MonkeyPatch.context()
+    with monkeypatch:
+        # Simulate daemon failure on refresh: stale data + error retained.
+        client_stub.search = boom
         model.refresh()
     assert model.error_msg is not None
     assert model.num_threads == 1  # stale data retained
@@ -108,52 +106,34 @@ def test_render_thread_cell_roles(qapp):
 # ThreadModel
 # ---------------------------------------------------------------------------
 
-def _thread_tree(notmuch_stub, msg_ids=('m1', 'm2')):
+def _thread_tree(client_stub, msg_ids=('m1', 'm2')):
     tree = [
         [make_message(msg_ids[0], 'First'), [
             [make_message(msg_ids[1], 'Reply'), []],
         ]],
     ]
-    notmuch_stub.threads = tree  # search_json returns the tree directly
-    # ThreadModel uses a different notmuch call — patch per-model below
-
-
-def _patch_thread_notmuch(monkeypatch, thread, msg_ids):
-    """ThreadModel calls notmuch.run directly.
-
-    Real ``notmuch show`` output: ``[[thread]]`` where each thread is a
-    list of ``[message, [children]]`` trees.
-    """
-    import subprocess
-    import lazarus.notmuch as nm
-
-    def fake_run(*args, **kwargs):
-        if args and args[0] == 'show':
-            out = json.dumps([thread])      # list of threads
-        else:  # 'search' --output=messages
-            out = json.dumps(list(msg_ids))
-        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
-
-    monkeypatch.setattr(nm, 'run', fake_run)
+    # notmuch show output shape: [ <list of roots> ]
+    client_stub.thread_trees['thread:t1'] = [tree]
+    client_stub.message_ids = list(msg_ids)
 
 
 def _message_tree(msg, children=None):
     return [msg, children or []]
 
 
-def test_thread_model_builds_tree(notmuch_stub, qapp, monkeypatch):
+def test_thread_model_builds_tree(client_stub, qapp):
     thread = [_message_tree(
         make_message('m1', 'First'),
         [_message_tree(make_message('m2', 'Reply'))],
     )]
-    _patch_thread_notmuch(monkeypatch, thread, ('m1', 'm2'))
+    _thread_tree(client_stub)
     model = ThreadModel('thread:t1', 'tag:inbox', 'thread')
     model.refresh()  # ThreadModel loads lazily via refresh(), like the panel
     assert model.rowCount() >= 1
     assert len(flat_thread(thread)) >= 1
 
 
-def test_thread_model_parent_resolves_rows(notmuch_stub, qapp, monkeypatch):
+def test_thread_model_parent_resolves_rows(client_stub, qapp):
     """parent() returns the parent index with the correct row (O(1) via
     ThreadItem.row_in_parent)."""
     thread = [_message_tree(
@@ -164,7 +144,8 @@ def test_thread_model_parent_resolves_rows(notmuch_stub, qapp, monkeypatch):
                           [_message_tree(make_message('m4', 'Nested'))]),
         ],
     )]
-    _patch_thread_notmuch(monkeypatch, thread, ('m1', 'm2', 'm3', 'm4'))
+    client_stub.thread_trees['thread:t1'] = [thread]
+    client_stub.message_ids = ['m1', 'm2', 'm3', 'm4']
     model = ThreadModel('thread:t1', 'tag:inbox', 'thread')
     model.refresh()
 
@@ -183,11 +164,12 @@ def test_thread_model_parent_resolves_rows(notmuch_stub, qapp, monkeypatch):
     assert nested.row() == 0
 
 
-def test_flat_thread_sorts_by_timestamp(notmuch_stub, qapp, monkeypatch):
+def test_flat_thread_sorts_by_timestamp(client_stub, qapp):
     m1 = make_message('m1', 'First', timestamp=100)
     m2 = make_message('m2', 'Second', timestamp=200)
     thread = [_message_tree(m2, [_message_tree(m1)])]
-    _patch_thread_notmuch(monkeypatch, thread, ('m1', 'm2'))
+    client_stub.thread_trees['thread:t1'] = [thread]
+    client_stub.message_ids = ['m1', 'm2']
     model = ThreadModel('thread:t1', 'tag:inbox', 'conversation')
     model.refresh()
     assert model.rowCount() >= 1
@@ -195,20 +177,11 @@ def test_flat_thread_sorts_by_timestamp(notmuch_stub, qapp, monkeypatch):
     assert [m['id'] for m in flat] == ['m1', 'm2']
 
 
-def test_thread_model_toggle_message_tag(notmuch_stub, qapp, monkeypatch):
+def test_thread_model_toggle_message_tag(client_stub, qapp):
     """Message-level tag toggle targets id:<msgid> (not the whole thread)."""
-    import subprocess
-    import lazarus.notmuch as nm
     thread = [_message_tree(make_message('m1', 'First', tags=['unread']))]
-
-    def fake_run(*args, **kwargs):
-        if args and args[0] == 'show':
-            out = json.dumps([thread])
-        else:
-            out = json.dumps(['m1'])
-        return subprocess.CompletedProcess(args, 0, stdout=out, stderr='')
-
-    monkeypatch.setattr(nm, 'run', fake_run)
+    client_stub.thread_trees['thread:t1'] = [thread]
+    client_stub.message_ids = ['m1']
     model = ThreadModel('thread:t1', 'tag:inbox', 'conversation')
     model.refresh()
     idx = model.index(0, 0)
@@ -216,23 +189,24 @@ def test_thread_model_toggle_message_tag(notmuch_stub, qapp, monkeypatch):
 
     # message is unread -> toggling removes unread from just that message
     model.toggle_message_tag(idx, 'unread')
-    assert notmuch_stub.tag_calls[-1][0] == '-unread'
-    assert notmuch_stub.tag_calls[-1][1].startswith('id:m1')
+    assert client_stub.modify_tags_calls[-1][0] == ['id:m1']
+    assert client_stub.modify_tags_calls[-1][2] == ['unread']
 
     # and it reports the change on the message index
     changed = {'n': 0}
     model.messageChanged.connect(lambda _i: changed.__setitem__('n', changed['n'] + 1))
     model.toggle_message_tag(idx, 'flagged')
-    assert notmuch_stub.tag_calls[-1][0] == '+flagged'
+    assert client_stub.modify_tags_calls[-1][1] == ['flagged']
     assert changed['n'] == 1
 
 
-def test_thread_model_toggle_mode(notmuch_stub, qapp, monkeypatch):
+def test_thread_model_toggle_mode(client_stub, qapp):
     thread = [_message_tree(
         make_message('m1', 'First'),
         [_message_tree(make_message('m2', 'Reply'))],
     )]
-    _patch_thread_notmuch(monkeypatch, thread, ('m1', 'm2'))
+    client_stub.thread_trees['thread:t1'] = [thread]
+    client_stub.message_ids = ['m1', 'm2']
     model = ThreadModel('thread:t1', 'tag:inbox', 'conversation')
     model.refresh()
     n0 = model.rowCount()
@@ -244,7 +218,7 @@ def test_thread_model_toggle_mode(notmuch_stub, qapp, monkeypatch):
     assert model.rowCount() == n0
 
 
-def test_short_string(notmuch_stub, qapp):
+def test_short_string(client_stub, qapp):
     m = make_message('m1', 'First')
     assert 'alice@example.com' in short_string(m)
 
@@ -253,13 +227,13 @@ def test_short_string(notmuch_stub, qapp):
 # TagModel
 # ---------------------------------------------------------------------------
 
-def test_tag_model_counts(notmuch_stub, qapp):
-    notmuch_stub.threads = [
+def test_tag_model_counts(client_stub, qapp):
+    client_stub.threads = [
         make_thread('t1', 'A', tags=['inbox', 'unread']),
         make_thread('t2', 'B', tags=['inbox']),
         make_thread('t3', 'C', tags=['unread']),
     ]
-    notmuch_stub.tag_list = ['inbox', 'unread']
+    client_stub.tag_list = ['inbox', 'unread']
     model = TagModel()
     assert model.num_tags() == 2
     # column 0 = tag name; column 1 = '[unread/total]'

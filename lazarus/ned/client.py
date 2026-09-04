@@ -433,6 +433,14 @@ class NedClient:
         )
         return payload
 
+    def get_message(self, msg_id: str) -> dict[str, Any]:
+        """Fetch one message's raw notmuch-show dict."""
+        clean_id = urllib.parse.quote(msg_id, safe="")
+        data = self._request_json("GET", f"/api/v1/messages/{clean_id}")
+        if not isinstance(data, dict):
+            raise NedResponseError(200, "Unexpected message response format", data)
+        return data
+
     def get_part_data(self, msg_id: str, part_id: int) -> tuple[bytes, str, str]:
         """Retrieve part payload as ``(content, content_type, filename)``.
 
@@ -587,6 +595,22 @@ class NedClient:
         if isinstance(res, dict) and res.get("status") == "ok":
             return int(res.get("tagged") or 0)
         return 0
+
+    def apply_filter_rules(self) -> int:
+        """Apply configured filter rules daemon-side; returns matches."""
+        res = self._request_json("POST", "/api/v1/rules")
+        if isinstance(res, dict) and res.get("status") == "ok":
+            return int(res.get("matched") or 0)
+        return 0
+
+    def index_new(self) -> bool:
+        """Ask the daemon to run ``notmuch new --no-hooks``.
+
+        Used after sent-mail appends so new files are indexed without
+        waiting for the next sync cycle.
+        """
+        res = self._request_json("POST", "/api/v1/index")
+        return bool(isinstance(res, dict) and res.get("status") == "ok")
 
     def toggle_flag(self, thread_id: str, flag: bool = True) -> bool:
         """Toggle star/flag status on a thread."""

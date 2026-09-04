@@ -29,13 +29,10 @@ from PyQt6.QtCore import (
     QAbstractItemModel, QModelIndex, Qt, pyqtSignal,
 )
 import email.utils
-import json
 import logging
 import re
-import subprocess
 
 from . import settings
-from . import notmuch
 from . import style
 
 logger = logging.getLogger(__name__)
@@ -206,38 +203,19 @@ class ThreadModel(QAbstractItemModel):
     # -- data fetching -------------------------------------------------------
 
     def _fetch_full_thread(self) -> list:
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            try:
-                res = get_client().get_thread(self.thread_id, full=False)
-                tree = res.get('tree')
-                if isinstance(tree, list):
-                    return tree
-            except Exception as e:
-                logger.warning("NED thread fetch failed: %s", e)
-        args = [
-            'show', '--exclude=false', '--format=json',
-            '--verify', '--include-html', '--decrypt=true',
-            f'thread:{self.thread_id}',
-        ]
-        logger.info("Full thread refresh: %s", args)
-        r = notmuch.run(*args, check=True)
-        return json.loads(r.stdout)
+        """Fetch the thread tree from NED; raises on failure."""
+        from .client import get_client
+        res = get_client().get_thread(self.thread_id, full=False)
+        tree = res.get('tree')
+        if not isinstance(tree, list):
+            raise RuntimeError(f'NED returned no thread tree for {self.thread_id}')
+        return tree
 
     def _fetch_matching_ids(self) -> set[str]:
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            try:
-                ids = get_client().search_messages(f'thread:{self.thread_id} AND {self.query}')
-                return set(ids)
-            except Exception as e:
-                logger.warning("NED message search failed: %s", e)
-        r = notmuch.run(
-            'search', '--exclude=false', '--format=json',
-            '--output=messages', f'thread:{self.thread_id} AND {self.query}',
-            check=True,
-        )
-        return set(json.loads(r.stdout))
+        """Fetch message IDs matching the thread + panel query from NED."""
+        from .client import get_client
+        ids = get_client().search_messages(f'thread:{self.thread_id} AND {self.query}')
+        return set(ids)
 
     # -- navigation ----------------------------------------------------------
 
@@ -282,9 +260,9 @@ class ThreadModel(QAbstractItemModel):
         try:
             matches = self._fetch_matching_ids()
             data = self._fetch_full_thread()
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             logger.exception("Refresh failed: %s", self.thread_id)
-            self.error_msg = f"notmuch: {e.stderr.strip()[:200] if e.stderr else str(e)}"
+            self.error_msg = f"ned: {e}"
             return
         self.error_msg = None
 
@@ -305,24 +283,17 @@ class ThreadModel(QAbstractItemModel):
         assert idx.isValid(), msg_id
         logger.info("Single message refresh: %s", msg_id)
 
+        from .client import get_client
         try:
-            r = notmuch.run(
-                'show', '--entire-thread=false',
-                '--exclude=false', '--format=json', '--verify',
-                '--include-html', '--decrypt=true', f'id:{msg_id}',
-                check=True,
-            )
             matches = self._fetch_matching_ids()
-        except subprocess.CalledProcessError as e:
+            msg = get_client().get_message(msg_id)
+        except Exception as e:
             logger.exception("Single refresh failed: %s", msg_id)
-            self.error_msg = f"notmuch: {e.stderr.strip()[:200] if e.stderr else str(e)}"
+            self.error_msg = f"ned: {e}"
             return
         self.error_msg = None
 
-        msg = next(
-            (m for m in iter_thread_messages(json.loads(r.stdout))
-             if m is not None), None)
-        if msg is None:
+        if not msg:
             logger.info("Message deleted, calling full refresh")
             self.refresh()
             return
@@ -342,13 +313,10 @@ class ThreadModel(QAbstractItemModel):
         msg_id = m['id']
         if '+' not in tag_expr and '-' not in tag_expr:
             tag_expr = '+' + tag_expr
-        from .client import get_client, is_ned_active
-        if is_ned_active():
-            add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
-            remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
-            get_client().modify_tags(f'id:{msg_id}', add=add_tags, remove=remove_tags)
-        else:
-            notmuch.tag(tag_expr, 'id:' + msg_id)
+        from .client import get_client
+        add_tags = [t[1:] for t in tag_expr.split() if t.startswith('+')]
+        remove_tags = [t[1:] for t in tag_expr.split() if t.startswith('-')]
+        get_client().modify_tags(f'id:{msg_id}', add=add_tags, remove=remove_tags)
         if 'tags' in m:
             tset = set(m['tags'])
             for t in tag_expr.split():
