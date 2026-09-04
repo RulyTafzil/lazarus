@@ -195,10 +195,10 @@ def test_tag_bar_marked_expr_dispatches(ctl, mw, qapp, client_stub):
     ctl.command_bar.setPlainText('+work')
     ctl.command_bar.accept()
     assert len(client_stub.modify_tags_calls) == 1
-    q, add, rem = client_stub.modify_tags_calls[0]
-    assert 'tag:marked' in q[0]
-    assert add == ['work']
-    assert rem == ['marked']
+    call = client_stub.modify_tags_calls[0]
+    assert call.threads == ['t1']
+    assert call.add == ['work']
+    assert call.remove == ['marked']
 
 
 def test_mark_and_advance(ctl, mw, qapp, client_stub):

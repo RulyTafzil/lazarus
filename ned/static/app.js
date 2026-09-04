@@ -751,7 +751,7 @@
       setTimeout(() => card.remove(), 200);
     }
     try {
-      await api(`/api/threads/${encodeURIComponent(threadId)}/archive`, { method: 'POST' });
+      await api(`/api/v1/threads/${encodeURIComponent(threadId)}/move-archive`, { method: 'POST' });
       showToast('Archived', {
         type: 'archive',
         threadId: threadId,
@@ -770,7 +770,7 @@
       setTimeout(() => card.remove(), 200);
     }
     try {
-      await api(`/api/threads/${encodeURIComponent(threadId)}/trash`, { method: 'POST' });
+      await api(`/api/v1/threads/${encodeURIComponent(threadId)}/trash`, { method: 'POST' });
       showToast('Moved to Trash', {
         type: 'trash',
         threadId: threadId,
@@ -783,7 +783,7 @@
 
   async function toggleStar(threadId, flag) {
     try {
-      await api(`/api/threads/${encodeURIComponent(threadId)}/star`, {
+      await api(`/api/v1/threads/${encodeURIComponent(threadId)}/star`, {
         method: 'POST',
         body: JSON.stringify({ flag })
       });
@@ -837,9 +837,12 @@
     hideToast();
     try {
       if (type === 'archive') {
-        await api(`/api/threads/${encodeURIComponent(threadId)}/unarchive`, { method: 'POST' });
+        await api(`/api/v1/threads/${encodeURIComponent(threadId)}/tags`, {
+          method: 'POST',
+          body: JSON.stringify({ add: ['inbox'] })
+        });
       } else if (type === 'trash') {
-        await api(`/api/threads/${encodeURIComponent(threadId)}/untrash`, { method: 'POST' });
+        await api(`/api/v1/threads/${encodeURIComponent(threadId)}/restore`, { method: 'POST' });
       }
       runSearch(state.currentQuery);
     } catch (err) {

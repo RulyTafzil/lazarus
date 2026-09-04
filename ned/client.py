@@ -568,14 +568,9 @@ class NedClient:
             return [int(c) for c in res["counts"]]
         return [0] * len(queries)
 
-    def trash_thread(self, thread_id: Union[list[str], str]) -> bool:
+    def trash_thread(self, thread_id: str) -> bool:
         """Move a thread to trash folder and tag as trash."""
-        if isinstance(thread_id, list):
-            return self.trash_batch(queries=thread_id)
-        clean = urllib.parse.unquote(thread_id).strip()
-        if clean.startswith("id:"):
-            return self.trash_message(clean.removeprefix("id:"))
-        clean_id = clean.removeprefix("thread:")
+        clean_id = urllib.parse.unquote(thread_id).strip().removeprefix("thread:")
         quoted_id = urllib.parse.quote(clean_id, safe="")
         res = self._request_json("POST", f"/api/v1/threads/{quoted_id}/trash")
         return bool(isinstance(res, dict) and res.get("status") == "ok")
@@ -685,33 +680,6 @@ class NedClient:
         }
         res = self._request_json("POST", "/api/v1/move-archive", json_body=payload)
         return bool(isinstance(res, dict) and res.get("status") == "ok")
-
-    def archive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Compatibility bridge for archive_batch_to_local or archive_thread_to_local."""
-        if isinstance(thread_or_query, list):
-            return self.archive_batch_to_local(queries=thread_or_query)
-        clean = urllib.parse.unquote(thread_or_query).strip()
-        if clean.startswith("id:"):
-            return self.archive_message_to_local(clean.removeprefix("id:"))
-        return self.archive_thread_to_local(clean.removeprefix("thread:"))
-
-    def unarchive_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Restore thread to inbox."""
-        if isinstance(thread_or_query, list):
-            return self.modify_tags(queries=thread_or_query, add=["inbox"])
-        clean = urllib.parse.unquote(thread_or_query).strip()
-        if clean.startswith("id:"):
-            return self.modify_message_tags(clean.removeprefix("id:"), add=["inbox"])
-        return self.modify_thread_tags(clean.removeprefix("thread:"), add=["inbox"])
-
-    def untrash_thread(self, thread_or_query: Union[list[str], str]) -> bool:
-        """Compatibility bridge for restore_batch or restore_thread."""
-        if isinstance(thread_or_query, list):
-            return self.restore_batch(queries=thread_or_query)
-        clean = urllib.parse.unquote(thread_or_query).strip()
-        if clean.startswith("id:"):
-            return self.restore_message(clean.removeprefix("id:"))
-        return self.restore_thread(clean.removeprefix("thread:"))
 
     def expunge_trash(self) -> int:
         """Flag every file matching ``tag:trash`` with the Maildir T flag.

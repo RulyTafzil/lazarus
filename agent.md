@@ -52,7 +52,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── __init__.py         # re-exports NedClient/NedDaemon/MutationLock/…
 │   ├── main.py             # `ned` CLI entry point (daemon) + `--init-config`
 │   ├── daemon.py           # NedDaemon: Unix domain socket + TCP listeners + sync scheduler
-│   ├── handler.py          # NedRequestHandler: /api/v1/ routes, legacy aliases, SSE, static
+│   ├── handler.py          # NedRequestHandler: /api/v1/ routes, SSE, static
 │   ├── concurrency.py      # MutationLock: serialized mutation write queue
 │   ├── events.py           # EventBroadcaster: SSE invalidation broadcaster
 │   ├── client.py           # NedClient: zero-dependency Unix socket & HTTP client library + ned-client CLI

@@ -159,7 +159,11 @@ class MarkableActionsMixin:
             remove_tags = list(remove_tags)
             if 'marked' not in add_tags and 'marked' not in remove_tags:
                 remove_tags.append('marked')
-            ok = client.modify_tags(queries=[self._marked_query()], add=add_tags, remove=remove_tags)
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.modify_tags(threads=marked_threads, add=add_tags, remove=remove_tags)
+            else:
+                ok = client.modify_tags(queries=[self._marked_query()], add=add_tags, remove=remove_tags)
             if not ok:
                 self.app.status_message('Tag error', 'error')
                 return

@@ -365,16 +365,6 @@ def test_thread_actions(
     assert client.archive_batch_to_local(queries=["tag:marked"], unmark=True) is True
     mock_archive.assert_called_with(queries=["tag:marked"], threads=[], messages=[], ids=[], unmark=True)
 
-    # Legacy compatibility bridges
-    assert client.archive_thread("t1") is True
-    mock_archive.assert_called_with(threads=["t1"])
-
-    assert client.untrash_thread("t1") is True
-    mock_restore.assert_called_with(threads=["t1"])
-
-    assert client.unarchive_thread("t1") is True
-    mock_modify.assert_called_with(threads=["t1"], add_tags=["inbox"], remove_tags=[])
-
     assert client.toggle_flag("t1", flag=True) is True
     assert client.star_thread("t1", star=False) is True
     mock_star.assert_called_with("t1", flag=False)

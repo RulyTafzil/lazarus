@@ -166,7 +166,7 @@ Set or clear the flagged tag on a thread.
 
 #### Maildir filesystem operations
 
-Maildir moves relocate email files on disk and synchronize Notmuch tags. Each batch operation accepts an optional `unmark` boolean to clear the `marked` tag.
+Maildir moves relocate email files on disk and synchronize Notmuch tags. Each batch operation accepts an optional `unmark` boolean to clear the `marked` tag. Successful move responses return `{"status": "ok", "ok": true, "count": <count>}` reporting the number of moved files.
 
 ##### `POST /api/v1/trash`
 
@@ -230,14 +230,6 @@ Move all files in a thread to the local Archive Maildir and tag `-inbox -unread`
 ##### `POST /api/v1/messages/{id}/move-archive`
 
 Move a single message file to the local Archive Maildir and tag `-inbox -unread`. Accepts optional query parameter `thread_id` to emit thread-specific cache invalidation.
-
-##### Legacy move aliases
-
-The following legacy endpoints remain available for backwards compatibility:
-- `POST /api/v1/threads/trash` forwards to `POST /api/v1/trash`
-- `POST /api/v1/threads/{id}/untrash` and `POST /api/v1/threads/untrash` forward to `restore`
-- `POST /api/v1/threads/{id}/archive` and `POST /api/v1/threads/archive` forward to `move-archive`
-- `POST /api/v1/threads/{id}/unarchive` and `POST /api/v1/threads/unarchive` restore to inbox by adding tag `inbox`
 
 ##### `POST /api/v1/expunge`
 

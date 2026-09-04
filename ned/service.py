@@ -430,12 +430,12 @@ def trash(
     messages: Sequence[str] = (),
     ids: Sequence[str] = (),
     unmark: bool = False,
-) -> bool:
+) -> int:
     """Move matching files to account Trash, tag +trash -inbox -unread."""
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
-        return True
-    return actions.move_to_trash(query, unmark=unmark) >= 0
+        return 0
+    return actions.move_to_trash(query, unmark=unmark)
 
 
 def restore(
@@ -445,12 +445,12 @@ def restore(
     messages: Sequence[str] = (),
     ids: Sequence[str] = (),
     unmark: bool = False,
-) -> bool:
+) -> int:
     """Restore matching files from Trash back to account INBOX, tag -trash +inbox."""
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
-        return True
-    return actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark) >= 0
+        return 0
+    return actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark)
 
 
 def archive_local(
@@ -460,61 +460,12 @@ def archive_local(
     messages: Sequence[str] = (),
     ids: Sequence[str] = (),
     unmark: bool = False,
-) -> bool:
+) -> int:
     """Move matching files to local Archive Maildir, tag -inbox -unread."""
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
-        return True
-    return actions.move_to_archive(query, unmark=unmark) >= 0
-
-
-def archive_thread(thread_or_query: str) -> bool:
-    """Legacy compatibility bridge to archive_local."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:"):
-        return archive_local(threads=[clean.removeprefix("thread:")])
-    if clean.startswith("id:"):
-        return archive_local(messages=[clean.removeprefix("id:")])
-    if " " not in clean and ":" not in clean:
-        return archive_local(threads=[clean])
-    return archive_local(queries=[clean])
-
-
-def unarchive_thread(thread_or_query: str) -> bool:
-    """Legacy compatibility bridge to restore thread to inbox."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:"):
-        return modify_tags(threads=[clean.removeprefix("thread:")], add_tags=["inbox"])
-    if clean.startswith("id:"):
-        return modify_tags(messages=[clean.removeprefix("id:")], add_tags=["inbox"])
-    if " " not in clean and ":" not in clean:
-        return modify_tags(threads=[clean], add_tags=["inbox"])
-    return modify_tags(queries=[clean], add_tags=["inbox"])
-
-
-def trash_thread(thread_or_query: str) -> bool:
-    """Legacy compatibility bridge to trash."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:"):
-        return trash(threads=[clean.removeprefix("thread:")])
-    if clean.startswith("id:"):
-        return trash(messages=[clean.removeprefix("id:")])
-    if " " not in clean and ":" not in clean:
-        return trash(threads=[clean])
-    return trash(queries=[clean])
-
-
-def untrash_thread(thread_or_query: str) -> bool:
-    """Legacy compatibility bridge to restore."""
-    clean = urllib.parse.unquote(thread_or_query).strip()
-    if clean.startswith("thread:"):
-        return restore(threads=[clean.removeprefix("thread:")])
-    if clean.startswith("id:"):
-        return restore(messages=[clean.removeprefix("id:")])
-    if " " not in clean and ":" not in clean:
-        return restore(threads=[clean])
-    return restore(queries=[clean])
-
+        return 0
+    return actions.move_to_archive(query, unmark=unmark)
 
 
 def expunge_trash() -> int:

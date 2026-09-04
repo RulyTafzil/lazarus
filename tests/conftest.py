@@ -163,10 +163,39 @@ def notmuch_stub(monkeypatch):
 # NED client stubbing (desktop panels are NED-only)
 # ---------------------------------------------------------------------------
 
-class ClientStub:
-    """In-memory stand-in for NedClient, returned via lazarus.client.get_client.
+class ModifyTagsCall:
+    """Recorded call to modify_tags supporting both attribute access and tuple unpacking."""
 
-    The desktop is a pure NED client, so panel tests exercise the same
+    def __init__(self, queries, threads, messages, add, remove):
+        self.queries = list(queries)
+        self.threads = list(threads)
+        self.messages = list(messages)
+        self.add = list(add)
+        self.remove = list(remove)
+
+    def __iter__(self):
+        targets = self.threads if (self.threads and not self.queries) else self.queries
+        yield targets
+        yield self.add
+        yield self.remove
+
+    def __getitem__(self, idx):
+        return list(self)[idx]
+
+    def __len__(self):
+        return 3
+
+    def __repr__(self):
+        return (
+            f"ModifyTagsCall(queries={self.queries}, threads={self.threads}, "
+            f"messages={self.messages}, add={self.add}, remove={self.remove})"
+        )
+
+
+class ClientStub:
+    """Test double for the Notmuch Email Daemon client.
+
+    Substitutes for ``ned.client.NedClient`` during tests, capturing the
     client-call surface the real app uses (`search`, `modify_tags`,
     `trash_thread`, ...) instead of patching `lazarus.notmuch`. Records
     every call like the old NotmuchStub did.
@@ -179,12 +208,15 @@ class ClientStub:
         self.message: dict = {}              # get_thread tree payloads
         self.thread_trees: dict[str, list] = {}  # thread_id -> tree
         self.search_calls: list[str] = []
-        self.modify_tags_calls: list[tuple] = []
+        self.modify_tags_calls: list[ModifyTagsCall] = []
         self.modify_thread_tags_calls: list[tuple] = []
         self.modify_message_tags_calls: list[tuple] = []
         self.trash_calls: list[str] = []
+        self.trash_batch_calls: list[dict] = []
         self.untrash_calls: list[str] = []
+        self.restore_batch_calls: list[dict] = []
         self.archive_calls: list[str] = []
+        self.archive_batch_calls: list[dict] = []
         self.count_calls: list[tuple] = []
         self.index_new_calls = 0
         self.sync_result: tuple[bool, str] = (True, 'Sync completed (no new mail)')
@@ -257,9 +289,11 @@ class ClientStub:
         remove_tags=None,
     ) -> bool:
         q_list = [queries] if isinstance(queries, str) else list(queries or [])
+        t_list = [threads] if isinstance(threads, str) else list(threads or [])
+        m_list = [messages] if isinstance(messages, str) else list(messages or [])
         final_add = list(add or add_tags or [])
         final_remove = list(remove or remove_tags or [])
-        self.modify_tags_calls.append((q_list, final_add, final_remove))
+        self.modify_tags_calls.append(ModifyTagsCall(q_list, t_list, m_list, final_add, final_remove))
         return True
 
     def modify_thread_tags(self, thread_id: str, add=None, remove=None) -> bool:
@@ -285,6 +319,9 @@ class ClientStub:
 
     def archive_batch_to_local(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
         self.archive_calls.extend(queries)
+        self.archive_calls.extend(threads)
+        self.archive_calls.extend(messages)
+        self.archive_batch_calls.append({"queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
         return True
 
     def trash_thread(self, thread_or_query) -> bool:
@@ -298,6 +335,9 @@ class ClientStub:
 
     def trash_batch(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
         self.trash_calls.extend(queries)
+        self.trash_calls.extend(threads)
+        self.trash_calls.extend(messages)
+        self.trash_batch_calls.append({"queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
         return True
 
     def unarchive_thread(self, thread_or_query) -> bool:
@@ -318,6 +358,9 @@ class ClientStub:
 
     def restore_batch(self, queries=(), *, threads=(), messages=(), unmark: bool = False) -> bool:
         self.untrash_calls.extend(queries)
+        self.untrash_calls.extend(threads)
+        self.untrash_calls.extend(messages)
+        self.restore_batch_calls.append({"queries": list(queries), "threads": list(threads), "messages": list(messages), "unmark": unmark})
         return True
 
     def expunge_trash(self) -> int:
@@ -358,6 +401,8 @@ class ClientStub:
     def watch_events(self, *args, **kwargs):
         import threading as _t
         return _t.Thread(target=lambda: None, daemon=True)
+
+NedClientStub = ClientStub
 
 
 @pytest.fixture(autouse=True)
