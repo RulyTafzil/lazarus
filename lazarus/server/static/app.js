@@ -823,8 +823,14 @@
       return body.slice(0, idx) + sigBlockText(newSig) + '\n' + body.slice(idx);
     }
 
-    let pre = '';
-    if (body.length > 0 && !body.endsWith('\n')) {
+    if (!body || !body.trim()) {
+      return '\n\n' + sigBlockText(newSig);
+    }
+
+    let pre = '\n\n';
+    if (body.endsWith('\n\n')) {
+      pre = '';
+    } else if (body.endsWith('\n')) {
       pre = '\n';
     }
     return body + pre + sigBlockText(newSig);
@@ -1008,9 +1014,9 @@
         api('/api/accounts'),
         api('/api/signatures').catch(() => ({ use_signature: true, signatures: {} })),
       ]);
-      state.accounts = accData.accounts || [];
-      state.signatures = sigData.signatures || {};
-      state.useSignature = sigData.use_signature !== false;
+      state.accounts = Array.isArray(accData) ? accData : (accData && accData.accounts ? accData.accounts : []);
+      state.signatures = (sigData && sigData.signatures) ? sigData.signatures : (sigData || {});
+      state.useSignature = (sigData && typeof sigData.use_signature === 'boolean') ? sigData.use_signature : true;
 
       el.composeAccountSelect.innerHTML = '';
       state.accounts.forEach(acct => {
@@ -1021,10 +1027,13 @@
       });
       if (state.accounts.length > 1) {
         el.composeAccountRow.classList.remove('hidden');
+      } else {
+        el.composeAccountRow.classList.add('hidden');
       }
       if (state.accounts.length > 0) {
         el.drawerAccountLabel.textContent = state.accounts[0];
         state.activeComposeAccount = state.accounts[0];
+        el.composeAccountSelect.value = state.accounts[0];
       }
     } catch (_) {}
   }
