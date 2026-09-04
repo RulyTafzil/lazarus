@@ -482,7 +482,9 @@
 
       card.querySelector('.action-star').addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleStar(t.thread, !isStarred);
+        const starSvg = card.querySelector('.star-icon');
+        const isCurrentlyStarred = starSvg ? starSvg.classList.contains('starred') : (t.tags || []).includes('flagged');
+        toggleStar(t.thread, !isCurrentlyStarred);
       });
 
       el.threadList.appendChild(card);
@@ -677,11 +679,35 @@
         renderThreadDetail(state.currentThread);
       }
       const card = document.querySelector(`[data-thread-id="${threadId}"]`);
+      const threadObj = (state.threads || []).find(item => item.thread === threadId);
+      if (threadObj) {
+        if (!threadObj.tags) threadObj.tags = [];
+        if (flag) {
+          if (!threadObj.tags.includes('flagged')) threadObj.tags.push('flagged');
+        } else {
+          threadObj.tags = threadObj.tags.filter(tag => tag !== 'flagged');
+        }
+      }
       if (card) {
         const starSvg = card.querySelector('.star-icon');
-        if (flag) starSvg.classList.add('starred');
-        else starSvg.classList.remove('starred');
+        if (starSvg) {
+          if (flag) starSvg.classList.add('starred');
+          else starSvg.classList.remove('starred');
+        }
+        if (threadObj) {
+          const tagsContainer = card.querySelector('.thread-tags');
+          if (tagsContainer) {
+            tagsContainer.innerHTML = threadObj.tags.map(tag => {
+              let tagClass = 'tag-badge';
+              if (tag === 'unread') tagClass += ' tag-unread';
+              if (tag === 'flagged') tagClass += ' tag-flagged';
+              if (tag === 'trash') tagClass += ' tag-trash';
+              return `<span class="${tagClass}">${escapeHtml(tag)}</span>`;
+            }).join('');
+          }
+        }
       }
+      loadTags();
     } catch (err) {
       showToast(`Flag update failed: ${err.message}`);
     }
