@@ -191,3 +191,44 @@ def test_ned_config_cascade(tmp_path, monkeypatch):
     path, _ = _config_path(("ned", "lazarus"))
     assert path == str(ned_dir / "config.py")
 
+
+def test_ned_accounts_and_signatures(tmp_path, monkeypatch):
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+
+    monkeypatch.setattr(settings, "smtp_accounts", ["work", "personal"])
+    monkeypatch.setattr(settings, "use_signature", True)
+
+    try:
+        conn = UnixHTTPConnection(sock_path)
+
+        # GET /api/v1/accounts returns {"accounts": [...]}
+        conn.request("GET", "/api/v1/accounts")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data == {"accounts": ["work", "personal"]}
+
+        # GET /api/accounts legacy alias returns {"accounts": [...]}
+        conn.request("GET", "/api/accounts")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data == {"accounts": ["work", "personal"]}
+
+        # GET /api/v1/signatures
+        conn.request("GET", "/api/v1/signatures")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        sig_data = json.loads(resp.read().decode("utf-8"))
+        assert sig_data["use_signature"] is True
+        assert "signatures" in sig_data
+        assert "work" in sig_data["signatures"]
+        assert "personal" in sig_data["signatures"]
+
+        conn.close()
+    finally:
+        daemon.stop()
+
+

@@ -49,3 +49,36 @@ def test_load_ignores_unreadable_file(monkeypatch, tmp_path):
     text, html = signature.load('default')
 
     assert text is None and html is None
+
+
+def test_config_dir_ned_priority(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("PyQt6.QtCore.QStandardPaths.writableLocation", lambda _: "")
+
+    laz_dir = tmp_path / "lazarus" / "work"
+    laz_dir.mkdir(parents=True)
+    assert signature.config_dir("work") == str(laz_dir)
+
+    ned_dir = tmp_path / "ned" / "work"
+    ned_dir.mkdir(parents=True)
+    assert signature.config_dir("work") == str(ned_dir)
+
+
+def test_signature_load_ned_and_lazarus(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("PyQt6.QtCore.QStandardPaths.writableLocation", lambda _: "")
+
+    laz_dir = tmp_path / "lazarus" / "contact"
+    laz_dir.mkdir(parents=True)
+    (laz_dir / "signature").write_text("Sig in lazarus")
+
+    text, html = signature.load("contact")
+    assert text == "Sig in lazarus"
+
+    ned_dir = tmp_path / "ned" / "contact"
+    ned_dir.mkdir(parents=True)
+    (ned_dir / "signature").write_text("Sig in ned")
+
+    text, html = signature.load("contact")
+    assert text == "Sig in ned"
+

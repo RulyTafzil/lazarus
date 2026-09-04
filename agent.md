@@ -453,11 +453,58 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 
 ### Architecture and roadmap
 
+#### NED architectural principles and YAGNI guardrails
+1. **Explicitly for Notmuch**: NED is not a generic storage platform. It preserves native Notmuch query syntax (`tag:inbox AND date:2w..today`) and identifiers (`thread:...`, RFC Message-IDs).
+2. **Single concurrency boundary**: Notmuch permits concurrent readers, but only a single writer can modify the Xapian index at any time. NED owns the single serialized write queue (`MutationLock`). Clients request mutations, and NED executes them sequentially.
+3. **SSE for cache invalidation, not state replication**: Server-Sent Events broadcast minimal invalidation signals (`thread`, `threads`). Clients re-query NED when an event affects the active view rather than reconstructing state through delta patching.
+4. **Single-user simplicity**: Local IPC uses standard Linux filesystem permissions on a Unix domain socket. Remote network access uses Tailscale WireGuard encryption with a single bearer token.
+5. **Synchronous mutations without heavy job queues**: Tagging and file moves execute in milliseconds. Long-running IMAP sync runs with a busy lock and broadcasts an SSE completion event.
+6. **Unified daemon with bundled web assets**: NED serves the mobile PWA web assets directly on `/` and `/static/`.
+
+#### Transports and IPC
+- **Local IPC (Unix domain socket)**: `/run/user/$UID/ned/ned.sock` (or `~/.local/share/lazarus/ned/ned.sock`). Communicates using HTTP/1.1 over Unix domain stream sockets with sub-millisecond latency.
+- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1`. Refuses unauthenticated `0.0.0.0` bindings.
+- **Systemd service**: Unit file provided at `contrib/ned.service` for user systemd management (`systemctl --user enable --now ned`).
+
+#### API v1 specification
+All endpoints are versioned under `/api/v1/` with legacy aliases under `/api/`:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/threads` | Search threads (`q`, `limit`, `offset`). |
+| `GET` | `/api/v1/threads/{id}` | Fetch full thread tree with messages and metadata. |
+| `GET` | `/api/v1/messages/{id}/parts/{part_id}` | Download decoded message body part or binary attachment. |
+| `POST` | `/api/v1/tags` / `/api/v1/tag` | Modify tags (`{"queries": [...], "add": [...], "remove": [...]}` or legacy `ids`). |
+| `POST` | `/api/v1/threads/{id}/archive` | Archive thread (`-inbox -unread` + move to `Archive/cur/`). |
+| `POST` | `/api/v1/threads/{id}/trash` | Trash thread (`+trash -inbox -unread` + move to `Trash/cur/`). |
+| `POST` | `/api/v1/threads/{id}/unarchive` | Restore archived thread to `inbox`. |
+| `POST` | `/api/v1/threads/{id}/untrash` | Restore trashed thread from `Trash/cur/` to `INBOX/cur/`. |
+| `POST` | `/api/v1/threads/{id}/star` | Toggle flagged tag (`{"flag": bool}`). |
+| `GET` | `/api/v1/tags` | List all known Notmuch tags with thread counts. |
+| `GET` | `/api/v1/contacts` | Address autocomplete matching prefix `q`. |
+| `GET` | `/api/v1/accounts` | List configured sender accounts: `{"accounts": [...]}`. |
+| `GET` | `/api/v1/signatures` | Per-account signature map: `{"use_signature": bool, "signatures": {...}}`. |
+| `GET` | `/api/v1/reply-seed` | Generate reply recipient headers, quoted body, and signature. |
+| `POST` | `/api/v1/send` | Send outbound message via `msmtp`. |
+| `POST` | `/api/v1/sync` | Trigger IMAP sync + `notmuch new` + filter rules. |
+| `GET` | `/api/v1/events` | Server-Sent Events (SSE) stream for cache invalidation. |
+| `GET` | `/` | Serves bundled mobile PWA web application. |
+
+#### Invalidation event schema
+The SSE stream (`GET /api/v1/events`) emits JSON events:
+```text
+event: invalidate
+data: {"scope": "threads", "reason": "sync"}
+
+event: invalidate
+data: {"scope": "thread", "id": "0000000000001234", "reason": "tag"}
+```
+
 #### Notmuch Email Daemon (NED) roadmap
 1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
 2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
 3. Phase 3 (completed): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`, wired to SSE invalidation stream.
-4. Phase 4 (active): Retire `lazarus-server` in favor of `ned`.
+4. Phase 4 (completed): Retire `lazarus-server` in favor of `ned`.
 
 #### Decoupled domain engine (`lazarus.core`)
 The codebase follows a clear separation between headless domain primitives and presentation layers:

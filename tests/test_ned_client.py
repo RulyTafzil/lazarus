@@ -323,7 +323,7 @@ def test_metadata_queries(
     mock_tags.return_value = [{"tag": "inbox", "count": 10}]
     mock_contacts.return_value = [{"name": "Alice", "address": "alice@example.com", "display": "Alice <alice@example.com>"}]
     mock_reply.return_value = {"to": "alice@example.com", "subject": "Re: Hello", "body": "> text"}
-    mock_sigs.return_value = {"default": "-- \nBest"}
+    mock_sigs.return_value = {"use_signature": True, "signatures": {"default": "-- \nBest"}}
 
     client = NedClient.unix(sock_path)
 

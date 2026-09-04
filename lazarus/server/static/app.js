@@ -823,8 +823,14 @@
       return body.slice(0, idx) + sigBlockText(newSig) + '\n' + body.slice(idx);
     }
 
-    let pre = '';
-    if (body.length > 0 && !body.endsWith('\n')) {
+    if (!body || !body.trim()) {
+      return '\n\n' + sigBlockText(newSig);
+    }
+
+    let pre = '\n\n';
+    if (body.endsWith('\n\n')) {
+      pre = '';
+    } else if (body.endsWith('\n')) {
       pre = '\n';
     }
     return body + pre + sigBlockText(newSig);
@@ -1021,10 +1027,13 @@
       });
       if (state.accounts.length > 1) {
         el.composeAccountRow.classList.remove('hidden');
+      } else {
+        el.composeAccountRow.classList.add('hidden');
       }
       if (state.accounts.length > 0) {
         el.drawerAccountLabel.textContent = state.accounts[0];
         state.activeComposeAccount = state.accounts[0];
+        el.composeAccountSelect.value = state.accounts[0];
       }
     } catch (_) {}
   }

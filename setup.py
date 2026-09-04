@@ -38,6 +38,7 @@ setuptools.setup(
         'console_scripts': [
             'lazarus=lazarus.app:main',
             'lazarus-web=lazarus.server.main:main',
+            'lazarus-server=lazarus.server.main:main',
             'ned=lazarus.ned.main:main',
             'ned-client=lazarus.ned.client:main',
         ]

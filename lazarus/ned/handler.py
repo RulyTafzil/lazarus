@@ -226,8 +226,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/v1/accounts":
-            accts = list(settings.smtp_accounts.keys()) if isinstance(settings.smtp_accounts, dict) else list(settings.smtp_accounts)
-            self.send_json(accts)
+            self.send_json({"accounts": service.get_configured_accounts()})
             return
 
         if path == "/api/v1/signatures":
@@ -280,10 +279,12 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         # Tag modification
         if path in ("/api/v1/tag", "/api/v1/tags"):
             body = self._read_json_body()
-            queries = body.get("queries", [])
+            queries = body.get("queries") or body.get("ids") or []
             query = body.get("query")
             if query and not queries:
                 queries = [query]
+            if isinstance(queries, str):
+                queries = [queries]
             add_tags = body.get("add", [])
             remove_tags = body.get("remove", [])
             if not queries or (not add_tags and not remove_tags):
@@ -293,7 +294,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 ok = service.modify_tags(queries, add_tags=add_tags, remove_tags=remove_tags)
             if ok:
                 broadcaster.broadcast_invalidate("threads", reason="tag")
-                self.send_json({"status": "ok"})
+                self.send_json({"status": "ok", "ok": True})
             else:
                 self.send_error_json("Failed modifying tags", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -321,7 +322,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="archive")
                 broadcaster.broadcast_invalidate("threads", reason="archive")
-                self.send_json({"status": "ok", "archived": thread_id})
+                self.send_json({"status": "ok", "archived": thread_id, "ok": True})
             else:
                 self.send_error_json("Failed archiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -338,7 +339,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 for q in queries:
                     service.unarchive_thread(q)
             broadcaster.broadcast_invalidate("threads", reason="unarchive")
-            self.send_json({"status": "ok"})
+            self.send_json({"status": "ok", "ok": True})
             return
 
         m_unarchive = re.match(r"^/api/v1/threads/([^/]+)/unarchive$", path)
@@ -349,7 +350,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="unarchive")
                 broadcaster.broadcast_invalidate("threads", reason="unarchive")
-                self.send_json({"status": "ok", "unarchived": thread_id})
+                self.send_json({"status": "ok", "unarchived": thread_id, "ok": True})
             else:
                 self.send_error_json("Failed unarchiving thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -366,7 +367,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 for q in queries:
                     service.trash_thread(q)
             broadcaster.broadcast_invalidate("threads", reason="trash")
-            self.send_json({"status": "ok"})
+            self.send_json({"status": "ok", "ok": True})
             return
 
         m_trash = re.match(r"^/api/v1/threads/([^/]+)/trash$", path)
@@ -377,7 +378,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="trash")
                 broadcaster.broadcast_invalidate("threads", reason="trash")
-                self.send_json({"status": "ok", "trashed": thread_id})
+                self.send_json({"status": "ok", "trashed": thread_id, "ok": True})
             else:
                 self.send_error_json("Failed trashing thread", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -394,7 +395,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 for q in queries:
                     service.untrash_thread(q)
             broadcaster.broadcast_invalidate("threads", reason="untrash")
-            self.send_json({"status": "ok"})
+            self.send_json({"status": "ok", "ok": True})
             return
 
         m_untrash = re.match(r"^/api/v1/threads/([^/]+)/untrash$", path)
@@ -405,7 +406,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="untrash")
                 broadcaster.broadcast_invalidate("threads", reason="untrash")
-                self.send_json({"status": "ok", "untrashed": thread_id})
+                self.send_json({"status": "ok", "untrashed": thread_id, "ok": True})
             else:
                 self.send_error_json("Failed restoring thread from trash", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -421,7 +422,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             if ok:
                 broadcaster.broadcast_invalidate("thread", thread_id, reason="star")
                 broadcaster.broadcast_invalidate("threads", reason="star")
-                self.send_json({"status": "ok", "starred": flag, "flag": flag})
+                self.send_json({"status": "ok", "starred": flag, "flag": flag, "ok": True})
             else:
                 self.send_error_json("Failed toggling flag", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -432,7 +433,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 ok, msg = service.sync_mail()
             if ok:
                 broadcaster.broadcast_invalidate("threads", reason="sync")
-                self.send_json({"status": "ok", "message": msg})
+                self.send_json({"status": "ok", "message": msg, "ok": True})
             else:
                 self.send_error_json(f"Sync failed: {msg}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -500,9 +501,12 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             in_reply_to = body_json.get("in_reply_to", "")
             references = body_json.get("references", "")
 
-        if not account or not to:
-            self.send_error_json("Account and To fields are required")
+        if not to:
+            self.send_error_json("To field is required")
             return
+
+        if not account:
+            account = service.get_configured_accounts()[0]
 
         with mutation_lock:
             ok, err_or_msg = service.send_email(
@@ -519,7 +523,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if ok:
             broadcaster.broadcast_invalidate("threads", reason="send")
-            self.send_json({"status": "ok", "message": err_or_msg})
+            self.send_json({"status": "ok", "message": err_or_msg, "ok": True})
         else:
             self.send_error_json(f"Send failed: {err_or_msg}", HTTPStatus.INTERNAL_SERVER_ERROR)
 

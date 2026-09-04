@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault(
     'QTWEBENGINE_CHROMIUM_FLAGS', '--no-sandbox --disable-gpu')
+os.environ.setdefault('LAZARUS_DISABLE_NED', '1')
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
@@ -65,6 +66,18 @@ def _restore_settings():
             delattr(settings, k)
     for k, v in saved.items():
         setattr(settings, k, v)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ned():
+    """Ensure tests run with NED disabled by default to avoid touching running daemons."""
+    old_disable = os.environ.get("LAZARUS_DISABLE_NED")
+    os.environ["LAZARUS_DISABLE_NED"] = "1"
+    yield
+    if old_disable is not None:
+        os.environ["LAZARUS_DISABLE_NED"] = old_disable
+    else:
+        os.environ.pop("LAZARUS_DISABLE_NED", None)
 
 
 # ---------------------------------------------------------------------------

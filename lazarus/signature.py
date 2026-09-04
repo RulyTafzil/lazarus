@@ -51,14 +51,16 @@ logger = logging.getLogger(__name__)
 
 
 def config_dir(account: str) -> str:
-    """Return $XDG_CONFIG_HOME/lazarus/ACCOUNT for the given account name."""
+    """Return $XDG_CONFIG_HOME/{ned,lazarus}/ACCOUNT for the given account name."""
     try:
         base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
-        if base:
-            return os.path.join(base, 'lazarus', account)
+        if not base:
+            base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
     except Exception:
-        pass
-    base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+        base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+    ned_path = os.path.join(base, 'ned', account)
+    if os.path.isdir(ned_path):
+        return ned_path
     return os.path.join(base, 'lazarus', account)
 
 
@@ -82,11 +84,33 @@ def load(account: str) -> Tuple[Optional[str], Optional[str]]:
         ``text`` is filled in via :func:`lazarus.util.html2text` so
         plaintext composition still gets a usable signature.
     """
-    d = config_dir(account)
-    text = _read_file(os.path.join(d, 'signature'))
-    html = _read_file(os.path.join(d, 'signature.html'))
+    candidates = [config_dir(account)]
 
-    if text is None and html is not None:
-        text = util.html2text(html).strip()
+    try:
+        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.ConfigLocation)
+        if not base:
+            base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+    except Exception:
+        base = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
 
-    return text, html
+    # Fallback to alternate config directory if candidate was ned or lazarus
+    alt_dirs = [
+        os.path.join(base, 'lazarus', account),
+        os.path.join(base, 'ned', account),
+    ]
+    if account in ('default', ''):
+        alt_dirs.extend([os.path.join(base, 'ned'), os.path.join(base, 'lazarus')])
+
+    for alt in alt_dirs:
+        if alt not in candidates:
+            candidates.append(alt)
+
+    for d in candidates:
+        text = _read_file(os.path.join(d, 'signature'))
+        html = _read_file(os.path.join(d, 'signature.html'))
+        if text is not None or html is not None:
+            if text is None and html is not None:
+                text = util.html2text(html).strip()
+            return text, html
+
+    return None, None

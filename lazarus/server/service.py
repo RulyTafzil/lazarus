@@ -491,11 +491,26 @@ def get_reply_seed(message_id: str, to_all: bool = False) -> dict[str, Any]:
     }
 
 
+def get_configured_accounts() -> list[str]:
+    """Return list of configured SMTP sender account identifiers."""
+    accts: list[str] = []
+    if isinstance(settings.smtp_accounts, dict):
+        accts = list(settings.smtp_accounts.keys())
+    elif isinstance(settings.smtp_accounts, (list, tuple)):
+        accts = list(settings.smtp_accounts)
+    elif isinstance(settings.email_address, dict):
+        accts = list(settings.email_address.keys())
+
+    if not accts:
+        accts = ['default']
+    return accts
+
+
 def get_signatures() -> dict[str, Any]:
     """Return map of account name to plaintext signature and use_signature setting."""
     use_sig = getattr(settings, 'use_signature', True)
     sigs: dict[str, str] = {}
-    for acct in settings.smtp_accounts:
+    for acct in get_configured_accounts():
         text, _ = signature.load(acct)
         sigs[acct] = text or ''
     return {
@@ -516,7 +531,7 @@ def send_email(
     attachments: list[tuple[str, str, bytes]] | None = None,
 ) -> tuple[bool, str]:
     """Build MIME message, dispatch via msmtp, save sent copy, and run notmuch new."""
-    acct = account or (settings.smtp_accounts[0] if settings.smtp_accounts else 'default')
+    acct = account or get_configured_accounts()[0]
 
     from_addr = ''
     if isinstance(settings.email_address, dict):
