@@ -288,6 +288,8 @@ In the compose panel, press `[` and `]` to cycle between active sender accounts.
 
 NED includes a mobile-first web client (PWA) with a dark theme, touch gestures, one-tap archiving, and dynamic signature switching.
 
+Want to build your own client? The HTTP API is documented in [`docs/api.md`](docs/api.md) and the running daemon serves a machine-readable OpenAPI spec at `GET /api/v1/openapi.json` (`curl --unix-socket /run/user/$UID/ned/ned.sock http://localhost/api/v1/openapi.json`).
+
 ### Remote access over Tailscale
 
 Tailscale provides an encrypted WireGuard mesh network between your devices without exposing mail ports publicly:

@@ -430,7 +430,7 @@ class NedClient:
         """Retrieve raw payload bytes of a message body part or attachment."""
         clean_id = urllib.parse.quote(msg_id, safe="")
         _, _, payload = self._request(
-            "GET", f"/api/v1/messages/{clean_id}/part/{part_id}"
+            "GET", f"/api/v1/messages/{clean_id}/parts/{part_id}"
         )
         return payload
 
@@ -449,7 +449,7 @@ class NedClient:
         """
         clean_id = urllib.parse.quote(msg_id, safe="")
         _, headers, payload = self._request(
-            "GET", f"/api/v1/messages/{clean_id}/part/{part_id}"
+            "GET", f"/api/v1/messages/{clean_id}/parts/{part_id}"
         )
 
         content_type = headers.get("content-type", "application/octet-stream").split(";")[0].strip()
@@ -617,7 +617,7 @@ class NedClient:
         """Toggle star/flag status on a thread."""
         clean_id = urllib.parse.quote(thread_id, safe="")
         res = self._request_json(
-            "POST", f"/api/v1/threads/{clean_id}/flag", json_body={"flag": flag}
+            "POST", f"/api/v1/threads/{clean_id}/star", json_body={"flag": flag}
         )
         return bool(isinstance(res, dict) and res.get("status") == "ok")
 

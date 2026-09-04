@@ -377,3 +377,47 @@ def test_ned_send_raw_mode(tmp_path, monkeypatch):
         conn.close()
     finally:
         daemon.stop()
+
+
+def test_ned_openapi_and_canonical_routes(tmp_path, monkeypatch):
+    """Canonical endpoint names respond; removed aliases 404; the live
+    OpenAPI spec is served and lists the canonical paths."""
+    from ned import service
+
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+    monkeypatch.setattr(service, "search_threads", lambda q, limit=50, offset=0: [])
+    try:
+        conn = UnixHTTPConnection(sock_path)
+
+        # Live spec
+        conn.request("GET", "/api/v1/openapi.json")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        spec = json.loads(resp.read().decode("utf-8"))
+        assert spec["openapi"].startswith("3.0")
+        assert "/api/v1/threads" in spec["paths"]
+        assert "/api/v1/messages/{id}/parts/{part_id}" in spec["paths"]
+        assert "/api/v1/threads/{id}/star" in spec["paths"]
+
+        # Canonical names respond
+        conn.request("GET", "/api/v1/threads?q=tag:inbox")
+        assert conn.getresponse().status == 200
+        conn.request("POST", "/api/v1/tags", json.dumps({"queries": ["tag:x"], "add": ["y"]}),
+                     {"Content-Type": "application/json"})
+        assert conn.getresponse().status == 200
+        conn.request("POST", "/api/v1/threads/abc/star", json.dumps({"flag": True}),
+                     {"Content-Type": "application/json"})
+        assert conn.getresponse().status == 200
+
+        # The removed aliases now 404 (canonical names only)
+        for path in ("/api/v1/search?q=tag:inbox", "/api/v1/tag",
+                     "/api/v1/threads/abc/flag",
+                     "/api/v1/reply-seed?id=abc"):
+            conn.request("GET" if path.startswith(("/api/v1/search", "/api/v1/reply-seed")) else "POST",
+                         path, b"" if path == "/api/v1/tag" else None)
+            assert conn.getresponse().status == 404, path
+        conn.close()
+    finally:
+        daemon.stop()

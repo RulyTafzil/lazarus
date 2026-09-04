@@ -476,7 +476,7 @@
     }
 
     try {
-      const threads = await api(`/api/search?q=${encodeURIComponent(query)}&limit=${fetchLimit}&offset=${fetchOffset}`);
+      const threads = await api(`/api/threads?q=${encodeURIComponent(query)}&limit=${fetchLimit}&offset=${fetchOffset}`);
       if (!append) {
         state.threads = threads;
         state.offset = threads.length;
@@ -599,7 +599,7 @@
 
       // Auto-mark unread tag removed locally if present
       if (data.tags.includes('unread')) {
-        api('/api/tag', {
+        api('/api/tags', {
           method: 'POST',
           body: JSON.stringify({ ids: [`thread:${threadId}`], add: [], remove: ['unread'] })
         }).catch(() => {});
@@ -918,7 +918,7 @@
     if (toAdd.length === 0 && toRemove.length === 0) return;
 
     try {
-      await api('/api/tag', {
+      await api('/api/tags', {
         method: 'POST',
         body: JSON.stringify({
           ids: [`thread:${threadId}`],
