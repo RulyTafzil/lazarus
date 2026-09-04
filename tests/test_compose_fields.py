@@ -332,6 +332,31 @@ def test_reply_defaults_to_delivery_account(qapp, client_stub):
     assert 'contact@rulytafzil.com' in p._data.from_addr
 
 
+def test_reply_prefers_delivery_over_from_account(qapp, client_stub):
+    """admin@ → contact@ mail: the reply goes out AS contact (delivery
+    address wins over the From header)."""
+    _set_identity(client_stub, ['gmail', 'contact', 'admin'], {
+        'gmail': 'Ruly Tafzil <RulyTafzil@gmail.com>',
+        'contact': 'Ruly Tafzil <contact@rulytafzil.com>',
+        'admin': 'Ruly Tafzil <admin@rulytafzil.com>',
+    })
+    msg = {
+        'id': 'm4',
+        'headers': {
+            'Subject': 'S',
+            'From': 'Ruly Tafzil <admin@rulytafzil.com>',
+            'To': 'contact@rulytafzil.com',
+            'Date': 'Thu, 01 Jan 1970 00:00:00 +0000',
+        },
+        'body': [{'content-type': 'text/plain', 'content': 'hi'}],
+        'tags': [], 'crypto': {},
+    }
+    p = _make_panel(qapp, mode='reply', msg=msg)
+    assert p.current_account == 1
+    assert p.account_name() == 'contact'
+    assert 'contact@rulytafzil.com' in p._data.from_addr
+
+
 def test_reply_defaults_to_from_account_when_self_sent(qapp, client_stub):
     """A mail originally sent FROM the admin account (e.g. a sent copy)
     defaults the reply to admin."""

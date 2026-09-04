@@ -322,19 +322,23 @@ class ComposePanel(panel.Panel):
             self._emails = {'default': ''}
 
     def _account_index_for_message(self, msg: Optional[dict]) -> int:
-        """Index of the account whose address matches this message's
-        From/Reply-To (then To/Cc), else account 0.
+        """Index of the account whose address matches this message, else
+        account 0.
 
-        Addresses are compared bare (display names stripped), e.g. a
-        message delivered to ``contact@rulytafzil.com`` selects the
-        ``contact`` account for the reply.
+        Precedence mirrors the daemon's reply-seed heuristic
+        (``compose_model.account_for_message``): the *delivery* address is
+        preferred — To/Cc first, then From/Reply-To. So a message sent
+        from admin@… to contact@… replies from ``contact`` (where it was
+        delivered), not from the account that appears in its From header.
+        Addresses are compared bare (display names stripped).
         """
         if not msg:
             return 0
         mine = {email.utils.parseaddr(a)[1].strip().casefold()
                 for a in self._emails.values() if a}
         headers = msg.get('headers', {}) if isinstance(msg, dict) else {}
-        for key in ('From', 'Reply-To', 'To', 'Cc'):
+        # Delivery headers first, then authorship headers.
+        for key in ('To', 'Cc', 'From', 'Reply-To'):
             for _name, addr in email.utils.getaddresses([headers.get(key, '')]):
                 if addr.strip().casefold() in mine:
                     for i, acct in enumerate(self._accounts):

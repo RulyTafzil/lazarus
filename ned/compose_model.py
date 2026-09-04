@@ -51,13 +51,15 @@ from . import util
 def account_for_message(msg: dict) -> int:
     """Pick an account for a reply/forward based on msg headers.
 
-    Looks in From+Reply-To first, then To+Cc for our address; falls back
-    to account 0 if nothing matches.  Mirrors the old ComposePanel.__init__
-    heuristic exactly.
+    Delivery addresses win: To+Cc are scanned before From+Reply-To, so a
+    message sent from admin@… to contact@… selects ``contact`` (where it
+    was delivered). Falls back to account 0 if nothing matches. Mirrors
+    the original ComposePanel.__init__ heuristic.
     """
     senders = util.get_header_addresses(msg.get('headers', {}), ['From', 'Reply-To'])
     recipients = util.get_header_addresses(msg.get('headers', {}), ['To', 'Cc'])
     if isinstance(settings.email_address, dict):
+        # Note: recipients BEFORE senders — delivery address wins.
         for _, addr in recipients + senders:
             idx = util.email_smtp_account_index(addr)
             if idx is not None:
