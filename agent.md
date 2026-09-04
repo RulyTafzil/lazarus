@@ -8,18 +8,20 @@
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
-- **CLI**: `lazarus` (`lazarus --install-desktop` installs desktop entry + icons); `lazarus-web` (mobile web server + REST API); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED)
-- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` → `app.main()`); `lazarus.server.main:main` (`lazarus-web`)
-- **Config**: `~/.config/lazarus/config.py` (loaded via `lazarus.config.load_config()` — exec + typed validation; see `lazarus/config.py`)
-- **State**: `QSettings('lazarus','lazarus')` — geometry, splitter, open searches
+- **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED); `lazarus-web` (legacy web launcher, deprecating in Phase 4)
+- **Entry point**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `lazarus.ned.main:main` (`ned`); `lazarus.server.main:main` (`lazarus-web`)
+- **Config**: Cascading search: `~/.config/ned/config.py` first, falling back to `~/.config/lazarus/config.py` (loaded via `lazarus.config.load_config()`)
+- **State**: `QSettings('lazarus','lazarus')` for desktop geometry, splitter, open searches; NED state in `~/.local/share/lazarus/ned/`
 - **Install**: `pipx install -e ~/Projects/lazarus` (editable)
 
 ## What It Is
-A graphical, keyboard-driven email client in Python/PyQt6 built on the
-[notmuch](https://notmuchmail.org/) indexer. Vim-like keychords, split-pane
-layout with a persistent thread preview, and a built-in rich-text compose
-editor. All operations go through notmuch tags + Maildir file moves — no mail
-is ever deleted outright.
+A keyboard-driven email system comprising the Notmuch Email Daemon (NED) and the
+Lazarus desktop client. NED acts as the authoritative daemon managing Notmuch
+indexing, Maildir synchronization, mutation locks, and Server-Sent Events (SSE).
+Lazarus desktop is a pure PyQt6 client that reacts to daemon invalidations over a
+Unix domain socket, featuring vim-like keychords, split-pane layout with persistent
+thread preview, and a built-in rich-text compose editor. All mutations use Notmuch
+tags and Maildir moves. No email is ever deleted outright.
 
 Diverged from upstream Dodo: persistent split-pane thread preview, async bulk
 tag/trash/archive worker, mail filter rules, built-in `RichTextEditor` (with
@@ -50,7 +52,8 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── __init__.py         # re-exports app/themes/settings/keymap/util
 │   ├── __main__.py         # app.main() entry
 │   ├── app.py              # Dodo(QApplication) bootstrap (~370L) — config+logging, signals, HelpWindow, sync timer, Chromium warm-up; no panel imports at runtime (all orchestration on AppController)
-│   ├── controller.py       # AppController(QObject) + SyncMailThread — panel registry, sync engine, orchestration
+│   ├── client.py           # Desktop client singleton (get_client, is_ned_active, ensure_daemon)
+│   ├── controller.py       # AppController(QObject) + SyncMailThread + _NedEventBridge — panel registry, sync engine, SSE invalidation
 │   ├── mainwindow.py       # MainWindow(QMainWindow) — splitter, tabs, preview, status bar
 │   ├── panel.py            # Panel(QWidget) base — keychords, dirty flag, debounce
 │   ├── search.py           # SearchPanel + SearchModel + render_thread_cell()
@@ -453,8 +456,8 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 #### Notmuch Email Daemon (NED) roadmap
 1. Phase 1 (completed): Daemon implementation (`lazarus.ned`) with dual listeners (Unix domain socket + optional Tailscale TCP), `MutationLock` serialized write queue, `/api/v1/` routes, SSE invalidation publisher, and cascading config resolution.
 2. Phase 2 (completed): Zero-dependency Python client library (`lazarus.ned.client` and `ned_client.py`) supporting Unix socket and HTTP transports, SSE stream parsing, typed signatures for all routes, and automated unit tests.
-3. Phase 3 (next): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`.
-4. Phase 4: Retire `lazarus-server` in favor of `ned`.
+3. Phase 3 (completed): Migrate Lazarus desktop to pure client, replacing local `_BulkMoveWorker` and direct Notmuch subprocess calls with `NedClient`, wired to SSE invalidation stream.
+4. Phase 4 (active): Retire `lazarus-server` in favor of `ned`.
 
 #### Decoupled domain engine (`lazarus.core`)
 The codebase follows a clear separation between headless domain primitives and presentation layers:
