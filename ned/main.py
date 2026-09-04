@@ -27,7 +27,7 @@ import sys
 import time
 
 from . import config, settings
-from .daemon import NedDaemon, get_default_socket_path
+from .daemon import NedDaemon, get_default_socket_path, insecure_tcp_error
 
 logger = logging.getLogger("ned")
 
@@ -87,6 +87,11 @@ def main() -> int:
         action="store_true",
         help="Generate ~/.config/ned/config.py from ~/.config/lazarus/config.py and exit",
     )
+    parser.add_argument(
+        "--allow-insecure",
+        action="store_true",
+        help="Override the refusal to expose an unauthenticated TCP listener on a non-loopback/non-Tailscale host",
+    )
 
     args = parser.parse_args()
 
@@ -129,6 +134,17 @@ def main() -> int:
 
     port = args.port or getattr(settings, "web_port", 8080)
 
+    enable_tcp = not args.no_tcp
+    if enable_tcp:
+        # Refuse-guard: never bind an unauthenticated TCP listener outside
+        # loopback/Tailscale unless explicitly overridden.
+        bind_err = insecure_tcp_error(
+            host or "127.0.0.1", getattr(settings, "web_token", "") or "", args.allow_insecure)
+        if bind_err:
+            logger.error(bind_err)
+            print(bind_err, file=sys.stderr)
+            sys.exit(2)
+
     # Background sync scheduler: CLI flag wins, otherwise follow the NED
     # config (settings.sync_mail_interval; -1 disables). The desktop no
     # longer runs its own sync timer — the daemon owns periodic sync.
@@ -141,7 +157,7 @@ def main() -> int:
         socket_path=args.socket,
         tcp_host=host,
         tcp_port=port,
-        enable_tcp=not args.no_tcp,
+        enable_tcp=enable_tcp,
         sync_interval_seconds=sync_interval,
     )
 

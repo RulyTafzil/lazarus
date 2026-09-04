@@ -24,6 +24,7 @@ background synchronization scheduler, and graceful shutdown.
 from __future__ import annotations
 
 import http.server
+import ipaddress
 import logging
 import os
 from pathlib import Path
@@ -39,6 +40,55 @@ from .events import broadcaster
 from .handler import NedRequestHandler
 
 logger = logging.getLogger(__name__)
+
+
+# Tailscale CGNAT range (RFC 6598): 100.64.0.0/10
+_TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
+
+
+def is_loopback_host(host: str) -> bool:
+    """True for loopback hostnames/IPs (127.x, ::1, localhost)."""
+    host = host.strip().lower()
+    if host in ("localhost", "::1"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def is_tailscale_host(host: str) -> bool:
+    """True for Tailscale/CGNAT addresses (100.64.0.0/10)."""
+    try:
+        return ipaddress.ip_address(host.strip()) in _TAILSCALE_NET
+    except ValueError:
+        return False
+
+
+def insecure_tcp_error(host: str, token: str,
+                       allow_insecure: bool = False) -> Optional[str]:
+    """Refuse-guard for the TCP listener.
+
+    Returns an error message when the daemon would expose the API
+    *unauthenticated* on a non-loopback, non-Tailscale interface — the one
+    dangerous default for a single-user mail server. Returns ``None`` when
+    the bind is safe:
+
+    * the host is loopback (local-only), or
+    * the host is a Tailscale address (WireGuard transport security), or
+    * a bearer token is set, or
+    * ``--allow-insecure`` was passed explicitly.
+    """
+    host = host.strip() or "127.0.0.1"
+    if allow_insecure or token.strip():
+        return None
+    if is_loopback_host(host) or is_tailscale_host(host):
+        return None
+    return (
+        f"Refusing to expose NED unauthenticated on {host}: set settings.web_token "
+        "(or --token), bind a loopback/Tailscale host, or pass --allow-insecure "
+        "to override."
+    )
 
 
 def get_default_socket_path() -> str:
