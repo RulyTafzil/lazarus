@@ -136,3 +136,28 @@ def test_move_to_trash_resolves_mbsync_flag_rename(notmuch_stub, maildir):
     trash = os.path.join(maildir, 'default', 'Trash', 'cur')
     assert _wait_until(lambda: any('msg-42' in f for f in os.listdir(trash)))
     assert not os.path.exists(actual)
+
+
+def test_worker_resolves_rename_after_planning(maildir):
+    """A filename change that lands AFTER planning must not lose the move.
+
+    The queue can hold a batch for a moment; notmuch flag-sync or a
+    concurrent mbsync may rename the source in that window. The worker
+    must follow the file by stem and move it anyway (regression for the
+    NED daemon path where the tag lands but the file stays in INBOX).
+    """
+    cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
+    trash_cur = os.path.join(maildir, 'default', 'Trash', 'cur')
+    src = _write(os.path.join(cur, 'msg-7,U=11:2,S'))
+    moves = actions.plan_trash_moves([src], maildir)
+    assert moves == [(src, os.path.join(trash_cur, 'msg-7:2,S'))]
+
+    # External renamer strikes AFTER planning, BEFORE the worker runs.
+    renamed = os.path.join(cur, 'msg-7,U=11:2,FS')
+    os.rename(src, renamed)
+
+    actions.get_worker().enqueue(moves)
+    assert _wait_until(lambda: any('msg-7' in f for f in os.listdir(trash_cur)))
+    # Moved with the CURRENT flags, and nothing left in INBOX.
+    assert os.path.exists(os.path.join(trash_cur, 'msg-7:2,FS'))
+    assert not os.path.exists(renamed)

@@ -105,6 +105,47 @@ class _BulkMoveWorker(threading.Thread):
             time.sleep(0.01)
         return False
 
+    def _try_move(self, src: str, dst: str) -> None:
+        """Move ``src`` → ``dst``, tolerating renames that land after planning.
+
+        The queue can hold a batch for a moment after ``move_to_trash`` /
+        ``move_to_archive`` plan it, and in that window the source path can
+        go stale: notmuch (``maildir.synchronize_flags``) renames files when
+        tags change the Maildir flags, and a concurrent mbsync rewrites
+        ``,U=`` annotations / flags. Renaming a stale path silently loses
+        the move — the message stays in its folder with the tag applied.
+
+        So on a missing source we follow the file by its stem (same dir +
+        cur/new sibling, see ``_resolve_stale_path``) and re-derive the
+        destination basename from the resolved name so the final Maildir
+        flags match.
+        """
+        if not os.path.exists(src):
+            resolved = _resolve_stale_path(src)
+            if resolved is None or resolved == src:
+                logger.debug('skip (already moved): %s', os.path.basename(src))
+                return
+            src = resolved
+            dst = _unique_dest(os.path.join(
+                os.path.dirname(dst),
+                _strip_uid_annotation(os.path.basename(resolved))))
+        try:
+            os.rename(src, dst)
+        except OSError as e:
+            # Second chance: renamed between the existence check and the
+            # syscall (narrow race with flag-sync / mbsync).
+            resolved = _resolve_stale_path(src)
+            if resolved is not None and resolved != src and os.path.exists(resolved):
+                try:
+                    os.rename(resolved, _unique_dest(os.path.join(
+                        os.path.dirname(dst),
+                        _strip_uid_annotation(os.path.basename(resolved)))))
+                    return
+                except OSError as e2:
+                    logger.warning('move failed: %s → %s: %s', resolved, dst, e2)
+                    return
+            logger.warning('move failed: %s → %s: %s', src, dst, e)
+
     def run(self) -> None:
         while True:
             item = self.queue.get()
@@ -129,13 +170,7 @@ class _BulkMoveWorker(threading.Thread):
             if not isinstance(item, tuple):
                 continue
             src, dst = item
-            if not os.path.exists(src):
-                logger.debug('skip (already moved): %s', src)
-                continue
-            try:
-                os.rename(src, dst)
-            except OSError as e:
-                logger.warning('move failed: %s → %s: %s', src, dst, e)
+            self._try_move(src, dst)
 
 
 # Singleton worker, started on first use and kept alive for the session.
