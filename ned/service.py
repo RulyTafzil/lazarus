@@ -435,12 +435,7 @@ def trash(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return True
-    tag_expr = "+trash -inbox -unread"
-    if unmark:
-        tag_expr += " -marked"
-    notmuch.tag(tag_expr, query)
-    actions.move_to_trash(query)
-    return True
+    return actions.move_to_trash(query, unmark=unmark) >= 0
 
 
 def restore(
@@ -455,9 +450,7 @@ def restore(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return True
-    actions.restore_from_trash(f"tag:trash AND ({query})")
-    rem_tags = ["trash", "marked"] if unmark else ["trash"]
-    return modify_tags(queries=[query], add_tags=["inbox"], remove_tags=rem_tags)
+    return actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark) >= 0
 
 
 def archive_local(
@@ -472,12 +465,7 @@ def archive_local(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return True
-    tag_expr = "-inbox -unread"
-    if unmark:
-        tag_expr += " -marked"
-    notmuch.tag(tag_expr, query)
-    actions.move_to_archive(query)
-    return True
+    return actions.move_to_archive(query, unmark=unmark) >= 0
 
 
 def archive_thread(thread_or_query: str) -> bool:

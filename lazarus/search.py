@@ -804,6 +804,9 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
     def _marked_query(self) -> str:
         return f'tag:marked AND ({self.q})'
 
+    def _marked_thread_ids(self) -> list[str]:
+        return [t['thread'] for t in self.model.d if 'marked' in t.get('tags', [])]
+
     def _has_marked_threads(self) -> bool:
         return any('marked' in t.get('tags', []) for t in self.model.d)
 

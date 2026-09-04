@@ -103,6 +103,10 @@ class MarkableActionsMixin:
         """Notmuch query matching "marked" threads in this panel's scope."""
         raise NotImplementedError
 
+    def _marked_thread_ids(self) -> list[str]:
+        """List of marked thread IDs in this panel, or empty."""
+        return []
+
     def _has_marked_threads(self) -> bool:
         """Return True if any threads are marked in this panel's scope.
 
@@ -155,7 +159,11 @@ class MarkableActionsMixin:
             remove_tags = list(remove_tags)
             if 'marked' not in add_tags and 'marked' not in remove_tags:
                 remove_tags.append('marked')
-            ok = client.modify_tags(queries=[self._marked_query()], add=add_tags, remove=remove_tags)
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.modify_tags(threads=marked_threads, add=add_tags, remove=remove_tags)
+            else:
+                ok = client.modify_tags(queries=[self._marked_query()], add=add_tags, remove=remove_tags)
             if not ok:
                 self.app.status_message('Tag error', 'error')
                 return
@@ -185,8 +193,12 @@ class MarkableActionsMixin:
         from .client import get_client
         client = get_client()
         if self._has_marked_threads():
-            marked_query = self._marked_query()
-            ok = client.modify_tags(queries=[marked_query], remove=['inbox', 'unread', 'marked'])
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.modify_tags(threads=marked_threads, remove=['inbox', 'unread', 'marked'])
+            else:
+                marked_query = self._marked_query()
+                ok = client.modify_tags(queries=[marked_query], remove=['inbox', 'unread', 'marked'])
             if not ok:
                 self.app.status_message('Archive error', 'error')
                 return
@@ -218,8 +230,12 @@ class MarkableActionsMixin:
         from .client import get_client
         client = get_client()
         if self._has_marked_threads():
-            marked_query = self._marked_query()
-            ok = client.trash_batch(queries=[marked_query], unmark=True)
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.trash_batch(threads=marked_threads, unmark=True)
+            else:
+                marked_query = self._marked_query()
+                ok = client.trash_batch(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Deleted marked', 'info')
@@ -244,8 +260,12 @@ class MarkableActionsMixin:
         from .client import get_client
         client = get_client()
         if self._has_marked_threads():
-            marked_query = self._marked_query()
-            ok = client.restore_batch(queries=[marked_query], unmark=True)
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.restore_batch(threads=marked_threads, unmark=True)
+            else:
+                marked_query = self._marked_query()
+                ok = client.restore_batch(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Restored from trash', 'info')
@@ -270,8 +290,12 @@ class MarkableActionsMixin:
         from .client import get_client
         client = get_client()
         if self._has_marked_threads():
-            marked_query = self._marked_query()
-            ok = client.archive_batch_to_local(queries=[marked_query], unmark=True)
+            marked_threads = self._marked_thread_ids()
+            if marked_threads:
+                ok = client.archive_batch_to_local(threads=marked_threads, unmark=True)
+            else:
+                marked_query = self._marked_query()
+                ok = client.archive_batch_to_local(queries=[marked_query], unmark=True)
             if ok:
                 self.app.refresh_panels()
                 self.app.status_message('Archived marked to local', 'info')

@@ -291,10 +291,8 @@ def _resolve_stale_path(f: str) -> Optional[str]:
     Message identity is the maildir *stem* (the name before ``:2,``):
     read/flag renames (``:2,S``… a notmuch ``maildir.synchronize_flags``
     side effect) and ``new/``↔``cur/`` moves preserve it.  We compare
-    stems for *exact equality* — never a prefix — so a match is always
-    the same message (unique names are unique per maildir), and a
-    different stem means the file is gone (return ``None``: skip the
-    move, never guess).
+    stems for *exact equality* first, and fall back to comparing with
+    mbsync UID annotations stripped.
     """
     if os.path.exists(f):
         return f
@@ -309,10 +307,15 @@ def _resolve_stale_path(f: str) -> Optional[str]:
             if sibling not in candidates:
                 candidates.append(sibling)
 
+    clean_stem_base = _strip_uid_annotation(stem_base)
     for directory in candidates:
         try:
-            for entry in os.listdir(directory):
+            entries = os.listdir(directory)
+            for entry in entries:
                 if _stem_of(entry) == stem_base:
+                    return os.path.join(directory, entry)
+            for entry in entries:
+                if _strip_uid_annotation(_stem_of(entry)) == clean_stem_base:
                     return os.path.join(directory, entry)
         except OSError:
             pass
@@ -360,6 +363,9 @@ def plan_trash_moves(files: List[str],
             continue
         account, _ = result
         trash_dir = _trash_dir_path(account, mail_root)
+        if f.startswith(trash_dir + os.sep):
+            logger.debug('skip (already in trash): %s', os.path.basename(f))
+            continue
         basename = _strip_uid_annotation(os.path.basename(f))
         moves.append((f, _unique_dest(os.path.join(trash_dir, basename))))
     return moves
@@ -398,13 +404,17 @@ def _get_collector() -> Callable[[str], list[str]]:
     return collect_files
 
 
-def move_to_trash(notmuch_query: str) -> int:
+def move_to_trash(notmuch_query: str, unmark: bool = False, exclude_marked: bool | None = None) -> int:
     """Tag ``+trash -inbox -unread`` and move matching files to account Trash."""
     files = _get_collector()(notmuch_query)
     if not files:
         return 0
 
-    notmuch.tag('+trash -inbox -unread', notmuch_query, exclude_marked=True)
+    should_unmark = unmark if exclude_marked is None else exclude_marked
+    tag_expr = '+trash -inbox -unread'
+    if should_unmark:
+        tag_expr += ' -marked'
+    notmuch.tag(tag_expr, notmuch_query)
 
     resolved: List[str] = []
     for f in files:
@@ -422,12 +432,16 @@ def move_to_trash(notmuch_query: str) -> int:
     return len(moves)
 
 
-def move_to_archive(notmuch_query: str) -> int:
+def move_to_archive(notmuch_query: str, unmark: bool = False, exclude_marked: bool | None = None) -> int:
     """Untag ``-inbox -unread`` and move matching files to local ``archive_dir/cur/``."""
     files = _get_collector()(notmuch_query)
     if not files:
         return 0
-    notmuch.tag('-inbox -unread', notmuch_query, exclude_marked=True)
+    should_unmark = unmark if exclude_marked is None else exclude_marked
+    tag_expr = '-inbox -unread'
+    if should_unmark:
+        tag_expr += ' -marked'
+    notmuch.tag(tag_expr, notmuch_query)
     return move_specific_files(files, os.path.expanduser(settings.archive_dir))
 
 
@@ -494,12 +508,26 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
     return tagged
 
 
-def restore_from_trash(notmuch_query: str) -> int:
+def restore_from_trash(notmuch_query: str, unmark: bool = False) -> int:
     """Move files matching notmuch_query from Trash back to account's INBOX."""
     files = collect_files(notmuch_query)
+    if not files:
+        return 0
+
+    tag_expr = '-trash +inbox'
+    if unmark:
+        tag_expr += ' -marked'
+    notmuch.tag(tag_expr, notmuch_query)
+
+    resolved: List[str] = []
+    for f in files:
+        r = _resolve_stale_path(f)
+        if r is None:
+            continue
+        resolved.append(r)
 
     moves: List[Tuple[str, str]] = []
-    for f in files:
+    for f in resolved:
         if not _is_trash_path(f):
             logger.debug('restore: not in trash folder: %s', f)
             continue
@@ -516,7 +544,6 @@ def restore_from_trash(notmuch_query: str) -> int:
         moves.append((f, _unique_dest(os.path.join(inbox_cur, basename))))
 
     if moves:
-        notmuch.tag('-trash +inbox', notmuch_query)
         _get_worker().enqueue(moves)
 
     return len(moves)

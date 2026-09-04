@@ -557,43 +557,33 @@ def test_service_maildir_move_actions(monkeypatch):
     from ned import notmuch, service, actions
 
     tagged: list[tuple[str, str]] = []
-    trash_moves: list[str] = []
-    restore_moves: list[str] = []
-    archive_moves: list[str] = []
+    trash_moves: list[tuple[str, bool]] = []
+    restore_moves: list[tuple[str, bool]] = []
+    archive_moves: list[tuple[str, bool]] = []
 
-    def mock_tag(expr, query):
-        tagged.append((expr, query))
-        return type("R", (), {"returncode": 0})()
-
-    monkeypatch.setattr(notmuch, "tag", mock_tag)
-    monkeypatch.setattr(actions, "move_to_trash", lambda q: trash_moves.append(q))
-    monkeypatch.setattr(actions, "restore_from_trash", lambda q: restore_moves.append(q))
-    monkeypatch.setattr(actions, "move_to_archive", lambda q: archive_moves.append(q))
+    monkeypatch.setattr(actions, "move_to_trash", lambda q, unmark=False: (trash_moves.append((q, unmark)), 1)[1])
+    monkeypatch.setattr(actions, "restore_from_trash", lambda q, unmark=False: (restore_moves.append((q, unmark)), 1)[1])
+    monkeypatch.setattr(actions, "move_to_archive", lambda q, unmark=False: (archive_moves.append((q, unmark)), 1)[1])
 
     # 1. trash with unmark
     service.trash(queries=["tag:marked"], unmark=True)
-    assert tagged[-1] == ("+trash -inbox -unread -marked", "tag:marked")
-    assert trash_moves[-1] == "tag:marked"
+    assert trash_moves[-1] == ("tag:marked", True)
 
     # 2. trash single thread without unmark
     service.trash(threads=["0000000000001234"])
-    assert tagged[-1] == ("+trash -inbox -unread", "thread:0000000000001234")
-    assert trash_moves[-1] == "thread:0000000000001234"
+    assert trash_moves[-1] == ("thread:0000000000001234", False)
 
     # 3. restore with unmark
     service.restore(queries=["tag:marked"], unmark=True)
-    assert restore_moves[-1] == "tag:trash AND (tag:marked)"
-    assert tagged[-1] == ("+inbox -trash -marked", "tag:marked")
+    assert restore_moves[-1] == ("tag:trash AND (tag:marked)", True)
 
     # 4. restore single message
     service.restore(messages=["<msg-1@host>"])
-    assert restore_moves[-1] == "tag:trash AND (id:msg-1@host)"
-    assert tagged[-1] == ("+inbox -trash", "id:msg-1@host")
+    assert restore_moves[-1] == ("tag:trash AND (id:msg-1@host)", False)
 
     # 5. archive_local with unmark
     service.archive_local(queries=["tag:marked"], unmark=True)
-    assert tagged[-1] == ("-inbox -unread -marked", "tag:marked")
-    assert archive_moves[-1] == "tag:marked"
+    assert archive_moves[-1] == ("tag:marked", True)
 
 
 def test_ned_maildir_move_endpoints(tmp_path, monkeypatch):
