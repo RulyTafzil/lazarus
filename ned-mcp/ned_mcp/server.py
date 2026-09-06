@@ -40,12 +40,15 @@ class NedMcpServer:
         self._dispatch_map: dict[str, Callable[[dict[str, Any]], Any]] = {
             "search_threads": self._tool_search_threads,
             "get_thread": self._tool_get_thread,
-            "archive_threads": self._tool_archive_threads,
-            "trash_threads": self._tool_trash_threads,
-            "restore_threads": self._tool_restore_threads,
-            "apply_tags": self._tool_apply_tags,
             "list_tags": self._tool_list_tags,
         }
+        if self.policy.can_mutate_tags:
+            self._dispatch_map["apply_tags"] = self._tool_apply_tags
+        if self.policy.allow_trash:
+            self._dispatch_map["trash_threads"] = self._tool_trash_threads
+            self._dispatch_map["restore_threads"] = self._tool_restore_threads
+        if self.policy.allow_archive:
+            self._dispatch_map["archive_threads"] = self._tool_archive_threads
         if self.policy.allow_send:
             self._dispatch_map["send_email"] = self._tool_send_email
 
@@ -110,7 +113,10 @@ class NedMcpServer:
                     "required": ["thread_id"],
                 },
             },
-            {
+        ]
+
+        if self.policy.allow_archive:
+            tools.append({
                 "name": "archive_threads",
                 "description": (
                     "Archive one or more email threads. By default removes 'inbox' and 'unread' tags. "
@@ -132,43 +138,49 @@ class NedMcpServer:
                     },
                     "required": ["thread_ids"],
                 },
-            },
-            {
-                "name": "trash_threads",
-                "description": (
-                    "Move email threads to the account Trash Maildir folder and apply '+trash -inbox -unread'. "
-                    "Non-destructive and reversible."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "thread_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of thread IDs to move to trash.",
+            })
+
+        if self.policy.allow_trash:
+            tools.extend([
+                {
+                    "name": "trash_threads",
+                    "description": (
+                        "Move email threads to the account Trash Maildir folder and apply '+trash -inbox -unread'. "
+                        "Non-destructive and reversible."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "thread_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of thread IDs to move to trash.",
+                            },
                         },
+                        "required": ["thread_ids"],
                     },
-                    "required": ["thread_ids"],
                 },
-            },
-            {
-                "name": "restore_threads",
-                "description": (
-                    "Restore email threads from Trash back to the account INBOX Maildir folder and tag '+inbox -trash'."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "thread_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of thread IDs to restore.",
+                {
+                    "name": "restore_threads",
+                    "description": (
+                        "Restore email threads from Trash back to the account INBOX Maildir folder and tag '+inbox -trash'."
+                    ),
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "thread_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of thread IDs to restore.",
+                            },
                         },
+                        "required": ["thread_ids"],
                     },
-                    "required": ["thread_ids"],
                 },
-            },
-            {
+            ])
+
+        if self.policy.can_mutate_tags:
+            tools.append({
                 "name": "apply_tags",
                 "description": (
                     "Add or remove tags on specified threads or messages. "
@@ -199,19 +211,19 @@ class NedMcpServer:
                         },
                     },
                 },
+            })
+
+        tools.append({
+            "name": "list_tags",
+            "description": (
+                "List available tags and thread counts. "
+                "Filtered to permitted tags if a whitelist is configured."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
             },
-            {
-                "name": "list_tags",
-                "description": (
-                    "List available tags and thread counts. "
-                    "Filtered to permitted tags if a whitelist is configured."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {},
-                },
-            },
-        ]
+        })
 
         if self.policy.allow_send:
             tools.append({
@@ -282,6 +294,8 @@ class NedMcpServer:
         return sanitize_thread(raw_thread, include_quoted=include_quoted, max_messages=max_m)
 
     def _tool_archive_threads(self, args: dict[str, Any]) -> Any:
+        local = bool(args.get("move_to_local_archive", False))
+        self.policy.validate_archive(local=local)
         thread_ids = [str(tid).strip() for tid in args.get("thread_ids", []) if str(tid).strip()]
         if not thread_ids:
             raise ValueError("At least one thread_id is required.")
@@ -289,7 +303,6 @@ class NedMcpServer:
         for tid in thread_ids:
             self.policy.validate_thread_in_account(self.client, tid)
 
-        local = bool(args.get("move_to_local_archive", False))
         if local:
             ok = self.client.archive_batch_to_local(threads=thread_ids)
             if ok:
@@ -302,6 +315,7 @@ class NedMcpServer:
             raise NedError("Failed to archive threads.")
 
     def _tool_trash_threads(self, args: dict[str, Any]) -> Any:
+        self.policy.validate_trash()
         thread_ids = [str(tid).strip() for tid in args.get("thread_ids", []) if str(tid).strip()]
         if not thread_ids:
             raise ValueError("At least one thread_id is required.")
@@ -315,6 +329,7 @@ class NedMcpServer:
         raise NedError("Failed to move threads to Trash.")
 
     def _tool_restore_threads(self, args: dict[str, Any]) -> Any:
+        self.policy.validate_trash()
         thread_ids = [str(tid).strip() for tid in args.get("thread_ids", []) if str(tid).strip()]
         if not thread_ids:
             raise ValueError("At least one thread_id is required.")
@@ -566,21 +581,40 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
         "-a",
         action="append",
         required=True,
-        help="Account name(s) to scope access to (e.g. --account work)",
+        help="Account name(s) to scope access to. Can be repeated or comma-separated (e.g. --account work,personal)",
+    )
+    parser.add_argument(
+        "--tags",
+        help="Allowed tags to add or remove (e.g. 'todo,followup' or '*' for all tags). Default: no tag mutations allowed",
     )
     parser.add_argument(
         "--allow-tags",
-        help="Comma-separated whitelist of tags that may be added or removed",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--full-tags",
         action="store_true",
-        help="Grant full tag manipulation access on the scoped account",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--allow-trash",
+        action="store_true",
+        help="Enable trash and restore tools for non-destructive removal",
+    )
+    parser.add_argument(
+        "--allow-archive",
+        action="store_true",
+        help="Enable archive tool for tag-based archiving (-inbox -unread)",
+    )
+    parser.add_argument(
+        "--allow-archive-to-local",
+        action="store_true",
+        help="Enable archive tool with disk relocation to local Archive Maildir",
     )
     parser.add_argument(
         "--allow-send",
         action="store_true",
-        help="Enable outbound email sending through the scoped account",
+        help="Enable outbound email sending through the scoped account SMTP credentials",
     )
     parser.add_argument(
         "--socket",
@@ -602,14 +636,17 @@ def main(args: Optional[list[str]] = None) -> int:
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     parsed = parse_args(args)
 
-    allowed_tags = None
-    if parsed.allow_tags:
-        allowed_tags = [t.strip() for t in parsed.allow_tags.split(",") if t.strip()]
+    tags_arg = parsed.tags or parsed.allow_tags
+    full_tags = bool(parsed.full_tags or (tags_arg == "*"))
+    allowed_tags = None if full_tags else tags_arg
 
     policy = AccountPolicy(
         accounts=parsed.account,
         allowed_tags=allowed_tags,
-        full_tags=parsed.full_tags,
+        full_tags=full_tags,
+        allow_trash=parsed.allow_trash,
+        allow_archive=parsed.allow_archive or parsed.allow_archive_to_local,
+        allow_archive_to_local=parsed.allow_archive_to_local,
         allow_send=parsed.allow_send,
     )
 

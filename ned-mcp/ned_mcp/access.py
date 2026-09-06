@@ -14,38 +14,70 @@ class AccessDeniedError(Exception):
 
 
 class AccountPolicy:
-    """Security policy restricting an agent to specific accounts and actions."""
+    """Security policy restricting an agent to specific accounts and actions.
+
+    Follows a deny-by-default model: baseline access is read-only.
+    All mutations (tagging, trashing, archiving, sending) require express opt-in.
+    """
 
     def __init__(
         self,
         accounts: str | Sequence[str],
-        allowed_tags: Optional[Sequence[str] | set[str]] = None,
+        allowed_tags: Optional[Sequence[str] | set[str] | str] = None,
         full_tags: bool = False,
+        allow_trash: bool = False,
+        allow_archive: bool = False,
+        allow_archive_to_local: bool = False,
         allow_send: bool = False,
-        allow_archive: bool = True,
-        allow_trash: bool = True,
     ) -> None:
         if isinstance(accounts, str):
-            clean_accounts = [accounts.strip()]
+            items = accounts.split(",")
         else:
-            clean_accounts = [a.strip() for a in accounts if a.strip()]
+            items = []
+            for a in accounts:
+                items.extend(a.split(","))
 
+        clean_accounts = [a.strip() for a in items if a.strip()]
         if not clean_accounts:
             raise ValueError("At least one account must be specified in AccountPolicy.")
 
         self.accounts: tuple[str, ...] = tuple(clean_accounts)
         self.primary_account: str = clean_accounts[0]
-        self.full_tags: bool = full_tags
-        self.allow_send: bool = allow_send
-        self.allow_archive: bool = allow_archive
         self.allow_trash: bool = allow_trash
+        self.allow_archive: bool = allow_archive or allow_archive_to_local
+        self.allow_archive_to_local: bool = allow_archive_to_local
+        self.allow_send: bool = allow_send
 
-        if allowed_tags is not None:
-            self.allowed_tags: Optional[frozenset[str]] = frozenset(
-                t.strip().lstrip("+-") for t in allowed_tags if t.strip()
-            )
+        # Resolve tag mutation permissions
+        if isinstance(allowed_tags, str):
+            clean_tags_str = allowed_tags.strip()
+            if clean_tags_str == "*":
+                self.full_tags: bool = True
+                self.allowed_tags: Optional[frozenset[str]] = None
+            elif clean_tags_str:
+                self.full_tags = False
+                self.allowed_tags = frozenset(
+                    t.strip().lstrip("+-") for t in clean_tags_str.split(",") if t.strip()
+                )
+            else:
+                self.full_tags = False
+                self.allowed_tags = frozenset()
+        elif allowed_tags is not None:
+            self.full_tags = full_tags
+            if full_tags:
+                self.allowed_tags = None
+            else:
+                self.allowed_tags = frozenset(
+                    t.strip().lstrip("+-") for t in allowed_tags if t.strip()
+                )
         else:
+            self.full_tags = full_tags
             self.allowed_tags = None if full_tags else frozenset()
+
+    @property
+    def can_mutate_tags(self) -> bool:
+        """Return True if any tag modification is permitted."""
+        return self.full_tags or bool(self.allowed_tags)
 
     @property
     def account_path_query(self) -> str:
@@ -72,10 +104,16 @@ class AccountPolicy:
     ) -> tuple[list[str], list[str]]:
         """Validate that all tags to be added or removed are allowed.
 
-        Raises AccessDeniedError if any tag is outside the allowed whitelist.
+        Raises AccessDeniedError if tag modification is disabled or any tag is unauthorized.
         """
         clean_add = [t.strip().lstrip("+-") for t in add if t.strip()]
         clean_remove = [t.strip().lstrip("+-") for t in remove if t.strip()]
+
+        if not self.can_mutate_tags:
+            raise AccessDeniedError(
+                f"Tag modification is disabled for account '{self.primary_account}'. "
+                "No tags have been permitted."
+            )
 
         if self.full_tags:
             return clean_add, clean_remove
@@ -119,6 +157,32 @@ class AccountPolicy:
 
         return target
 
+    def validate_archive(self, local: bool = False) -> None:
+        """Validate that archive operations are permitted.
+
+        Raises AccessDeniedError if archive is disabled for this account.
+        """
+        if local:
+            if not self.allow_archive_to_local:
+                raise AccessDeniedError(
+                    f"Archiving to local folder is disabled for account '{self.primary_account}'."
+                )
+        else:
+            if not self.allow_archive:
+                raise AccessDeniedError(
+                    f"Archive operations are disabled for account '{self.primary_account}'."
+                )
+
+    def validate_trash(self) -> None:
+        """Validate that trash operations are permitted.
+
+        Raises AccessDeniedError if trash is disabled for this account.
+        """
+        if not self.allow_trash:
+            raise AccessDeniedError(
+                f"Trash operations are disabled for account '{self.primary_account}'."
+            )
+
     def validate_thread_in_account(self, client: Any, thread_id: str) -> None:
         """Verify that a thread contains messages belonging to the allowed accounts."""
         clean_id = thread_id.strip().removeprefix("thread:")
@@ -158,17 +222,19 @@ class AccountPolicy:
         if not account:
             raise ValueError("Configuration must contain 'account' or 'accounts'.")
 
-        allowed_tags = data.get("allowed_tags")
-        if isinstance(allowed_tags, str):
-            allowed_tags = [t.strip() for t in allowed_tags.split(",") if t.strip()]
+        tags = data.get("tags") or data.get("allowed_tags")
+        full_tags = bool(data.get("full_tags", False)) or (tags == "*")
+        if tags == "*":
+            tags = None
 
         return cls(
             accounts=account,
-            allowed_tags=allowed_tags,
-            full_tags=bool(data.get("full_tags", False)),
+            allowed_tags=tags,
+            full_tags=full_tags,
+            allow_trash=bool(data.get("allow_trash", False)),
+            allow_archive=bool(data.get("allow_archive", False)),
+            allow_archive_to_local=bool(data.get("allow_archive_to_local", False)),
             allow_send=bool(data.get("allow_send", False)),
-            allow_archive=bool(data.get("allow_archive", True)),
-            allow_trash=bool(data.get("allow_trash", True)),
         )
 
     @classmethod
@@ -177,40 +243,54 @@ class AccountPolicy:
 
         Formats supported:
             'work'
-            'work:full_tags,send'
-            'work:tags=todo+urgent,send=false'
-            'work:tags=inbox+todo'
+            'work:tags=*,trash,send'
+            'work:tags=todo+urgent,trash'
+            'work,personal:send'
         """
         parts = spec_str.strip().split(":", 1)
-        account = parts[0].strip()
-        if not account:
+        accounts_part = parts[0].strip()
+        if not accounts_part:
             raise ValueError(f"Invalid account policy specification: {spec_str!r}")
 
         if len(parts) == 1:
-            return cls(accounts=account)
+            return cls(accounts=accounts_part)
 
         opts_str = parts[1].strip()
         full_tags = False
         allow_send = False
+        allow_archive = False
+        allow_archive_to_local = False
+        allow_trash = False
         allowed_tags: list[str] = []
 
         for item in opts_str.split(","):
             item = item.strip()
             if not item:
                 continue
-            if item == "full_tags":
+            if item in ("full_tags", "tags=*"):
                 full_tags = True
-            elif item == "send" or item == "send=true":
+            elif item in ("trash", "allow_trash"):
+                allow_trash = True
+            elif item in ("archive", "allow_archive"):
+                allow_archive = True
+            elif item in ("archive_to_local", "allow_archive_to_local"):
+                allow_archive_to_local = True
+            elif item in ("send", "send=true", "allow_send"):
                 allow_send = True
-            elif item == "send=false":
-                allow_send = False
             elif item.startswith("tags="):
-                raw_tags = item[len("tags=") :].split("+")
-                allowed_tags.extend(t.strip() for t in raw_tags if t.strip())
+                raw = item[len("tags=") :].strip()
+                if raw == "*":
+                    full_tags = True
+                else:
+                    raw_tags = raw.split("+")
+                    allowed_tags.extend(t.strip() for t in raw_tags if t.strip())
 
         return cls(
-            accounts=account,
+            accounts=accounts_part,
             allowed_tags=allowed_tags if allowed_tags else None,
             full_tags=full_tags,
+            allow_trash=allow_trash,
+            allow_archive=allow_archive,
+            allow_archive_to_local=allow_archive_to_local,
             allow_send=allow_send,
         )

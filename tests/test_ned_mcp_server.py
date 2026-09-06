@@ -55,29 +55,81 @@ def test_server_ping_and_notifications(mock_client):
 
 
 def test_server_tools_list_permissions(mock_client):
-    """Test tools/list reflects permission flags (e.g. send_email inclusion)."""
-    # 1. Read/triage only (allow_send=False)
-    policy_no_send = AccountPolicy("work", allow_send=False)
-    server_no_send = NedMcpServer(client=mock_client, policy=policy_no_send)
-    resp = server_no_send.handle_request({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
+    """Test tools/list reflects deny-by-default baseline and opt-in flags."""
+    # 1. Default baseline (read-only)
+    policy_default = AccountPolicy("work")
+    server_default = NedMcpServer(client=mock_client, policy=policy_default)
+    resp = server_default.handle_request({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
     assert resp is not None
     tool_names = [t["name"] for t in resp["result"]["tools"]]
     assert "search_threads" in tool_names
     assert "get_thread" in tool_names
-    assert "archive_threads" in tool_names
-    assert "trash_threads" in tool_names
-    assert "restore_threads" in tool_names
-    assert "apply_tags" in tool_names
     assert "list_tags" in tool_names
+    assert "archive_threads" not in tool_names
+    assert "trash_threads" not in tool_names
+    assert "restore_threads" not in tool_names
+    assert "apply_tags" not in tool_names
     assert "send_email" not in tool_names
 
-    # 2. With allow_send=True
-    policy_send = AccountPolicy("work", allow_send=True)
-    server_send = NedMcpServer(client=mock_client, policy=policy_send)
-    resp_send = server_send.handle_request({"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
-    assert resp_send is not None
-    tool_names_send = [t["name"] for t in resp_send["result"]["tools"]]
-    assert "send_email" in tool_names_send
+    # 2. Opt-in to trash and selective tags
+    policy_triage = AccountPolicy("work", allow_trash=True, allowed_tags=["todo"])
+    server_triage = NedMcpServer(client=mock_client, policy=policy_triage)
+    resp_triage = server_triage.handle_request({"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
+    assert resp_triage is not None
+    tool_names_triage = [t["name"] for t in resp_triage["result"]["tools"]]
+    assert "search_threads" in tool_names_triage
+    assert "trash_threads" in tool_names_triage
+    assert "restore_threads" in tool_names_triage
+    assert "apply_tags" in tool_names_triage
+    assert "send_email" not in tool_names_triage
+    assert "archive_threads" not in tool_names_triage
+
+    # 3. Full access
+    policy_full = AccountPolicy(
+        "work",
+        allow_send=True,
+        allow_trash=True,
+        allow_archive=True,
+        full_tags=True,
+    )
+    server_full = NedMcpServer(client=mock_client, policy=policy_full)
+    resp_full = server_full.handle_request({"jsonrpc": "2.0", "id": 5, "method": "tools/list"})
+    assert resp_full is not None
+    tool_names_full = [t["name"] for t in resp_full["result"]["tools"]]
+    assert "search_threads" in tool_names_full
+    assert "get_thread" in tool_names_full
+    assert "archive_threads" in tool_names_full
+    assert "trash_threads" in tool_names_full
+    assert "restore_threads" in tool_names_full
+    assert "apply_tags" in tool_names_full
+    assert "list_tags" in tool_names_full
+    assert "send_email" in tool_names_full
+
+
+def test_parse_args_opt_in():
+    """Test CLI argument parsing with deny-by-default opt-in flags."""
+    # Read-only default
+    args_default = parse_args(["--account", "work"])
+    assert args_default.account == ["work"]
+    assert args_default.allow_trash is False
+    assert args_default.allow_send is False
+    assert args_default.tags is None
+
+    # Comma-separated accounts and opt-ins
+    args_opt = parse_args([
+        "--account", "work,personal",
+        "--allow-trash",
+        "--allow-archive",
+        "--allow-archive-to-local",
+        "--allow-send",
+        "--tags", "*",
+    ])
+    assert args_opt.account == ["work,personal"]
+    assert args_opt.allow_trash is True
+    assert args_opt.allow_archive is True
+    assert args_opt.allow_archive_to_local is True
+    assert args_opt.allow_send is True
+    assert args_opt.tags == "*"
 
 
 def test_server_search_threads(mock_client):
@@ -176,7 +228,7 @@ def test_server_get_thread(mock_client):
 
 def test_server_archive_threads(mock_client):
     """Test archive_threads tool call."""
-    policy = AccountPolicy("work")
+    policy = AccountPolicy("work", allow_archive=True, allow_archive_to_local=True)
     server = NedMcpServer(client=mock_client, policy=policy)
 
     mock_client.count.return_value = 1
@@ -216,7 +268,7 @@ def test_server_archive_threads(mock_client):
 
 def test_server_trash_and_restore(mock_client):
     """Test trash_threads and restore_threads tool calls."""
-    policy = AccountPolicy("work")
+    policy = AccountPolicy("work", allow_trash=True)
     server = NedMcpServer(client=mock_client, policy=policy)
 
     mock_client.count.return_value = 1

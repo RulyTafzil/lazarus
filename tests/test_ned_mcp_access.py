@@ -144,3 +144,62 @@ def test_from_dict():
     assert policy.primary_account == "work"
     assert policy.allowed_tags == frozenset({"todo", "archive"})
     assert policy.allow_send is True
+
+
+def test_deny_by_default_policy():
+    """Test that default policy is strictly read-only."""
+    policy = AccountPolicy("work")
+    assert policy.primary_account == "work"
+    assert policy.can_mutate_tags is False
+    assert policy.allow_send is False
+    assert policy.allow_archive is False
+    assert policy.allow_trash is False
+    assert policy.full_tags is False
+    assert policy.allowed_tags == frozenset()
+
+    with pytest.raises(AccessDeniedError, match="Tag modification is disabled"):
+        policy.validate_tag_mutation(add=["todo"])
+
+    with pytest.raises(AccessDeniedError, match="Archive operations are disabled"):
+        policy.validate_archive()
+
+    with pytest.raises(AccessDeniedError, match="Trash operations are disabled"):
+        policy.validate_trash()
+
+    with pytest.raises(AccessDeniedError, match="Sending email is disabled"):
+        policy.validate_send()
+
+
+def test_comma_separated_accounts():
+    """Test that comma-separated account strings are parsed correctly."""
+    policy = AccountPolicy("work,personal", allow_trash=True)
+    assert policy.accounts == ("work", "personal")
+    assert policy.primary_account == "work"
+    assert policy.allow_trash is True
+    assert policy.scoped_query("tag:inbox") == "(path:work/** or path:personal/**) and (tag:inbox)"
+
+
+def test_tags_wildcard_string():
+    """Test passing '*' as allowed_tags string."""
+    policy = AccountPolicy("work", allowed_tags="*")
+    assert policy.full_tags is True
+    assert policy.can_mutate_tags is True
+    add, rem = policy.validate_tag_mutation(add=["custom"], remove=["inbox"])
+    assert add == ["custom"]
+    assert rem == ["inbox"]
+
+
+def test_parse_spec_opt_in():
+    """Test parse_spec with opt-in flags."""
+    p = AccountPolicy.parse_spec("work:tags=*,trash,send")
+    assert p.full_tags is True
+    assert p.allow_trash is True
+    assert p.allow_send is True
+    assert p.allow_archive is False
+
+    p2 = AccountPolicy.parse_spec("work,personal:trash,archive")
+    assert p2.accounts == ("work", "personal")
+    assert p2.allow_trash is True
+    assert p2.allow_archive is True
+    assert p2.can_mutate_tags is False
+
