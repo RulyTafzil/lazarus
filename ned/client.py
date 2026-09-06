@@ -1058,6 +1058,40 @@ class NedClient:
         return thread
 
 
+def build_account_query(
+    account: str | Sequence[str],
+    query: str = "",
+) -> str:
+    """Scope a Notmuch query to one or more accounts using path prefixes.
+
+    Account directories under the mail root are matched via path:<account>/**.
+    """
+    if isinstance(account, str):
+        accounts = [account]
+    else:
+        accounts = list(account)
+
+    path_parts: list[str] = []
+    for acct in accounts:
+        clean = acct.strip().strip("/")
+        if clean:
+            path_parts.append(f"path:{clean}/**")
+
+    if not path_parts:
+        return query.strip()
+
+    if len(path_parts) == 1:
+        account_expr = f"({path_parts[0]})"
+    else:
+        account_expr = f"({' or '.join(path_parts)})"
+
+    clean_query = query.strip()
+    if not clean_query or clean_query == "*":
+        return account_expr
+
+    return f"{account_expr} and ({clean_query})"
+
+
 # ---------------------------------------------------------------------------
 def _format_thread_readable(thread: dict[str, Any], include_quoted: bool = False) -> str:
     lines: list[str] = []

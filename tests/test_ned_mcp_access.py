@@ -1,0 +1,146 @@
+"""Unit tests for AccountPolicy and access control in ned-mcp."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+import pytest
+
+from ned_mcp.access import AccessDeniedError, AccountPolicy
+
+
+def test_account_policy_init_and_scoping():
+    """Test policy creation and query scoping."""
+    policy = AccountPolicy("work", allowed_tags=["todo", "followup"])
+    assert policy.primary_account == "work"
+    assert policy.accounts == ("work",)
+    assert policy.allowed_tags == frozenset({"todo", "followup"})
+    assert policy.allow_send is False
+    assert policy.full_tags is False
+
+    # Scoped queries
+    assert policy.scoped_query("tag:inbox") == "(path:work/**) and (tag:inbox)"
+    assert policy.scoped_query("") == "(path:work/**)"
+    assert policy.scoped_query("*") == "(path:work/**)"
+
+
+def test_account_policy_multiple_accounts():
+    """Test multi-account policy scoping."""
+    policy = AccountPolicy(["work", "client_a"], full_tags=True, allow_send=True)
+    assert policy.accounts == ("work", "client_a")
+    assert policy.scoped_query("tag:unread") == "(path:work/** or path:client_a/**) and (tag:unread)"
+    assert policy.full_tags is True
+    assert policy.allow_send is True
+
+
+def test_account_policy_empty_accounts_raises():
+    """Test that creating policy without accounts raises ValueError."""
+    with pytest.raises(ValueError, match="At least one account"):
+        AccountPolicy([])
+
+
+def test_validate_tag_mutation_whitelist():
+    """Test tag mutation against a tag whitelist."""
+    policy = AccountPolicy("work", allowed_tags=["todo", "archive"])
+
+    # Permitted tags
+    add, rem = policy.validate_tag_mutation(add=["todo"], remove=["archive"])
+    assert add == ["todo"]
+    assert rem == ["archive"]
+
+    # Disallowed tags raise AccessDeniedError
+    with pytest.raises(AccessDeniedError) as exc:
+        policy.validate_tag_mutation(add=["unread"], remove=["inbox"])
+    assert "adding unauthorized tags: ['unread']" in str(exc.value)
+    assert "removing unauthorized tags: ['inbox']" in str(exc.value)
+
+
+def test_validate_tag_mutation_full_tags():
+    """Test tag mutation when full_tags is enabled."""
+    policy = AccountPolicy("work", full_tags=True)
+    add, rem = policy.validate_tag_mutation(add=["custom1", "custom2"], remove=["inbox"])
+    assert add == ["custom1", "custom2"]
+    assert rem == ["inbox"]
+
+
+def test_validate_send():
+    """Test send authorization."""
+    policy_no_send = AccountPolicy("work", allow_send=False)
+    with pytest.raises(AccessDeniedError, match="Sending email is disabled"):
+        policy_no_send.validate_send("work")
+
+    policy_send = AccountPolicy(["work", "personal"], allow_send=True)
+    assert policy_send.validate_send() == "work"
+    assert policy_send.validate_send("personal") == "personal"
+
+    with pytest.raises(AccessDeniedError, match="Cannot send from account 'other'"):
+        policy_send.validate_send("other")
+
+
+def test_validate_thread_in_account():
+    """Test checking if a thread belongs to the allowed account."""
+    policy = AccountPolicy("work")
+    mock_client = MagicMock()
+
+    # Match found
+    mock_client.count.return_value = 2
+    policy.validate_thread_in_account(mock_client, "thread:t123")
+    mock_client.count.assert_called_with("thread:t123 and (path:work/**)", output="messages")
+
+    # Match not found
+    mock_client.count.return_value = 0
+    with pytest.raises(AccessDeniedError, match="does not belong to allowed account"):
+        policy.validate_thread_in_account(mock_client, "thread:t999")
+
+
+def test_validate_message_in_account():
+    """Test checking if a message belongs to the allowed account."""
+    policy = AccountPolicy("work")
+    mock_client = MagicMock()
+
+    # Match found
+    mock_client.count.return_value = 1
+    policy.validate_message_in_account(mock_client, "<msg-100@test>")
+    mock_client.count.assert_called_with("id:msg-100@test and (path:work/**)", output="messages")
+
+    # Match not found
+    mock_client.count.return_value = 0
+    with pytest.raises(AccessDeniedError, match="does not belong to allowed account"):
+        policy.validate_message_in_account(mock_client, "id:msg-missing")
+
+
+def test_assert_no_expunge():
+    """Verify that expunge is permanently blocked."""
+    policy = AccountPolicy("work", full_tags=True, allow_send=True)
+    with pytest.raises(AccessDeniedError, match="Expunge operations are permanently disabled"):
+        policy.assert_no_expunge()
+
+
+def test_parse_spec():
+    """Test parsing spec strings."""
+    p1 = AccountPolicy.parse_spec("work")
+    assert p1.primary_account == "work"
+    assert p1.allow_send is False
+    assert p1.full_tags is False
+
+    p2 = AccountPolicy.parse_spec("work:full_tags,send")
+    assert p2.primary_account == "work"
+    assert p2.allow_send is True
+    assert p2.full_tags is True
+
+    p3 = AccountPolicy.parse_spec("personal:tags=todo+followup,send=false")
+    assert p3.primary_account == "personal"
+    assert p3.allowed_tags == frozenset({"todo", "followup"})
+    assert p3.allow_send is False
+
+
+def test_from_dict():
+    """Test creating policy from dictionary."""
+    data = {
+        "account": "work",
+        "allowed_tags": ["todo", "archive"],
+        "allow_send": True,
+    }
+    policy = AccountPolicy.from_dict(data)
+    assert policy.primary_account == "work"
+    assert policy.allowed_tags == frozenset({"todo", "archive"})
+    assert policy.allow_send is True
