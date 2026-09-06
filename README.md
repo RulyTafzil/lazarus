@@ -1,4 +1,4 @@
-# NED Lazaru
+# Notmuch Email Daemon (NED) and Lazarus a qt6 NED client
 
 If for some reason you need local storage to gigabytes of email, lightning fast
 tagging/search, and mobile access, then maybe this repo can be of use. This
