@@ -80,8 +80,6 @@ class SyncMailThread(QThread):
         self.sync_stderr: str = ''
         self.sync_rc: int = 0
         self.sync_message: str = ''
-        self.notmuch_rc: int = 0
-        self.notmuch_stderr: str = ''
 
     def run(self) -> None:
         """Run the sync cycle via NED."""
@@ -95,7 +93,6 @@ class SyncMailThread(QThread):
             return
         if ok:
             self.sync_rc = 0
-            self.notmuch_rc = 0
             self.sync_message = msg
         else:
             self.sync_rc = 1
@@ -427,9 +424,7 @@ class AppController(QObject):
         self.command_bar._cursor_to_end()
 
     def sync_mail(self, quiet: bool = True) -> None:
-        """Sync mail with IMAP server
-
-        This method runs :func:`~lazarus.settings.sync_mail_command`, then 'notmuch new'
+        """Sync mail with IMAP server via NED (``POST /api/v1/sync``).
 
         :param quiet: If this is True, do not change the window title during sync.
                       Status bar messages are always shown."""
@@ -445,20 +440,12 @@ class AppController(QObject):
             # The daemon applied filter rules as part of /api/v1/sync.
             self.refresh_panels()
             self.refresh_tab_titles()
-            # Parse mbsync summary for status bar
             if t.sync_rc != 0:
                 if t.sync_stderr:
                     logger.error('sync failed (exit %d): %s', t.sync_rc, t.sync_stderr)
                 msg = f'Sync error (exit {t.sync_rc})'
                 if t.sync_stderr:
                     msg += f': {t.sync_stderr[:200]}'
-                self.status_message(msg, 'error', duration=8000)
-            elif t.notmuch_rc != 0:
-                if t.notmuch_stderr:
-                    logger.error('notmuch failed (exit %d): %s', t.notmuch_rc, t.notmuch_stderr)
-                msg = f'notmuch error (exit {t.notmuch_rc})'
-                if t.notmuch_stderr:
-                    msg += f': {t.notmuch_stderr[:200]}'
                 self.status_message(msg, 'error', duration=8000)
             else:
                 # The daemon returned a pre-formatted summary

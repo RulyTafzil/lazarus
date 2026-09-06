@@ -117,7 +117,7 @@ def email_is_me(e: str) -> bool:
 
     This compares settings.email_address with the provided email, after calling
     :func:`strip_email_address` on both. This method is used e.g. by
-    :class:`lazarus.compose.Compose` to filter out the user's own email when forming
+    compose clients to filter out the user's own email when forming
     a "reply-to-all" message.
     """
     if isinstance(settings.email_address, dict):
@@ -133,7 +133,7 @@ def email_is_me(e: str) -> bool:
 def email_smtp_account_index(e: str) -> Optional[int]:
     """Index in settings.smtp_accounts of account having the provided email address
 
-    This method is used e.g. by :class:`lazarus.compose.Compose` to autmatically
+    This method is used e.g. by compose clients to automatically
     select the account to be used when replying to a mail. It returns the index
     of first matching account or None if provided email does not match
     any smtp account.  """
