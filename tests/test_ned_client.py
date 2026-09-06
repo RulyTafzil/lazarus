@@ -19,12 +19,14 @@
 
 from __future__ import annotations
 
+import io
+import json
 import os
 from pathlib import Path
 import tempfile
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -32,10 +34,8 @@ from ned.client import (
     NedAuthenticationError,
     NedClient,
     NedConnectionError,
-    NedError,
     NedEvent,
     NedNotFoundError,
-    NedResponseError,
     main as client_main,
     resolve_default_socket_path,
 )
@@ -557,3 +557,282 @@ def test_cli_tags(mock_tags, running_ned_unix, capsys):
     assert code == 0
     out, _ = capsys.readouterr()
     assert '"tag": "inbox"' in out
+
+
+@patch("ned.service.get_thread_messages")
+def test_cli_read_thread(mock_get_thread, running_ned_unix, capsys):
+    """Test CLI read subcommand on a thread."""
+    _, sock_path = running_ned_unix
+    mock_get_thread.return_value = {
+        "thread_id": "thread-123",
+        "subject": "Discussion on MCP",
+        "tags": ["inbox", "unread"],
+        "messages": [
+            {
+                "id": "msg-1@test",
+                "from": "Alice <alice@test>",
+                "to": "Bob <bob@test>",
+                "date": "2026-09-01 12:00:00",
+                "subject": "Discussion on MCP",
+                "tags": ["inbox", "unread"],
+                "body_text": "Hello Bob,\n\nHere is the plan.\n> On Monday, Alice wrote:\n> Older message",
+                "attachments": [{"filename": "doc.txt", "content_type": "text/plain", "size": 12}],
+            }
+        ],
+    }
+
+    # 1. Plain readable format with quoted text collapsed
+    code = client_main(["--socket", sock_path, "read", "thread:thread-123"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Discussion on MCP" in out
+    assert "Alice <alice@test>" in out
+    assert "doc.txt (text/plain, 12B)" in out
+    assert "Here is the plan." in out
+    assert "[...quoted text hidden, use --all to show...]" in out
+    assert "Older message" not in out
+
+    # 2. Plain readable format with --all
+    code = client_main(["--socket", sock_path, "read", "thread:thread-123", "--all"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Older message" in out
+
+    # 3. JSON format
+    code = client_main(["--socket", sock_path, "read", "thread:thread-123", "--json"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    parsed = json.loads(out)
+    assert parsed["thread_id"] == "thread-123"
+
+
+@patch("ned.service.get_message_raw")
+def test_cli_read_message(mock_get_msg, running_ned_unix, capsys):
+    """Test CLI read subcommand on a message ID."""
+    _, sock_path = running_ned_unix
+    mock_get_msg.return_value = {
+        "id": "msg-456@test",
+        "headers": {
+            "From": "Charlie <charlie@test>",
+            "To": "Alice <alice@test>",
+            "Subject": "Single message",
+            "Date": "2026-09-02",
+        },
+        "tags": ["unread"],
+        "body": [
+            {
+                "content": "Single message body.\n> Quote here",
+                "content-type": "text/plain",
+            }
+        ],
+    }
+
+    # Plain readable
+    code = client_main(["--socket", sock_path, "read", "id:msg-456@test"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Message-ID: id:msg-456@test" in out
+    assert "Single message body." in out
+    assert "[...quoted text hidden, use --all to show...]" in out
+
+    # --all
+    code = client_main(["--socket", sock_path, "read", "<msg-456@test>", "--all"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Quote here" in out
+
+    # --json
+    code = client_main(["--socket", sock_path, "read", "id:msg-456@test", "--json"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    parsed = json.loads(out)
+    assert parsed["id"] == "msg-456@test"
+
+
+@patch("ned.service.modify_tags")
+def test_cli_tag(mock_modify_tags, running_ned_unix, capsys):
+    """Test CLI tag command with various options."""
+    _, sock_path = running_ned_unix
+    mock_modify_tags.return_value = True
+
+    # 1. Target threads and add/remove tags
+    code = client_main([
+        "--socket", sock_path, "tag", "thread:t100", "thread:t200",
+        "--add", "todo", "--remove", "unread",
+    ])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Tags updated (+todo -unread) on 2 target(s)." in out
+    mock_modify_tags.assert_called_with(
+        queries=[],
+        threads=["thread:t100", "thread:t200"],
+        messages=[],
+        add_tags=["todo"],
+        remove_tags=["unread"],
+    )
+
+    # 2. Comma-separated tags and query
+    code = client_main([
+        "--socket", sock_path, "tag",
+        "--query", "tag:inbox and not tag:archive",
+        "--add", "work,urgent",
+    ])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Tags updated (+work, +urgent) on tag:inbox and not tag:archive." in out
+    mock_modify_tags.assert_called_with(
+        queries=["tag:inbox and not tag:archive"],
+        threads=[],
+        messages=[],
+        add_tags=["work", "urgent"],
+        remove_tags=[],
+    )
+
+    # 3. Target message ID
+    code = client_main([
+        "--socket", sock_path, "tag", "id:msg1@test",
+        "--remove", "unread",
+    ])
+    assert code == 0
+    mock_modify_tags.assert_called_with(
+        queries=[],
+        threads=[],
+        messages=["id:msg1@test"],
+        add_tags=[],
+        remove_tags=["unread"],
+    )
+
+    # 4. Error when missing tags
+    code = client_main(["--socket", sock_path, "tag", "thread:t100"])
+    assert code == 1
+    _, err = capsys.readouterr()
+    assert "at least one tag to add (--add) or remove (--remove) is required" in err
+
+    # 5. Error when missing targets
+    code = client_main(["--socket", sock_path, "tag", "--add", "todo"])
+    assert code == 1
+    _, err = capsys.readouterr()
+    assert "at least one target ID or --query must be provided" in err
+
+
+@patch("ned.service.modify_tags")
+@patch("ned.service.archive_local")
+def test_cli_archive(mock_archive_local, mock_modify_tags, running_ned_unix, capsys):
+    """Test CLI archive command."""
+    _, sock_path = running_ned_unix
+    mock_modify_tags.return_value = True
+    mock_archive_local.return_value = True
+
+    # Standard tag removal archive
+    code = client_main(["--socket", sock_path, "archive", "thread:t10", "thread:t20"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Archived 2 thread(s)." in out
+    mock_modify_tags.assert_called_with(
+        queries=[],
+        threads=["thread:t10", "thread:t20"],
+        messages=[],
+        add_tags=[],
+        remove_tags=["inbox", "unread"],
+    )
+
+    # Local maildir archive
+    code = client_main(["--socket", sock_path, "archive", "--local", "thread:t10"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Moved 1 thread(s) to local Archive." in out
+    mock_archive_local.assert_called_with(
+        queries=[],
+        threads=["thread:t10"],
+        messages=[],
+        ids=[],
+        unmark=False,
+    )
+
+
+@patch("ned.service.trash")
+@patch("ned.service.restore")
+def test_cli_trash_and_restore(mock_restore, mock_trash, running_ned_unix, capsys):
+    """Test CLI trash and restore commands."""
+    _, sock_path = running_ned_unix
+    mock_trash.return_value = True
+    mock_restore.return_value = True
+
+    # Trash
+    code = client_main(["--socket", sock_path, "trash", "thread:t1", "thread:t2"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Trashed 2 thread(s)." in out
+    mock_trash.assert_called_with(
+        queries=[],
+        threads=["thread:t1", "thread:t2"],
+        messages=[],
+        ids=[],
+        unmark=False,
+    )
+
+    # Restore
+    code = client_main(["--socket", sock_path, "restore", "thread:t1"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Restored 1 thread(s) from trash." in out
+    mock_restore.assert_called_with(
+        queries=[],
+        threads=["thread:t1"],
+        messages=[],
+        ids=[],
+        unmark=False,
+    )
+
+
+@patch("ned.service.apply_filter_rules")
+def test_cli_rules(mock_apply_rules, running_ned_unix, capsys):
+    """Test CLI rules command."""
+    _, sock_path = running_ned_unix
+    mock_apply_rules.return_value = 5
+
+    code = client_main(["--socket", sock_path, "rules"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Filter rules applied: 5 thread(s) matched." in out
+    mock_apply_rules.assert_called_once()
+
+
+@patch("ned.service.send_raw")
+def test_cli_send(mock_send_raw, running_ned_unix, monkeypatch, tmp_path, capsys):
+    """Test CLI send command from file and stdin."""
+    _, sock_path = running_ned_unix
+    mock_send_raw.return_value = (True, "Mail sent")
+
+    # 1. Send from file
+    eml_file = tmp_path / "test.eml"
+    eml_content = b"From: me@test\nTo: you@test\nSubject: Hi\n\nBody"
+    eml_file.write_bytes(eml_content)
+
+    code = client_main(["--socket", sock_path, "send", "--account", "work", str(eml_file)])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Message sent successfully via account 'work'." in out
+    mock_send_raw.assert_called_with("work", eml_content)
+
+    # 2. Send from stdin
+    class MockStdin:
+        def __init__(self, raw: bytes):
+            self.buffer = io.BytesIO(raw)
+
+    monkeypatch.setattr("sys.stdin", MockStdin(eml_content))
+
+    code = client_main(["--socket", sock_path, "send", "--account", "personal", "-"])
+    assert code == 0
+    out, _ = capsys.readouterr()
+    assert "Message sent successfully via account 'personal'." in out
+    mock_send_raw.assert_called_with("personal", eml_content)
+
+    # 3. Send empty file error
+    empty_file = tmp_path / "empty.eml"
+    empty_file.write_bytes(b"")
+    code = client_main(["--socket", sock_path, "send", "--account", "work", str(empty_file)])
+    assert code == 1
+    _, err = capsys.readouterr()
+    assert "Error: empty message payload." in err
+

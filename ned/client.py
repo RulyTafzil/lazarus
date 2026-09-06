@@ -1059,8 +1059,128 @@ class NedClient:
 
 
 # ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+def _format_thread_readable(thread: dict[str, Any], include_quoted: bool = False) -> str:
+    lines: list[str] = []
+    lines.append(f"Thread: {thread.get('thread_id', '')}")
+    lines.append(f"Subject: {thread.get('subject', '(no subject)')}")
+    tags = thread.get("tags", [])
+    if tags:
+        lines.append(f"Tags: {', '.join(tags)}")
+    lines.append("=" * 80)
+
+    messages = thread.get("messages", [])
+    total = len(messages)
+    for idx, msg in enumerate(messages, 1):
+        lines.append(f"[{idx}/{total}] id:{msg.get('id', '')}")
+        lines.append(f"From: {msg.get('from', '')}")
+        if msg.get("to"):
+            lines.append(f"To: {msg.get('to', '')}")
+        if msg.get("cc"):
+            lines.append(f"Cc: {msg.get('cc', '')}")
+        if msg.get("date"):
+            lines.append(f"Date: {msg.get('date', '')}")
+        if msg.get("subject"):
+            lines.append(f"Subject: {msg.get('subject', '')}")
+        if msg.get("tags"):
+            lines.append(f"Tags: {', '.join(msg.get('tags', []))}")
+        if msg.get("attachments"):
+            att_str = ", ".join(
+                f"{a.get('filename')} ({a.get('content_type', '')}, {a.get('size', 0)}B)"
+                for a in msg["attachments"]
+            )
+            lines.append(f"Attachments: {att_str}")
+        lines.append("-" * 40)
+
+        body = (msg.get("body_text") or "").strip()
+        if not body and msg.get("body_html"):
+            try:
+                from .html_utils import html_to_plain
+                body = html_to_plain(msg["body_html"]).strip()
+            except Exception:
+                body = msg.get("body_html", "")
+
+        if not include_quoted and body:
+            body_lines = body.splitlines()
+            trimmed: list[str] = []
+            in_quote = False
+            for line in body_lines:
+                if line.startswith(">") or (line.startswith("On ") and line.endswith("wrote:")):
+                    if not in_quote:
+                        trimmed.append("[...quoted text hidden, use --all to show...]")
+                        in_quote = True
+                else:
+                    in_quote = False
+                    trimmed.append(line)
+            body = "\n".join(trimmed).strip()
+
+        lines.append(body if body else "(no body)")
+        lines.append("")
+        if idx < total:
+            lines.append("=" * 80)
+
+    return "\n".join(lines)
+
+
+def _format_raw_message_readable(msg: dict[str, Any], include_quoted: bool = False) -> str:
+    headers = msg.get("headers", {})
+    lines: list[str] = []
+    lines.append(f"Message-ID: id:{msg.get('id', '')}")
+    lines.append(f"From: {headers.get('From', '')}")
+    if headers.get("To"):
+        lines.append(f"To: {headers.get('To', '')}")
+    if headers.get("Cc"):
+        lines.append(f"Cc: {headers.get('Cc', '')}")
+    if headers.get("Date"):
+        lines.append(f"Date: {headers.get('Date', '')}")
+    if headers.get("Subject"):
+        lines.append(f"Subject: {headers.get('Subject', '')}")
+    if msg.get("tags"):
+        lines.append(f"Tags: {', '.join(msg.get('tags', []))}")
+
+    attachments: list[str] = []
+    try:
+        from . import mail_utils
+        for part in mail_utils.message_parts(msg):
+            if mail_utils.is_attachment(part):
+                fn = part.get("filename") or f"part-{part.get('id', 0)}"
+                ct = part.get("content-type", "")
+                sz = part.get("content-length") or 0
+                attachments.append(f"{fn} ({ct}, {sz}B)")
+    except Exception:
+        pass
+    if attachments:
+        lines.append(f"Attachments: {', '.join(attachments)}")
+
+    lines.append("-" * 40)
+
+    body = ""
+    try:
+        from . import mail_utils
+        body = (mail_utils.body_text(msg) or "").strip()
+    except Exception:
+        pass
+
+    if not body and "body" in msg:
+        body_node = msg["body"]
+        if isinstance(body_node, list) and body_node and isinstance(body_node[0], dict):
+            body = (body_node[0].get("content") or "").strip()
+
+    if not include_quoted and body:
+        body_lines = body.splitlines()
+        trimmed: list[str] = []
+        in_quote = False
+        for line in body_lines:
+            if line.startswith(">") or (line.startswith("On ") and line.endswith("wrote:")):
+                if not in_quote:
+                    trimmed.append("[...quoted text hidden, use --all to show...]")
+                    in_quote = True
+            else:
+                in_quote = False
+                trimmed.append(line)
+        body = "\n".join(trimmed).strip()
+
+    lines.append(body if body else "(no body)")
+    return "\n".join(lines)
 
 
 def main(args: Optional[list[str]] = None) -> int:
@@ -1115,6 +1235,40 @@ def main(args: Optional[list[str]] = None) -> int:
 
     # events
     subparsers.add_parser("events", help="Stream real-time invalidation events")
+
+    # read
+    p_read = subparsers.add_parser("read", help="Read thread or message content in plain text")
+    p_read.add_argument("target", help="Thread ID or Message ID")
+    p_read.add_argument("--json", action="store_true", help="Output raw JSON data")
+    p_read.add_argument("--all", action="store_true", help="Include older quoted reply text")
+
+    # tag
+    p_tag = subparsers.add_parser("tag", help="Modify tags on threads, messages, or queries")
+    p_tag.add_argument("targets", nargs="*", help="Thread ID(s) or Message ID(s)")
+    p_tag.add_argument("--add", action="append", default=[], help="Tag to add (repeat or comma-separate)")
+    p_tag.add_argument("--remove", action="append", default=[], help="Tag to remove (repeat or comma-separate)")
+    p_tag.add_argument("--query", "-q", help="Notmuch query to tag")
+
+    # archive
+    p_archive = subparsers.add_parser("archive", help="Archive thread(s) by removing inbox and unread tags")
+    p_archive.add_argument("threads", nargs="+", help="Thread ID(s) to archive")
+    p_archive.add_argument("--local", action="store_true", help="Move to local Archive Maildir folder")
+
+    # trash
+    p_trash = subparsers.add_parser("trash", help="Move thread(s) to Trash Maildir and tag +trash -inbox -unread")
+    p_trash.add_argument("threads", nargs="+", help="Thread ID(s) to move to trash")
+
+    # restore
+    p_restore = subparsers.add_parser("restore", help="Restore thread(s) from Trash back to Inbox")
+    p_restore.add_argument("threads", nargs="+", help="Thread ID(s) to restore from trash")
+
+    # rules
+    subparsers.add_parser("rules", help="Apply daemon filter rules immediately")
+
+    # send
+    p_send = subparsers.add_parser("send", help="Send an RFC822 email message from a file or standard input")
+    p_send.add_argument("--account", "-a", required=True, help="SMTP account name to send through")
+    p_send.add_argument("file", nargs="?", default="-", help="Path to .eml file or - for stdin")
 
     parsed_args = parser.parse_args(args)
 
@@ -1191,6 +1345,128 @@ def main(args: Optional[list[str]] = None) -> int:
             for ev in client.listen_events():
                 print(f"[{ev.event}] scope={ev.scope} id={ev.target_id} reason={ev.reason} data={ev.raw_data}")
             return 0
+
+        elif cmd == "read":
+            target = parsed_args.target.strip()
+            is_msg = target.startswith("id:") or target.startswith("<") or ("@" in target and not target.startswith("thread:"))
+            if is_msg:
+                msg = client.get_message(target)
+                if parsed_args.json:
+                    print(json.dumps(msg, indent=2))
+                else:
+                    print(_format_raw_message_readable(msg, include_quoted=parsed_args.all))
+            else:
+                thread = client.get_thread(target)
+                if parsed_args.json:
+                    print(json.dumps(thread, indent=2))
+                else:
+                    print(_format_thread_readable(thread, include_quoted=parsed_args.all))
+            return 0
+
+        elif cmd == "tag":
+            add_tags: list[str] = []
+            for item in parsed_args.add:
+                for t in item.split(","):
+                    t = t.strip()
+                    if t:
+                        add_tags.append(t)
+            remove_tags: list[str] = []
+            for item in parsed_args.remove:
+                for t in item.split(","):
+                    t = t.strip()
+                    if t:
+                        remove_tags.append(t)
+            if not add_tags and not remove_tags:
+                print("Error: at least one tag to add (--add) or remove (--remove) is required.", file=sys.stderr)
+                return 1
+
+            threads: list[str] = []
+            messages: list[str] = []
+            for tgt in parsed_args.targets:
+                tgt = tgt.strip()
+                if not tgt:
+                    continue
+                if tgt.startswith("id:") or tgt.startswith("<") or ("@" in tgt and not tgt.startswith("thread:")):
+                    messages.append(tgt)
+                else:
+                    threads.append(tgt)
+
+            if not parsed_args.query and not threads and not messages:
+                print("Error: at least one target ID or --query must be provided.", file=sys.stderr)
+                return 1
+
+            ok = client.modify_tags(
+                queries=parsed_args.query,
+                threads=threads,
+                messages=messages,
+                add=add_tags,
+                remove=remove_tags,
+            )
+            if ok:
+                changes = []
+                if add_tags:
+                    changes.append("+" + ", +".join(add_tags))
+                if remove_tags:
+                    changes.append("-" + ", -".join(remove_tags))
+                summary = " ".join(changes)
+                target_desc = parsed_args.query or f"{len(threads) + len(messages)} target(s)"
+                print(f"Tags updated ({summary}) on {target_desc}.")
+                return 0
+            print("Failed to update tags.", file=sys.stderr)
+            return 1
+
+        elif cmd == "archive":
+            if parsed_args.local:
+                ok = client.archive_batch_to_local(threads=parsed_args.threads)
+                if ok:
+                    print(f"Moved {len(parsed_args.threads)} thread(s) to local Archive.")
+                    return 0
+                print("Failed to move threads to local Archive.", file=sys.stderr)
+                return 1
+            else:
+                ok = client.modify_tags(threads=parsed_args.threads, remove=["inbox", "unread"])
+                if ok:
+                    print(f"Archived {len(parsed_args.threads)} thread(s).")
+                    return 0
+                print("Failed to archive threads.", file=sys.stderr)
+                return 1
+
+        elif cmd == "trash":
+            ok = client.trash_batch(threads=parsed_args.threads)
+            if ok:
+                print(f"Trashed {len(parsed_args.threads)} thread(s).")
+                return 0
+            print("Failed to trash threads.", file=sys.stderr)
+            return 1
+
+        elif cmd == "restore":
+            ok = client.restore_batch(threads=parsed_args.threads)
+            if ok:
+                print(f"Restored {len(parsed_args.threads)} thread(s) from trash.")
+                return 0
+            print("Failed to restore threads from trash.", file=sys.stderr)
+            return 1
+
+        elif cmd == "rules":
+            matched = client.apply_filter_rules()
+            print(f"Filter rules applied: {matched} thread(s) matched.")
+            return 0
+
+        elif cmd == "send":
+            if parsed_args.file == "-":
+                raw_bytes = sys.stdin.buffer.read()
+            else:
+                with open(parsed_args.file, "rb") as f:
+                    raw_bytes = f.read()
+            if not raw_bytes:
+                print("Error: empty message payload.", file=sys.stderr)
+                return 1
+            ok, msg = client.send_message(parsed_args.account, raw_bytes)
+            if ok:
+                print(f"Message sent successfully via account '{parsed_args.account}'.")
+                return 0
+            print(f"Failed to send message: {msg}", file=sys.stderr)
+            return 1
 
     except KeyboardInterrupt:
         return 0
