@@ -181,3 +181,103 @@ def test_delete_thread_skips_marked_check_when_none_marked(client_stub, inbox_fi
     assert client_stub.trash_calls == ['t123']
     assert not any('tag:marked' in q for q in client_stub.trash_calls)
 
+
+def test_delete_thread_deletes_current_before_advance(client_stub):
+    """delete_thread must capture the thread ID before advancing selection."""
+    class AdvancingPanel(actions.MarkableActionsMixin):
+        def __init__(self):
+            self.threads = ['thread-1', 'thread-2', 'thread-3']
+            self.cursor = 0
+            self.app = type('App', (), {
+                'update_single_thread': lambda *_: None,
+                'status_message': lambda *_: None,
+            })()
+        def _has_marked_threads(self):
+            return False
+        def _current_thread_id(self):
+            if 0 <= self.cursor < len(self.threads):
+                return self.threads[self.cursor]
+            return None
+        def _advance_selection(self):
+            self.cursor += 1
+
+    panel = AdvancingPanel()
+    panel.delete_thread()
+    # Must have trashed thread-1, and advanced cursor to thread-2
+    assert client_stub.trash_calls == ['thread-1']
+    assert panel.cursor == 1
+
+
+def test_restore_thread_restores_current_before_advance(client_stub):
+    """restore_thread_from_trash must capture the thread ID before advancing selection."""
+    class AdvancingPanel(actions.MarkableActionsMixin):
+        def __init__(self):
+            self.threads = ['thread-1', 'thread-2', 'thread-3']
+            self.cursor = 0
+            self.app = type('App', (), {
+                'update_single_thread': lambda *_: None,
+                'status_message': lambda *_: None,
+            })()
+        def _has_marked_threads(self):
+            return False
+        def _current_thread_id(self):
+            if 0 <= self.cursor < len(self.threads):
+                return self.threads[self.cursor]
+            return None
+        def _advance_selection(self):
+            self.cursor += 1
+
+    panel = AdvancingPanel()
+    panel.restore_thread_from_trash()
+    assert client_stub.untrash_calls == ['thread-1']
+    assert panel.cursor == 1
+
+
+def test_plan_trash_moves_alternate_mail_root(tmp_path):
+    """Files living in a different mail root (e.g. /mnt/Mail) must be trashed within their own root."""
+    alt_root = tmp_path / 'alt_mount' / 'Mail'
+    inbox_cur = alt_root / 'contact@example.com' / 'Inbox' / 'cur'
+    inbox_cur.mkdir(parents=True, exist_ok=True)
+    msg_file = inbox_cur / '12345.alpine,U=100:2,S'
+    msg_file.write_text('From: test\n')
+
+    moves = actions.plan_trash_moves([str(msg_file)], mail_root=str(tmp_path / 'nonexistent' / 'Mail'))
+    assert len(moves) == 1
+    src, dst = moves[0]
+    assert src == str(msg_file)
+    expected_trash = str(alt_root / 'contact@example.com' / 'Trash' / 'cur' / '12345.alpine:2,S')
+    assert dst == expected_trash
+
+
+def test_restore_from_trash_alternate_mail_root(tmp_path, notmuch_stub):
+    """Files restored from trash in an alternate mail root must return to their own account's Inbox."""
+    alt_root = tmp_path / 'alt_mount' / 'Mail'
+    trash_cur = alt_root / 'contact@example.com' / 'Trash' / 'cur'
+    inbox_cur = alt_root / 'contact@example.com' / 'Inbox' / 'cur'
+    trash_cur.mkdir(parents=True, exist_ok=True)
+    inbox_cur.mkdir(parents=True, exist_ok=True)
+
+    msg_file = trash_cur / 'msg-99:2,S'
+    msg_file.write_text('From: test\n')
+    notmuch_stub.files = [str(msg_file)]
+
+    n = actions.restore_from_trash('tag:trash')
+    assert n == 1
+    assert _wait_until(lambda: (inbox_cur / 'msg-99:2,S').exists())
+
+
+def test_get_mail_root_falls_back_to_notmuch(monkeypatch, tmp_path):
+    """get_mail_root queries notmuch if settings.mail_root does not exist."""
+    fake_mail = tmp_path / 'notmuch_detected_mail'
+    fake_mail.mkdir(parents=True, exist_ok=True)
+
+    from ned import settings as ned_settings, notmuch
+    monkeypatch.setattr(ned_settings, 'mail_root', str(tmp_path / 'does_not_exist'))
+
+    class FakeRun:
+        stdout = str(fake_mail) + '\n'
+
+    monkeypatch.setattr(notmuch, 'run', lambda *args, **kwargs: FakeRun())
+    assert actions.get_mail_root() == str(fake_mail)
+
+

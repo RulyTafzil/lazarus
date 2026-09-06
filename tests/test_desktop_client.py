@@ -404,3 +404,16 @@ def test_ensure_daemon_disabled(monkeypatch):
         assert ensure_daemon() is False
         mock_popen.assert_not_called()
 
+
+def test_ensure_daemon_refuses_when_ned_url_set(monkeypatch):
+    monkeypatch.delenv("LAZARUS_DISABLE_NED", raising=False)
+    monkeypatch.setenv("NED_URL", "https://remote-ned.example.com")
+    class FailingProbe:
+        def ping(self) -> bool:
+            return False
+    monkeypatch.setattr("lazarus.client.get_client", lambda: FailingProbe())
+    with patch("lazarus.client.subprocess.Popen") as mock_popen:
+        assert ensure_daemon() is False
+        mock_popen.assert_not_called()
+
+
