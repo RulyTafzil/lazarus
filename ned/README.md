@@ -40,4 +40,4 @@ ned --status
 
 ## Configuration
 
-NED reads its configuration exclusively from `~/.config/ned/config.py`.
+NED reads its configuration from `~/.config/ned/config.py` and filter rules from `~/.config/ned/rules.py`.

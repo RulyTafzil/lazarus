@@ -277,11 +277,6 @@ def _mail_file_account_and_root(
         prefix, rel = filepath.split('/Mail/', 1)
         file_root = os.path.join(prefix, 'Mail')
     else:
-        parts = filepath.strip(os.sep).split(os.sep)
-        if len(parts) >= 4 and parts[-2] in ('cur', 'new', 'tmp'):
-            account = parts[-4]
-            file_root = os.sep + os.path.join(*parts[:-4])
-            return (account, os.path.join(*parts[-3:]), file_root)
         return None
     parts = rel.split('/', 1)
     if len(parts) != 2:
