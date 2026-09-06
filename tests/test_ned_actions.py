@@ -7,7 +7,7 @@ from ned import actions
 from ned import settings
 
 
-def test_core_worker_lifecycle(tmp_path, monkeypatch):
+def test_ned_worker_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setattr(actions.notmuch, 'new', lambda no_hooks=True: None)
 
     src = tmp_path / 'source.msg'

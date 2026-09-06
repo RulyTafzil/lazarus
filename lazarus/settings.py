@@ -45,26 +45,18 @@ if TYPE_CHECKING:
 
 # functional
 email_address: Union[str, Dict[str, str]] = ''
-"""Your email address (REQUIRED)
+"""Your email address. Optional in desktop config (retained for back-compat).
 
-This is used both to populate the 'From' field of emails and to (mostly)
-avoid CC'ing yourself when replying to all. It can be given as 'NAME <ADDRESS@DOMAIN>'
-format. For just one email address, this can be given as a string. From multiple
-emails, use a dictionary mapping the account names in :func:`~lazarus.settings.smtp_accounts`
-to the associated email addresses.
+Mail identity lives in ``~/.config/ned/config.py`` (``ned.settings.email_address``).
+The desktop compose panel retrieves sender accounts and addresses dynamically
+from NED via the API.
 """
 
 sent_dir = ''
-"""Where to store sent messages (REQUIRED)
+"""Where to store sent messages. Optional in desktop config (retained for back-compat).
 
-This will usually be a subdirectory of the Maildir sync'ed with
-:func:`~lazarus.settings.sync_mail_command`. This setting can be given either
-as a string to use one global sent directory, or as a dictionary mapping
-account names in :func:`~lazarus.settings.smtp_accounts` to their own sent dirs.
-
-A value of None, either standalone or as one of the dict value, can be used to
-indicate the email should be discarded. This can be useful if the sendmail
-command already has a mechanism for that feature.
+Configure sent_dir in ``~/.config/ned/config.py`` (``ned.settings.sent_dir``).
+The daemon owns outbound delivery and saves sent copies.
 """
 
 file_browser_command = "nautilus '{dir}'"
@@ -255,23 +247,18 @@ otherwise the plaintext one is used.
 """
 
 filter_rules: List[rules.Rule] = []
-"""A list of :class:`lazarus.rules.Rule` mail filters, applied automatically
-after every sync (and on demand via the ``C-r`` keybinding).
+"""Mail filter rules. Retained for desktop config.py back-compat.
 
-Each rule is a notmuch query plus tags to add/remove from anything
-matching it. See the "Mail filters" section of README.md for a worked
-example.
+Configure filter_rules in ``~/.config/ned/config.py`` (``ned.settings.filter_rules``).
+NED applies filter rules automatically after sync and on demand via ``C-r``
+(``POST /api/v1/rules``).
 """
 
 filter_scope_query = 'tag:inbox and tag:unread'
-"""Notmuch query limiting which mail :func:`~lazarus.settings.filter_rules`
-are allowed to touch.
+"""Notmuch query limiting rule scope. Retained for desktop config.py back-compat.
 
-Rules are applied as ``(filter_scope_query) and (rule.query)``, so
-this is what keeps a new/changed rule from re-tagging your entire
-archive the next time it runs -- it should describe "freshly arrived,
-not yet triaged" mail. The default, newly-synced unread inbox mail, is
-a reasonable definition of that for most setups.
+Configure filter_scope_query in ``~/.config/ned/config.py``
+(``ned.settings.filter_scope_query``).
 """
 
 # logging
