@@ -10,12 +10,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
 # `lazarus --install-desktop` (see lazarus.app.install_desktop), which
 # copies the bundled package icons into ~/.local/share.
 #
-# Two distributions, one repository:
-#   - `pipx install .`      → lazarus-mail: the Qt desktop client, bundled
-#                             NED daemon, and the ned-client CLI.
-#   - `pipx install ./ned`  → ned: the headless Notmuch Email Daemon (and
-#                             ned-client) alone, with ZERO Qt dependencies.
-# Pick either or both; the daemon is the same `ned` package in both cases.
+# Three distributions, one repository:
+#   - `pipx install .`          -> lazarus-mail: Qt desktop client, bundled
+#                                  NED daemon, and the ned-client CLI.
+#   - `pipx install ./ned`      -> ned: headless Notmuch Email Daemon and
+#                                  ned-client alone, with zero Qt dependencies.
+#   - `pipx install ./ned-mcp`  -> ned-mcp: Model Context Protocol server for AI
+#                                  agents with account sandboxing and zero expunge.
+# Pick any combination. The daemon is the same `ned` package in all cases.
 
 setuptools.setup(
     name="lazarus-mail",

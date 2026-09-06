@@ -25,6 +25,8 @@ authoritative daemon and lightweight clients:
   for phone and tablet use over Tailscale.
 - **`ned-client` CLI**: A zero-dependency command-line client for scripting and
   terminal interactions.
+- **`ned-mcp`**: Model Context Protocol server exposing account-scoped,
+  non-destructive email search, inspection, and triage tools to AI agents.
 
 This project began with just Lazarus, a fork of
 [Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger. Lazarus was
@@ -90,7 +92,7 @@ Lazarus acts as a frontend for standard Unix email utilities:
 
 ## Installation
 
-Two independent distributions come from this repository, pick either or both:
+Three independent distributions come from this repository, pick any combination:
 
 **Headless daemon only, zero Qt dependencies:**
 
@@ -99,6 +101,13 @@ git clone https://forge.rulytafzil.com/Home/lazarus.git
 cd lazarus
 pipx install -e ./ned
 # installs: ned daemon, ned-client CLI
+```
+
+**MCP server for AI agents:**
+
+```bash
+pipx install -e ./ned-mcp
+# installs: ned-mcp server
 ```
 
 The daemon reads configuration from `~/.config/ned/config.py` only and serves
