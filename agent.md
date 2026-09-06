@@ -8,11 +8,11 @@
 - **Local dir**: `~/Projects/lazarus`
 - **Forgejo**: `ssh://forgejo@forge.rulytafzil.com:2222/Home/lazarus.git` (branch `main`)
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
-- **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED)
-- **Entry points**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `ned.main:main` (`ned`); `ned.client:main` (`ned-client`)
+- **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED); `ned-mcp` (Model Context Protocol server for AI agents)
+- **Entry points**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `ned.main:main` (`ned`); `ned.client:main` (`ned-client`); `ned_mcp.server:main` (`ned-mcp`)
 - **Config**: NED reads **only** `~/.config/ned/config.py` (`ned.settings`); the desktop reads **only** `~/.config/lazarus/config.py` (`lazarus.settings`). No cascading: NED is standalone and never follows the desktop config. `ned --init-config` generates a ned config from Notmuch and local Maildir inspection, backing up existing configs with a timestamp.
 - **State**: `QSettings('lazarus','lazarus')` for desktop geometry, splitter, open searches; NED state in `~/.local/share/lazarus/ned/`
-- **Install**: two distributions from one repo — `pipx install .` (lazarus-mail: Qt desktop + bundled NED + ned-client) or `pipx install ./ned` (standalone headless daemon, zero Qt dependencies). Either or both.
+- **Install**: three distributions from one repo: `pipx install .` (lazarus-mail: Qt desktop + bundled NED + ned-client), `pipx install ./ned` (standalone headless daemon, zero Qt dependencies), or `pipx install ./ned-mcp` (Model Context Protocol server for AI agents with account sandboxing and zero expunge). Pick any combination.
 
 ## What It Is
 A keyboard-driven email system comprising the Notmuch Email Daemon (NED) and the
