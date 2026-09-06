@@ -1,10 +1,17 @@
-# Lazarus
+# NED Lazaru
 
-Lazarus is a fast, keyboard-driven email environment built on
-[notmuch](https://notmuchmail.org/).
+If for some reason you need local storage to gigabytes of email, lightning fast
+tagging/search, and mobile access, then maybe this repo can be of use. This
+software is entirely vibe coded, so use at your own risk.
 
-It separates email management into an authoritative daemon and lightweight
-clients:
+If you want _fast_ tagging and search for lots of local email for free, as far
+as I could find, [notmuch](https://notmuchmail.org/) is pretty much the only
+game in town. Thankfully, it's also a fantastic option. There are many notmuch
+clients out there, unfortunately most haven't been updated in a long time and
+don't have "modern" features like rendering html email or easy mobile access.
+
+This project seeks to solve that problem. It separates email management into an
+authoritative daemon and lightweight clients:
 
 - **NED (Notmuch Email Daemon)**: A background service that owns the notmuch
   index, serializes Maildir mutations under write locks, manages background IMAP
@@ -19,10 +26,15 @@ clients:
 - **`ned-client` CLI**: A zero-dependency command-line client for scripting and
   terminal interactions.
 
-Lazarus began as a fork of [Dodo](https://github.com/akissinger/dodo) by Aleks
-Kissinger. Today it includes an independent daemon architecture, persistent
-split-pane previews, rich-text composing with inline images and address
-autocomplete, mail filter rules, 600+ bundled themes, and mobile access.
+This project began with just Lazarus, a fork of
+[Dodo](https://github.com/akissinger/dodo) by Aleks Kissinger. Lazarus was
+modified to include persistent split-pane previews, rich-text composing with
+inline images and address autocomplete, mail filter rules, 600+ bundled themes,
+and more.
+
+Once Lazarus was in a good place I realized I wanted to use notmuch tagging on
+my email all the time, not just locally. Wanting to use notmuch with mobile
+email led to the creation of NED.
 
 ---
 
