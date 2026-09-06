@@ -28,6 +28,7 @@ import logging
 import os
 import queue
 import re
+import shutil
 import sys
 import threading
 import time
@@ -130,14 +131,14 @@ class _BulkMoveWorker(threading.Thread):
                 os.path.dirname(dst),
                 _strip_uid_annotation(os.path.basename(resolved))))
         try:
-            os.rename(src, dst)
+            shutil.move(src, dst)
         except OSError as e:
             # Second chance: renamed between the existence check and the
             # syscall (narrow race with flag-sync / mbsync).
             resolved = _resolve_stale_path(src)
             if resolved is not None and resolved != src and os.path.exists(resolved):
                 try:
-                    os.rename(resolved, _unique_dest(os.path.join(
+                    shutil.move(resolved, _unique_dest(os.path.join(
                         os.path.dirname(dst),
                         _strip_uid_annotation(os.path.basename(resolved)))))
                     return
@@ -227,42 +228,108 @@ def check_archive_refused(tags: Set[str]) -> bool:
     return len(tags - {'inbox', 'unread'}) == 0
 
 
-def _mail_file_account(
+def get_mail_root() -> str:
+    """Return the effective root directory for mail storage.
+
+    If settings.mail_root is configured and exists on disk, use it.
+    Otherwise query notmuch for database.mail_root or database.path.
+    Finally fall back to os.path.expanduser(settings.mail_root or '~/Mail').
+    """
+    configured = os.path.expanduser(settings.mail_root) if getattr(settings, 'mail_root', None) else ''
+    if configured and os.path.isdir(configured):
+        return configured
+    try:
+        from . import notmuch
+        r = notmuch.run('config', 'get', 'database.mail_root')
+        val = r.stdout.strip()
+        if val and os.path.isdir(val):
+            return val
+        r = notmuch.run('config', 'get', 'database.path')
+        val = r.stdout.strip()
+        if val and os.path.isdir(val):
+            return val
+    except Exception:
+        pass
+    return configured or os.path.expanduser('~/Mail')
+
+
+def get_archive_dir() -> str:
+    """Return the effective archive directory path."""
+    configured = os.path.expanduser(settings.archive_dir) if getattr(settings, 'archive_dir', None) else ''
+    if configured and os.path.isdir(configured):
+        return configured
+    root = get_mail_root()
+    candidate = os.path.join(root, 'Archive')
+    if os.path.isdir(candidate):
+        return candidate
+    return configured or candidate
+
+
+def _mail_file_account_and_root(
         filepath: str,
-        mail_root: Optional[str] = None) -> Optional[tuple[str, str]]:
-    """Split a mail file path into (account, rest_of_path)."""
-    mail_root = os.path.expanduser(mail_root or settings.mail_root)
-    if filepath.startswith(mail_root + '/'):
-        rel = filepath[len(mail_root) + 1:]
+        mail_root: Optional[str] = None) -> Optional[tuple[str, str, str]]:
+    """Split a mail file path into (account, rest_of_path, file_root)."""
+    effective_root = os.path.expanduser(mail_root or get_mail_root())
+    file_root = effective_root
+    if filepath.startswith(effective_root + os.sep):
+        rel = filepath[len(effective_root) + 1:]
     elif '/Mail/' in filepath:
-        _, rel = filepath.split('/Mail/', 1)
+        prefix, rel = filepath.split('/Mail/', 1)
+        file_root = os.path.join(prefix, 'Mail')
     else:
+        parts = filepath.strip(os.sep).split(os.sep)
+        if len(parts) >= 4 and parts[-2] in ('cur', 'new', 'tmp'):
+            account = parts[-4]
+            file_root = os.sep + os.path.join(*parts[:-4])
+            return (account, os.path.join(*parts[-3:]), file_root)
         return None
     parts = rel.split('/', 1)
     if len(parts) != 2:
         return None
-    return (parts[0], parts[1])
+    return (parts[0], parts[1], file_root)
+
+
+def _mail_file_account(
+        filepath: str,
+        mail_root: Optional[str] = None) -> Optional[tuple[str, str]]:
+    """Split a mail file path into (account, rest_of_path)."""
+    res = _mail_file_account_and_root(filepath, mail_root)
+    if res is None:
+        return None
+    return (res[0], res[1])
 
 
 def _trash_dir_path(account: str, mail_root: str) -> str:
     """Trash cur/ directory for *account* (pure path; not created)."""
-    gmail = os.path.join(mail_root, account, '[Gmail]', 'Trash', 'cur')
-    if os.path.isdir(gmail):
-        return gmail
+    for candidate in (
+        os.path.join(mail_root, account, '[Gmail]', 'Trash', 'cur'),
+        os.path.join(mail_root, account, 'Trash', 'cur'),
+        os.path.join(mail_root, account, '.Trash', 'cur'),
+    ):
+        if os.path.isdir(candidate):
+            return candidate
     return os.path.join(mail_root, account, 'Trash', 'cur')
 
 
 def _find_trash_dir(account: str) -> str:
     """Return the Trash cur/ directory for *account*, creating it if needed."""
-    trash_dir = _trash_dir_path(account, os.path.expanduser(settings.mail_root))
+    trash_dir = _trash_dir_path(account, get_mail_root())
     os.makedirs(trash_dir, exist_ok=True)
     return trash_dir
 
 
+def _find_inbox_dir(account: str, mail_root: str) -> str:
+    """Return the Inbox cur/ directory for *account*."""
+    for candidate in ('Inbox', 'INBOX'):
+        d = os.path.join(mail_root, account, candidate, 'cur')
+        if os.path.isdir(d):
+            return d
+    return os.path.join(mail_root, account, 'Inbox', 'cur')
+
+
 def _find_archive_dir() -> str:
     """Return the local Archive cur/ directory, creating it if needed."""
-    archive_cur = os.path.join(
-        os.path.expanduser(settings.archive_dir), 'cur')
+    archive_cur = os.path.join(get_archive_dir(), 'cur')
     os.makedirs(archive_cur, exist_ok=True)
     return archive_cur
 
@@ -353,17 +420,17 @@ def _is_trash_path(path: str) -> bool:
 
 
 def plan_trash_moves(files: List[str],
-                     mail_root: str) -> List[Tuple[str, str]]:
+                     mail_root: Optional[str] = None) -> List[Tuple[str, str]]:
     """Compute ``(src, dst)`` moves to each file's account Trash folder."""
-    mail_root = os.path.expanduser(mail_root)
+    effective_mail_root = os.path.expanduser(mail_root or get_mail_root())
     moves: List[Tuple[str, str]] = []
     for f in files:
-        result = _mail_file_account(f, mail_root)
-        if result is None:
+        res = _mail_file_account_and_root(f, effective_mail_root)
+        if res is None:
             continue
-        account, _ = result
-        trash_dir = _trash_dir_path(account, mail_root)
-        if f.startswith(trash_dir + os.sep):
+        account, _, file_root = res
+        trash_dir = _trash_dir_path(account, file_root)
+        if f.startswith(trash_dir + os.sep) or _is_trash_path(f):
             logger.debug('skip (already in trash): %s', os.path.basename(f))
             continue
         basename = _strip_uid_annotation(os.path.basename(f))
@@ -421,7 +488,7 @@ def move_to_trash(notmuch_query: str, unmark: bool = True, exclude_marked: bool 
             continue
         resolved.append(r)
 
-    moves = plan_trash_moves(resolved, os.path.expanduser(settings.mail_root))
+    moves = plan_trash_moves(resolved, get_mail_root())
     for _, dst in moves:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
     if moves:
@@ -520,18 +587,18 @@ def restore_from_trash(notmuch_query: str, unmark: bool = False) -> int:
             continue
         resolved.append(r)
 
+    effective_root = get_mail_root()
     moves: List[Tuple[str, str]] = []
     for f in resolved:
         if not _is_trash_path(f):
             logger.debug('restore: not in trash folder: %s', f)
             continue
 
-        result = _mail_file_account(f)
-        if result is None:
+        res = _mail_file_account_and_root(f, effective_root)
+        if res is None:
             continue
-        account, _ = result
-        inbox_cur = os.path.join(
-            os.path.expanduser(settings.mail_root), account, 'INBOX', 'cur')
+        account, _, file_root = res
+        inbox_cur = _find_inbox_dir(account, file_root)
         os.makedirs(inbox_cur, exist_ok=True)
 
         basename = _strip_uid_annotation(os.path.basename(f))

@@ -29,6 +29,7 @@ from typing import Literal, Optional, Set
 
 from ned.actions import (  # re-exported for lazarus.actions.<name> consumers
     collect_files,
+    get_mail_root,
     plan_trash_moves,
     plan_archive_moves,
     move_to_trash,
@@ -52,6 +53,7 @@ from ned.actions import (  # re-exported for lazarus.actions.<name> consumers
 # is deliberate.
 __all__ = [
     "collect_files",
+    "get_mail_root",
     "plan_trash_moves",
     "plan_archive_moves",
     "move_to_trash",
@@ -243,10 +245,10 @@ class MarkableActionsMixin:
                 self.app.status_message('Delete error', 'error')
             return
 
-        self._advance_selection()
         thread_id = self._current_thread_id()
         if not thread_id:
             return
+        self._advance_selection()
         ok = client.trash_thread(thread_id)
         if ok:
             self.app.update_single_thread(thread_id)
@@ -273,10 +275,10 @@ class MarkableActionsMixin:
                 self.app.status_message('Restore error', 'error')
             return
 
-        self._advance_selection()
         thread_id = self._current_thread_id()
         if not thread_id:
             return
+        self._advance_selection()
         ok = client.restore_thread(thread_id)
         if ok:
             self.app.update_single_thread(thread_id)

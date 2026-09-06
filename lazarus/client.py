@@ -77,6 +77,14 @@ def ensure_daemon(timeout: float = 5.0) -> bool:
     if get_client().ping():
         return True
 
+    if os.environ.get("NED_URL"):
+        logger.error(
+            "NED_URL is set (%s) but remote daemon cannot be contacted. "
+            "Refusing to spawn local NED instance.",
+            os.environ["NED_URL"]
+        )
+        return False
+
     socket_path = os.environ.get("NED_SOCK") or resolve_default_socket_path()
     sock_p = Path(socket_path)
     sock_p.parent.mkdir(parents=True, exist_ok=True)
