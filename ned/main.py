@@ -20,29 +20,84 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import logging
+import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 
 from . import config, settings
 from .daemon import NedDaemon, get_default_socket_path, insecure_tcp_error
+from .tailscale import detect_tailscale, get_recommended_client_url
 
 logger = logging.getLogger("ned")
 
 
 def _detect_tailscale_ip() -> str | None:
     """Detect Tailscale IPv4 address if available."""
+    info = detect_tailscale()
+    return info.get("ts_ip")
+
+
+def _show_status(args: argparse.Namespace) -> int:
+    """Check if the NED daemon is running and display connection URLs."""
+    sock_path = args.socket or get_default_socket_path()
+    is_socket_alive = False
+    if os.path.exists(sock_path):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        try:
+            s.connect(sock_path)
+            s.close()
+            is_socket_alive = True
+        except OSError:
+            pass
+
     try:
-        res = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=2)
-        if res.returncode == 0:
-            ip = res.stdout.strip()
-            if ip:
-                return ip
+        config.load_config()
     except Exception:
         pass
-    return None
+
+    web_host = getattr(settings, "web_host", "127.0.0.1") or "127.0.0.1"
+    web_port = getattr(settings, "web_port", 8080) or 8080
+
+    is_tcp_alive = False
+    try:
+        conn = http.client.HTTPConnection(web_host, web_port, timeout=1.0)
+        conn.request("GET", "/api/v1/ping")
+        res = conn.getresponse()
+        if res.status == 200:
+            is_tcp_alive = True
+        conn.close()
+    except Exception:
+        pass
+
+    ts_info = detect_tailscale()
+    is_running = is_socket_alive or is_tcp_alive
+
+    status_str = "RUNNING" if is_running else "STOPPED"
+    print(f"NED Daemon: {status_str}")
+
+    sock_state = "active" if is_socket_alive else "inactive"
+    print(f"Unix socket: {sock_path}, status: {sock_state}")
+
+    tcp_state = "responding" if is_tcp_alive else "not responding"
+    print(f"Local bind: http://{web_host}:{web_port}, status: {tcp_state}")
+
+    if ts_info["serve_url"]:
+        print(f"Tailscale Serve: {ts_info['serve_url']}")
+    if ts_info["ts_ip"]:
+        dns_str = f", MagicDNS: {ts_info['ts_dns']}" if ts_info["ts_dns"] else ""
+        print(f"Tailscale IP: {ts_info['ts_ip']}{dns_str}")
+
+    client_url = get_recommended_client_url(web_host, web_port, ts_info)
+    print("\nTo connect remote Lazarus desktop clients, run on the client:")
+    print(f'  export NED_URL="{client_url}"')
+
+    return 0 if is_running else 1
 
 
 def main() -> int:
@@ -85,7 +140,12 @@ def main() -> int:
     parser.add_argument(
         "--init-config",
         action="store_true",
-        help="Generate ~/.config/ned/config.py from ~/.config/lazarus/config.py and exit",
+        help="Generate ~/.config/ned/config.py from Notmuch and local maildir inspection and exit",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Check whether the NED daemon is running and show connection URLs",
     )
     parser.add_argument(
         "--allow-insecure",
@@ -95,10 +155,23 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    if args.status:
+        return _show_status(args)
+
     if args.init_config:
         try:
-            cfg_path = config.init_config()
-            print(f"Wrote NED config: {cfg_path} — review and edit it.")
+            cfg_path, backup_path = config.init_config()
+            if backup_path:
+                print(f"Backed up existing config to: {backup_path}")
+            print(f"Wrote NED config: {cfg_path}")
+            ts_info = detect_tailscale()
+            if ts_info["serve_url"]:
+                print(f"Tailscale Serve active: {ts_info['serve_url']}")
+                print(f'Remote client connection: export NED_URL="{ts_info["serve_url"]}"')
+            elif ts_info["ts_ip"]:
+                dns_str = f", MagicDNS: {ts_info['ts_dns']}" if ts_info["ts_dns"] else ""
+                print(f"Detected Tailscale IP: {ts_info['ts_ip']}{dns_str}")
+                print(f'Remote client connection: export NED_URL="http://{ts_info["ts_ip"]}:8080"')
             return 0
         except Exception as e:
             print(f"Failed to init config: {e}", file=sys.stderr)
@@ -125,10 +198,13 @@ def main() -> int:
     # Resolve host: prioritize CLI -> Tailscale auto-detect -> settings -> localhost
     host = args.host
     if not host and not args.no_tcp:
-        ts_ip = _detect_tailscale_ip()
-        if ts_ip:
-            host = ts_ip
-            logger.info("Detected Tailscale IP: %s", ts_ip)
+        ts_info = detect_tailscale()
+        if ts_info["serve_url"]:
+            host = getattr(settings, "web_host", "127.0.0.1") or "127.0.0.1"
+        elif ts_info["ts_ip"]:
+            configured_host = getattr(settings, "web_host", None)
+            host = configured_host if configured_host and configured_host != "127.0.0.1" else ts_info["ts_ip"]
+            logger.info("Detected Tailscale IP: %s", ts_info["ts_ip"])
         else:
             host = getattr(settings, "web_host", "127.0.0.1")
 

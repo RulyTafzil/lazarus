@@ -10,7 +10,7 @@
 - **Upstream**: `https://github.com/akissinger/dodo.git` (remote `upstream`, not tracked)
 - **CLI**: `lazarus` (desktop GUI client; `lazarus --install-desktop` installs desktop entry + icons); `ned` (Notmuch Email Daemon); `ned-client` (CLI client for NED)
 - **Entry points**: `lazarus.app:main` (`lazarus/__main__.py` -> `app.main()`); `ned.main:main` (`ned`); `ned.client:main` (`ned-client`)
-- **Config**: NED reads **only** `~/.config/ned/config.py` (`ned.settings`); the desktop reads **only** `~/.config/lazarus/config.py` (`lazarus.settings`). No cascading — NED is standalone and never follows the desktop config (`ned --init-config` generates a ned config from the lazarus one).
+- **Config**: NED reads **only** `~/.config/ned/config.py` (`ned.settings`); the desktop reads **only** `~/.config/lazarus/config.py` (`lazarus.settings`). No cascading: NED is standalone and never follows the desktop config. `ned --init-config` generates a ned config from Notmuch and local Maildir inspection, backing up existing configs with a timestamp.
 - **State**: `QSettings('lazarus','lazarus')` for desktop geometry, splitter, open searches; NED state in `~/.local/share/lazarus/ned/`
 - **Install**: two distributions from one repo — `pipx install .` (lazarus-mail: Qt desktop + bundled NED + ned-client) or `pipx install ./ned` (standalone headless daemon, zero Qt dependencies). Either or both.
 
@@ -50,7 +50,8 @@ live switching, low-poly watermark tab background, hicolor icons.
 ├── agent.md                # this file
 ├── ned/                    # Standalone Notmuch Email Daemon — top-level package, ZERO Qt
 │   ├── __init__.py         # re-exports NedClient/NedDaemon/MutationLock/…
-│   ├── main.py             # `ned` CLI entry point (daemon) + `--init-config`
+│   ├── main.py             # `ned` CLI entry point (daemon) + `--init-config`, `--status`
+│   ├── tailscale.py        # Tailscale Serve, IP, and MagicDNS detection
 │   ├── daemon.py           # NedDaemon: Unix domain socket + TCP listeners + sync scheduler
 │   ├── handler.py          # NedRequestHandler: /api/v1/ routes, SSE, static
 │   ├── concurrency.py      # MutationLock: serialized mutation write queue
@@ -352,7 +353,7 @@ fallthrough in `Panel.keyPressEvent` against `keymap.COMPOSE_ALLOWED_GLOBALS`
 
 Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardPaths` and `exec()`'d at startup. All settings live in `lazarus.settings` with documented defaults. Mail-routing settings (`email_address`, `sent_dir`, `smtp_accounts`, `sync_mail_*`, `filter_rules`) are **optional here and unused**: the compose panel sources accounts, From addresses, PGP keys, and signatures from the NED API and sends through the daemon. This file is UI-only (themes, fonts, tags, keymap).
 
-**The daemon uses its own config** — `~/.config/ned/config.py` mutating `ned.settings` (see `ned/settings.py`); generate from the lazarus one with `ned --init-config`. Signatures live at `~/.config/ned/<account>/signature(.html)`.
+**The daemon uses its own config** at `~/.config/ned/config.py`, mutating `ned.settings` (see `ned/settings.py`). Generate it with `ned --init-config`, which derives mail settings from Notmuch and Maildir, creating a timestamped backup if an existing config is found. Signatures live at `~/.config/ned/<account>/signature(.html)`.
 
 ### Required
 | Setting | Purpose |
@@ -456,7 +457,7 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 - **`get_part_data` canonical order is `(content, content_type, filename)`** across `ned.service`, `ned.handler`, and `NedClient.get_part_data`. Keep the layers in that order — the sibling tests (`test_ned.py`, `test_ned_client.py`) pin it.
 - **Sync summary is single-sourced**: `SyncMailThread` stores `via_ned`/`sync_message`; when the daemon ran the sync its pre-formatted summary is shown as-is, otherwise `parse_sync_stats()` (core.sync) feeds the status bar. Never re-implement the `Far:` regex in the controller.
 - **SSE invalidations are debounced** (150ms single-shot timer in `AppController`) so a desktop action that mutates via NED — which triggers both the local refresh and a daemon-broadcast invalidation — coalesces into one panel pass.
-- **NED config is ned-only**: NED reads `~/.config/ned/config.py` — never the desktop's `~/.config/lazarus/config.py`. `ned --init-config` generates the file from the lazarus config (rewriting `lazarus.settings` → `ned.settings` and stripping desktop-only settings). The desktop keeps its own `~/.config/lazarus/config.py`; the two may diverge by design.
+- **NED config is ned-only**: NED reads `~/.config/ned/config.py`, never the desktop config. `ned --init-config` generates the file from Notmuch and Maildir inspection, saving any existing config to a timestamped backup file. The desktop keeps its own `~/.config/lazarus/config.py`, and the two diverge by design.
 - **Keybinding semantics under NED**: `archive_thread` for key `a` removes `inbox` and `unread` tags via `modify_tags` without moving files. `archive_to_local` for key `A` moves maildir files to the local archive folder via `archive_batch_to_local` or `archive_thread_to_local`. Desktop client actions must never redirect key `a` to file moving daemon archive endpoints.
 - **Desktop shims wire settings into `ned` helpers**: `lazarus.util`/`lazarus.compose_model` re-export the headless helpers, and because the desktop process publishes its own `lazarus.settings`, set `ned.util.settings` / `ned.compose_model.settings` to `lazarus.settings` so reply seeds, account matching, and wrapping see the desktop config. The daemon process never imports the shims, so its copy stays on `ned.settings`.
 - **NED static asset bundling**: NED serves web client assets directly out of `ned/static/`. Package data in both `setup.py` (lazarus-mail) and `ned/setup.py` includes `static/*` so wheel and source distributions ship the web client.
@@ -477,7 +478,7 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 
 #### Transports and IPC
 - **Local IPC (Unix domain socket)**: `/run/user/$UID/ned/ned.sock` (or `~/.local/share/lazarus/ned/ned.sock`). Communicates using HTTP/1.1 over Unix domain stream sockets with sub-millisecond latency.
-- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1`. Refuses an **unauthenticated** TCP bind on any non-loopback, non-Tailscale host (LAN `192.168.x.x`, `0.0.0.0`, …) unless `settings.web_token`/`--token` is set or `--allow-insecure` is passed (`ned.daemon.insecure_tcp_error`).
+- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1` when Tailscale Serve reverse proxy is active. Refuses an **unauthenticated** TCP bind on any non-loopback, non-Tailscale host (LAN `192.168.x.x`, `0.0.0.0`, …) unless `settings.web_token`/`--token` is set or `--allow-insecure` is passed (`ned.daemon.insecure_tcp_error`). Run `ned --status` to inspect active listeners and client connection URLs.
 - **Systemd service**: Unit file provided at `contrib/ned.service` for user systemd management (`systemctl --user enable --now ned`).
 
 #### API v1 specification

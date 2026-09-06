@@ -32,6 +32,12 @@ Generate an initial configuration file:
 ned --init-config
 ```
 
+Check daemon status and connection URLs:
+
+```bash
+ned --status
+```
+
 ## Configuration
 
 NED reads its configuration exclusively from `~/.config/ned/config.py`.

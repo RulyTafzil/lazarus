@@ -1090,6 +1090,9 @@ def main(args: Optional[list[str]] = None) -> int:
     # health
     subparsers.add_parser("health", help="Check daemon health")
 
+    # status
+    subparsers.add_parser("status", help="Show daemon connection and health status")
+
     # search
     p_search = subparsers.add_parser("search", help="Search threads")
     p_search.add_argument("query", nargs="?", default="tag:inbox", help="Notmuch query")
@@ -1124,11 +1127,26 @@ def main(args: Optional[list[str]] = None) -> int:
     try:
         cmd = parsed_args.command
         if cmd == "ping":
+            target = client.base_url or f"Unix socket at {client.socket_path}"
             ok = client.ping()
             if ok:
-                print("NED is reachable and responding.")
+                print(f"NED is reachable and responding at {target}")
                 return 0
-            print("NED is not responding.", file=sys.stderr)
+            print(f"NED is not responding at {target}", file=sys.stderr)
+            return 1
+
+        elif cmd == "status":
+            target = client.base_url or f"Unix socket at {client.socket_path}"
+            ok = client.ping()
+            if ok:
+                print(f"NED is RUNNING and responding at {target}")
+                try:
+                    data = client.health()
+                    print(f"Service: {data.get('service', 'ned')}, version: {data.get('version', 'unknown')}")
+                except Exception:
+                    pass
+                return 0
+            print(f"NED is STOPPED or not responding at {target}", file=sys.stderr)
             return 1
 
         elif cmd == "health":
