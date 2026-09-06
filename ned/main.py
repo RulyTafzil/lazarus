@@ -160,10 +160,16 @@ def main() -> int:
 
     if args.init_config:
         try:
+            r_path = config.rules_path()
+            rules_existed = os.path.isfile(r_path)
             cfg_path, backup_path = config.init_config()
             if backup_path:
                 print(f"Backed up existing config to: {backup_path}")
             print(f"Wrote NED config: {cfg_path}")
+            if rules_existed:
+                print(f"Preserved existing filter rules: {r_path}")
+            else:
+                print(f"Created sample filter rules: {r_path}")
             ts_info = detect_tailscale()
             if ts_info["serve_url"]:
                 print(f"Tailscale Serve active: {ts_info['serve_url']}")

@@ -2,16 +2,15 @@
 
 import os
 import subprocess
-from unittest.mock import MagicMock
-
-import pytest
 
 from ned import config, settings
 
 
 def test_init_config_fresh(tmp_path, monkeypatch):
     cfg_file = tmp_path / "ned" / "config.py"
+    monkeypatch.setattr(config, "config_dir", lambda: str(tmp_path / "ned"))
     monkeypatch.setattr(config, "config_path", lambda: str(cfg_file))
+    monkeypatch.setattr(config, "rules_path", lambda: str(tmp_path / "ned" / "rules.py"))
 
     # Mock notmuch config responses
     def mock_run(*args, **kwargs):
@@ -48,11 +47,16 @@ def test_init_config_fresh(tmp_path, monkeypatch):
     content = cfg_file.read_text()
     assert "SECTION 1: DERIVED MAIL AND ACCOUNT SETTINGS" in content
     assert "SECTION 2: DAEMON AND NETWORK SETTINGS" in content
-    assert "SECTION 3: FILTER RULES (USER INPUT)" in content
+    assert "SECTION 3: FILTER RULES" in content
     assert "USER EDITABLE:" in content
     assert "Alice Smith <alice@example.com>" in content
     assert "Alice Smith <alice@gmail.com>" in content
     assert "'gmail': None" in content
+
+    # Check sample rules.py creation
+    rules_file = tmp_path / "ned" / "rules.py"
+    assert rules_file.is_file()
+    assert "ned.settings.filter_rules" in rules_file.read_text()
 
     # Test that load_config executes and validates the generated file
     loaded_path = config.load_config()
@@ -115,3 +119,45 @@ ned.settings.sent_dir = {'work': '~/Mail/work/Sent'}
     path = config.load_config()
     assert path == str(cfg_file)
     assert settings.email_address["work"] == "Chief Executive Officer <ceo@corp.com>"
+
+
+def test_init_config_preserves_existing_rules_py(tmp_path, monkeypatch):
+    """init_config must not overwrite an existing rules.py."""
+    cfg_dir = tmp_path / "ned"
+    cfg_dir.mkdir(parents=True)
+    cfg_file = cfg_dir / "config.py"
+    rules_file = cfg_dir / "rules.py"
+
+    custom_rules_content = """# My custom rules
+import ned
+from ned.rules import Rule
+
+ned.settings.filter_rules = [
+    Rule(name='Custom', query='tag:alerts', tag_add=['urgent']),
+]
+"""
+    rules_file.write_text(custom_rules_content)
+
+    monkeypatch.setattr(config, "config_dir", lambda: str(cfg_dir))
+    monkeypatch.setattr(config, "config_path", lambda: str(cfg_file))
+    monkeypatch.setattr(config, "rules_path", lambda: str(rules_file))
+
+    def mock_run(*args, **kwargs):
+        if args == ("config", "get", "user.primary_email"):
+            return subprocess.CompletedProcess(args, 0, stdout="alice@example.com\n", stderr="")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("ned.notmuch.run", mock_run)
+
+    config.init_config()
+
+    # Verify rules.py was preserved untouched
+    assert rules_file.read_text() == custom_rules_content
+
+    # Verify load_config loads the custom rules via Section 3 include
+    config.load_config()
+    assert len(settings.filter_rules) == 1
+    assert settings.filter_rules[0].name == 'Custom'
+    assert settings.filter_rules[0].query == 'tag:alerts'
+    assert settings.filter_rules[0].tag_add == ['urgent']
+

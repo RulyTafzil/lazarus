@@ -68,7 +68,7 @@ live switching, low-poly watermark tab background, hicolor icons.
 │   ├── mime_builder.py     # ComposeData dataclass + build_message() (multipart/related)
 │   ├── signature.py        # ~/.config/ned/<account>/signature loader (ned-only)
 │   ├── settings.py         # Headless NED defaults (validated by ned.config after exec)
-│   ├── config.py           # ned-only load_config() + validation + init_config()
+│   ├── config.py           # ned-only load_config() + validation + init_config() + rules.py breakout
 │   ├── util.py             # Email/account helpers + html_utils/mail_utils re-exports
 │   ├── static/             # Mobile PWA web assets served directly by NED
 │   └── setup.py / pyproject.toml   # the `ned` distribution
@@ -395,7 +395,7 @@ Config is a Python file at `~/.config/lazarus/config.py` located via `QStandardP
 
 *(Mail-routing settings — `email_address`, `sent_dir`, `smtp_accounts`, `send_mail_command`,
 `sync_mail_command`/`sync_mail_interval`, `filter_rules`/`filter_scope_query`, `use_signature` —
-were **moved to the daemon** (see `ned/settings.py`, configured in `~/.config/ned/config.py`).
+were **moved to the daemon** (see `ned/settings.py`, configured in `~/.config/ned/config.py` and `~/.config/ned/rules.py`).
 The desktop no longer reads them; leftover entries in the lazarus config are ignored.)*
 
 ### Per-Account Signatures (`ned/signature.py`)

@@ -38,7 +38,7 @@ from typing import Any
 
 from . import notmuch
 from . import settings
-from .tailscale import detect_tailscale, get_recommended_client_url
+from .tailscale import detect_tailscale
 
 
 class ConfigError(RuntimeError):
@@ -54,6 +54,11 @@ def config_dir() -> str:
 def config_path() -> str:
     """Absolute path to the NED config file."""
     return os.path.join(config_dir(), 'config.py')
+
+
+def rules_path() -> str:
+    """Absolute path to the NED rules file."""
+    return os.path.join(config_dir(), 'rules.py')
 
 
 def _validate_settings() -> list[str]:
@@ -121,6 +126,30 @@ def _validate_settings() -> list[str]:
     return errors
 
 
+def load_rules(path: str | None = None) -> str | None:
+    """Exec ~/.config/ned/rules.py if present."""
+    if path is None:
+        path = rules_path()
+    if not os.path.isfile(path):
+        return None
+
+    try:
+        code = open(path, encoding='utf-8').read()
+        exec(code, {'__file__': path})
+    except SyntaxError as e:
+        raise ConfigError(
+            f"Syntax error in {path}:{e.lineno}: {e.msg}\n"
+            f"  {e.text.strip() if e.text else ''}"
+        ) from e
+    except Exception as e:
+        tb = ''.join(traceback.format_exception_only(type(e), e)).strip()
+        raise ConfigError(
+            f"Error loading {path}:\n{tb}\nCheck the file around the traceback line."
+        ) from e
+
+    return path
+
+
 def load_config() -> str:
     """Locate and exec ``~/.config/ned/config.py``, then validate settings.
 
@@ -137,7 +166,7 @@ def load_config() -> str:
 
     try:
         code = open(path).read()
-        exec(code, {})  # type: ignore[arg-type]
+        exec(code, {'__file__': path})  # type: ignore[arg-type]
     except SyntaxError as e:
         raise ConfigError(
             f"Syntax error in {path}:{e.lineno}: {e.msg}\n"
@@ -149,6 +178,9 @@ def load_config() -> str:
         raise ConfigError(
             f"Error loading {path}:\n{tb}\nCheck the file around the traceback line."
         ) from e
+
+    if not settings.filter_rules:
+        load_rules()
 
     errors = _validate_settings()
     if errors:
@@ -336,6 +368,39 @@ def _inspect_notmuch_and_maildir() -> dict[str, Any]:
     }
 
 
+def init_rules(archive_dir: str = '~/Mail/Archive') -> tuple[str, bool]:
+    """Create a sample ~/.config/ned/rules.py next to config.py if it does not exist."""
+    path = rules_path()
+    if os.path.isfile(path):
+        return path, False
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    archive_disp = archive_dir or '~/Mail/Archive'
+
+    sample = f"""# NED Filter Rules
+#
+# Filter rules applied automatically after each mail sync.
+# Rules run against incoming messages matching settings.filter_scope_query.
+
+import ned
+from ned.rules import Rule
+
+ned.settings.filter_rules = [
+    # Rule(
+    #     name='Notifications',
+    #     query='from:noreply@example.com',
+    #     tag_add=['notifications'],
+    #     tag_remove=['inbox', 'unread'],
+    #     move_to={archive_disp!r},
+    # ),
+]
+"""
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(sample)
+
+    return path, True
+
+
 def init_config() -> tuple[str, str | None]:
     """Create or re-initialize ~/.config/ned/config.py from Notmuch and local maildir.
 
@@ -353,6 +418,8 @@ def init_config() -> tuple[str, str | None]:
         shutil.copy2(path, backup_path)
 
     derived = _inspect_notmuch_and_maildir()
+    init_rules(derived['archive_dir'])
+
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     backup_note = f"# Previous config backed up to: {os.path.basename(backup_path)}\n" if backup_path else ""
 
@@ -403,6 +470,7 @@ def init_config() -> tuple[str, str | None]:
 # All settings below are standard Python assignments that you can customize.
 # =============================================================================
 
+import os
 import ned
 from ned.rules import Rule
 
@@ -465,23 +533,13 @@ ned.settings.web_token = ''
 
 
 # =============================================================================
-# SECTION 3: FILTER RULES (USER INPUT)
+# SECTION 3: FILTER RULES
 # =============================================================================
-# Define custom filter rules applied automatically after each mail sync.
-# Rules run against incoming messages matching 'tag:inbox and tag:unread'.
-#
-# Example rule:
-# ned.settings.filter_rules = [
-#     Rule(
-#         name='Notifications',
-#         query='from:noreply@example.com',
-#         tag_add=['notifications'],
-#         tag_remove=['inbox', 'unread'],
-#         move_to={derived['archive_dir']!r},
-#     ),
-# ]
-
-ned.settings.filter_rules = []
+# Filter rules live in rules.py next to this config file.
+# Keeping rules in a separate file prevents `ned --init-config` from overwriting them.
+rules_file = os.path.join(os.path.dirname(__file__), 'rules.py') if '__file__' in globals() else os.path.expanduser('~/.config/ned/rules.py')
+if os.path.isfile(rules_file):
+    exec(open(rules_file).read())
 """
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)

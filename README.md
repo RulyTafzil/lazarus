@@ -293,13 +293,13 @@ Lazarus bundles over 600 pre-compiled native themes:
 
 ## Mail filter rules
 
-Define filter rules in the **NED** config `~/.config/ned/config.py`, where rules run daemon-side:
+Define filter rules in `~/.config/ned/rules.py`, where rules run daemon-side. Keeping rules in a separate file preserves your filters across `ned --init-config` runs:
 
 ```python
-import ned.settings as settings
+import ned
 from ned.rules import Rule
 
-settings.filter_rules = [
+ned.settings.filter_rules = [
     Rule(
         query='from:notifications@github.com',
         tag_add=['github'],
