@@ -115,7 +115,20 @@ settings.web_port = 8080
 settings.web_token = 'choose-a-secret-token'
 ```
 
-If migrating from an existing desktop config that contains mail settings, run `ned --init-config` to generate this file automatically.
+Run `ned --init-config` to generate this file automatically from your Notmuch and Maildir setup. It inspects Tailscale to configure `web_host` and prints the client connection URL. If a configuration already exists, it is backed up with a date and timestamp.
+
+Check daemon health and connection parameters:
+
+```bash
+ned --status
+```
+
+Test connectivity from a local or remote client:
+
+```bash
+ned-client ping
+ned-client status
+```
 
 #### Configure Lazarus desktop
 
@@ -388,6 +401,7 @@ The `ned-client` command line tool allows scripting and querying NED directly:
 ```bash
 # Health check and connectivity
 ned-client ping
+ned-client status
 ned-client health
 
 # Search threads and inspect thread messages
