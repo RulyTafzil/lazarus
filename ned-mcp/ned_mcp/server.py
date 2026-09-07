@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid, parseaddr
 import json
 import logging
 import sys
@@ -37,6 +38,8 @@ class NedMcpServer:
     ) -> None:
         self.client = client
         self.policy = policy
+        self._account_emails: dict[str, str] = {}
+        self._resolve_account_aliases()
         self._dispatch_map: dict[str, Callable[[dict[str, Any]], Any]] = {
             "search_threads": self._tool_search_threads,
             "get_thread": self._tool_get_thread,
@@ -52,17 +55,59 @@ class NedMcpServer:
         if self.policy.allow_send:
             self._dispatch_map["send_email"] = self._tool_send_email
 
+    def _resolve_account_aliases(self) -> None:
+        """Query NED daemon for account definitions and register aliases."""
+        try:
+            detail = self.client.get_accounts_detail()
+            if not isinstance(detail, dict):
+                return
+            email_map = detail.get("email", {})
+            if not isinstance(email_map, dict):
+                return
+            aliases: dict[str, list[str]] = {}
+            smtp_map: dict[str, str] = {}
+            for acct, raw_addr in email_map.items():
+                acct_str = str(acct).strip()
+                if not acct_str:
+                    continue
+                if raw_addr:
+                    self._account_emails[acct_str] = str(raw_addr).strip()
+                clean_email = ""
+                if raw_addr:
+                    _, clean_email = parseaddr(str(raw_addr))
+                    clean_email = clean_email.strip()
+                names = [acct_str]
+                if clean_email and clean_email != acct_str:
+                    names.append(clean_email)
+                aliases[acct_str] = names
+                smtp_map[acct_str] = acct_str
+                if clean_email:
+                    smtp_map[clean_email] = acct_str
+            if aliases:
+                self.policy.register_aliases(aliases, smtp_account_map=smtp_map)
+                logger.debug("Resolved account aliases: %s", aliases)
+        except Exception as err:
+            logger.debug("Could not auto-resolve account aliases from daemon: %s", err)
+
     # -----------------------------------------------------------------------
     # Tool Definitions
     # -----------------------------------------------------------------------
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return MCP tool schemas for registered capabilities."""
+        if len(self.policy.accounts) == 1:
+            acct_desc = f"the '{self.policy.primary_account}' account"
+            send_desc = f"the '{self.policy.primary_account}' SMTP configuration"
+        else:
+            accounts_list = ", ".join(f"'{a}'" for a in self.policy.accounts)
+            acct_desc = f"the allowed accounts ({accounts_list})"
+            send_desc = f"one of the allowed accounts ({accounts_list})"
+
         tools = [
             {
                 "name": "search_threads",
                 "description": (
-                    f"Search email threads within the '{self.policy.primary_account}' account. "
+                    f"Search email threads within {acct_desc}. "
                     "Returns compact metadata summaries."
                 ),
                 "inputSchema": {
@@ -90,7 +135,7 @@ class NedMcpServer:
                 "name": "get_thread",
                 "description": (
                     "Fetch messages in an email thread with quote collapsing and attachment stubs. "
-                    "Verifies thread belongs to the allowed account."
+                    f"Verifies thread belongs to {acct_desc}."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -229,11 +274,18 @@ class NedMcpServer:
             tools.append({
                 "name": "send_email",
                 "description": (
-                    f"Send an outbound email via the '{self.policy.primary_account}' SMTP configuration."
+                    f"Send an outbound email via {send_desc}."
                 ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
+                        "account": {
+                            "type": "string",
+                            "description": (
+                                f"Account to send from (default: '{self.policy.primary_account}'). "
+                                f"Must be one of: {list(self.policy.accounts)}."
+                            ),
+                        },
                         "to": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -384,7 +436,8 @@ class NedMcpServer:
         return tags
 
     def _tool_send_email(self, args: dict[str, Any]) -> Any:
-        account = self.policy.validate_send()
+        target_account = args.get("account")
+        account = self.policy.validate_send(target_account)
 
         to_addrs = args.get("to") or []
         if isinstance(to_addrs, str):
@@ -405,6 +458,11 @@ class NedMcpServer:
             raise ValueError("'body' is required.")
 
         msg = EmailMessage()
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid()
+        msg["User-Agent"] = f"ned-mcp/{self.SERVER_VERSION}"
+        if account in self._account_emails:
+            msg["From"] = self._account_emails[account]
         msg["To"] = ", ".join(to_addrs)
         msg["Subject"] = subject
         if cc_addrs:

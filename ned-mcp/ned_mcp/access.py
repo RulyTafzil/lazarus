@@ -29,6 +29,7 @@ class AccountPolicy:
         allow_archive: bool = False,
         allow_archive_to_local: bool = False,
         allow_send: bool = False,
+        account_aliases: Optional[dict[str, str | Sequence[str]]] = None,
     ) -> None:
         if isinstance(accounts, str):
             items = accounts.split(",")
@@ -47,6 +48,14 @@ class AccountPolicy:
         self.allow_archive: bool = allow_archive or allow_archive_to_local
         self.allow_archive_to_local: bool = allow_archive_to_local
         self.allow_send: bool = allow_send
+
+        # Internal alias registry: maps account or alias string to all known equivalent names
+        self._account_aliases: dict[str, set[str]] = {}
+        # Maps any alias or email to canonical SMTP sender account label
+        self._smtp_account_map: dict[str, str] = {}
+
+        if account_aliases:
+            self.register_aliases(account_aliases)
 
         # Resolve tag mutation permissions
         if isinstance(allowed_tags, str):
@@ -74,6 +83,56 @@ class AccountPolicy:
             self.full_tags = full_tags
             self.allowed_tags = None if full_tags else frozenset()
 
+    def register_aliases(
+        self,
+        mapping: dict[str, str | Sequence[str]],
+        smtp_account_map: Optional[dict[str, str]] = None,
+    ) -> None:
+        """Register account aliases (e.g. short labels <-> email addresses).
+
+        Args:
+            mapping: A dict mapping account labels to email addresses or list of aliases.
+                     For example, {'clanker': 'clanker@example.com', 'gmail': 'user@gmail.com'}.
+            smtp_account_map: Optional explicit mapping of aliases to canonical SMTP account names.
+        """
+        for key, vals in mapping.items():
+            clean_key = key.strip()
+            if not clean_key:
+                continue
+            if isinstance(vals, str):
+                candidates = [v.strip() for v in vals.split(",") if v.strip()]
+            else:
+                candidates = [v.strip() for v in vals if v.strip()]
+
+            all_names = {clean_key, *candidates}
+            for name in all_names:
+                if name not in self._account_aliases:
+                    self._account_aliases[name] = set()
+                self._account_aliases[name].update(all_names)
+                if name not in self._smtp_account_map:
+                    self._smtp_account_map[name] = clean_key
+
+        if smtp_account_map:
+            for k, v in smtp_account_map.items():
+                clean_k = k.strip()
+                clean_v = v.strip()
+                if clean_k and clean_v:
+                    self._smtp_account_map[clean_k] = clean_v
+
+    @property
+    def account_paths(self) -> tuple[str, ...]:
+        """Return all distinct Maildir folder paths matching allowed accounts and aliases."""
+        paths: list[str] = []
+        for acct in self.accounts:
+            aliases = self._account_aliases.get(acct)
+            if aliases:
+                for alias in sorted(aliases):
+                    if alias not in paths:
+                        paths.append(alias)
+            elif acct not in paths:
+                paths.append(acct)
+        return tuple(paths)
+
     @property
     def can_mutate_tags(self) -> bool:
         """Return True if any tag modification is permitted."""
@@ -82,9 +141,25 @@ class AccountPolicy:
     @property
     def account_path_query(self) -> str:
         """Return Notmuch query expression matching files in allowed accounts."""
-        if len(self.accounts) == 1:
-            return f"path:{self.accounts[0]}/**"
-        return " or ".join(f"path:{acct}/**" for acct in self.accounts)
+        paths = self.account_paths
+        if len(paths) == 1:
+            return f"path:{paths[0]}/**"
+        return " or ".join(f"path:{p}/**" for p in paths)
+
+    def is_account_allowed(self, target: str) -> bool:
+        """Check if an account or its aliases are allowed by this policy."""
+        clean = target.strip()
+        if not clean:
+            return False
+        if clean in self.accounts:
+            return True
+        target_aliases = self._account_aliases.get(clean, {clean})
+        return any(acct in target_aliases for acct in self.accounts)
+
+    def resolve_smtp_account(self, target: str) -> str:
+        """Resolve an account name or alias to its canonical SMTP account label."""
+        clean = target.strip()
+        return self._smtp_account_map.get(clean, clean)
 
     def scoped_query(self, query: str = "") -> str:
         """Inject account path constraints into a Notmuch query.
@@ -150,12 +225,12 @@ class AccountPolicy:
         if not target:
             target = self.primary_account
 
-        if target not in self.accounts:
+        if not self.is_account_allowed(target):
             raise AccessDeniedError(
                 f"Cannot send from account '{target}'. Allowed accounts: {list(self.accounts)}."
             )
 
-        return target
+        return self.resolve_smtp_account(target)
 
     def validate_archive(self, local: bool = False) -> None:
         """Validate that archive operations are permitted.
@@ -227,6 +302,8 @@ class AccountPolicy:
         if tags == "*":
             tags = None
 
+        aliases = data.get("account_aliases") or data.get("aliases")
+
         return cls(
             accounts=account,
             allowed_tags=tags,
@@ -235,6 +312,7 @@ class AccountPolicy:
             allow_archive=bool(data.get("allow_archive", False)),
             allow_archive_to_local=bool(data.get("allow_archive_to_local", False)),
             allow_send=bool(data.get("allow_send", False)),
+            account_aliases=aliases,
         )
 
     @classmethod

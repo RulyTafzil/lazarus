@@ -269,3 +269,17 @@ except ImportError:
                 ok = data.get("status") == "ok" or bool(data.get("ok"))
                 return ok, str(data.get("message") or "")
             return False, "Unknown send response"
+
+        def get_accounts(self) -> list[str]:
+            data = self._request_json("GET", "/api/v1/accounts")
+            return list(data.get("accounts", [])) if isinstance(data, dict) else []
+
+        def get_accounts_detail(self) -> dict[str, Any]:
+            data = self._request_json("GET", "/api/v1/accounts")
+            if not isinstance(data, dict):
+                return {"accounts": [], "email": {}, "gnupg_keyid": {}}
+            return {
+                "accounts": list(data.get("accounts", [])),
+                "email": dict(data.get("email", {})),
+                "gnupg_keyid": dict(data.get("gnupg_keyid", {})),
+            }

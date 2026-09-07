@@ -203,3 +203,58 @@ def test_parse_spec_opt_in():
     assert p2.allow_archive is True
     assert p2.can_mutate_tags is False
 
+
+def test_account_policy_aliases_expansion():
+    """Test that account aliases expand search paths and resolve SMTP accounts."""
+    policy = AccountPolicy("clanker", allow_send=True)
+    policy.register_aliases(
+        {"clanker": ["clanker", "clanker@example.com"]},
+        smtp_account_map={"clanker@example.com": "clanker", "clanker": "clanker"},
+    )
+
+    # Scoped paths should cover both label and email Maildir directory
+    assert set(policy.account_paths) == {"clanker", "clanker@example.com"}
+    assert "path:clanker/**" in policy.account_path_query
+    assert "path:clanker@example.com/**" in policy.account_path_query
+
+    # Query scoping
+    query = policy.scoped_query("tag:inbox")
+    assert "tag:inbox" in query
+    assert "path:clanker/**" in query
+    assert "path:clanker@example.com/**" in query
+
+    # Send validation with short label, email alias, and unauthorized target
+    assert policy.validate_send() == "clanker"
+    assert policy.validate_send("clanker") == "clanker"
+    assert policy.validate_send("clanker@example.com") == "clanker"
+
+    with pytest.raises(AccessDeniedError, match="Cannot send from account 'other'"):
+        policy.validate_send("other")
+
+
+def test_account_policy_init_with_email_address():
+    """Test policy initialized directly with email address mapping to short SMTP name."""
+    policy = AccountPolicy("bot@example.com", allow_send=True)
+    policy.register_aliases(
+        {"bot": ["bot", "bot@example.com"]},
+        smtp_account_map={"bot@example.com": "bot", "bot": "bot"},
+    )
+
+    assert set(policy.account_paths) == {"bot", "bot@example.com"}
+    assert policy.validate_send() == "bot"
+    assert policy.validate_send("bot") == "bot"
+    assert policy.validate_send("bot@example.com") == "bot"
+
+
+def test_account_policy_from_dict_with_aliases():
+    """Test AccountPolicy.from_dict parses aliases correctly."""
+    data = {
+        "account": "work",
+        "aliases": {"work": ["work", "work@corp.com"]},
+        "allow_send": True,
+    }
+    policy = AccountPolicy.from_dict(data)
+    assert set(policy.account_paths) == {"work", "work@corp.com"}
+    assert policy.validate_send("work@corp.com") == "work"
+
+

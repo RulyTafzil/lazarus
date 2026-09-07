@@ -408,6 +408,8 @@ def test_server_send_email(mock_client):
     assert called_account == "work"
     assert b"Subject: Status Report" in called_bytes
     assert b"To: partner@example.com" in called_bytes
+    assert b"Date: " in called_bytes
+    assert b"Message-ID: " in called_bytes
 
 
 def test_parse_args_cli():
@@ -422,3 +424,54 @@ def test_parse_args_cli():
     assert args.allow_tags == "todo,followup"
     assert args.allow_send is True
     assert args.socket == "/tmp/ned.sock"
+
+
+def test_server_auto_resolves_account_aliases(mock_client):
+    """Test that server queries get_accounts_detail on startup and expands paths."""
+    mock_client.get_accounts_detail.return_value = {
+        "accounts": ["clanker", "gmail"],
+        "email": {
+            "clanker": "🤖 Clanker <clanker@example.com>",
+            "gmail": "User Name <user@gmail.com>",
+        },
+    }
+    policy = AccountPolicy("clanker", allow_send=True)
+    server = NedMcpServer(client=mock_client, policy=policy)
+
+    # Scoped paths should now include clanker@example.com
+    assert set(policy.account_paths) == {"clanker", "clanker@example.com"}
+
+    # Searching threads uses scoped query containing both paths
+    mock_client.search.return_value = []
+    server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 16,
+        "method": "tools/call",
+        "params": {
+            "name": "search_threads",
+            "arguments": {"query": "tag:inbox"},
+        },
+    })
+    called_query = mock_client.search.call_args[0][0]
+    assert "path:clanker/**" in called_query
+    assert "path:clanker@example.com/**" in called_query
+
+    # Sending with explicit email address resolves to SMTP label 'clanker'
+    mock_client.send_message.return_value = (True, "Delivered")
+    server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 17,
+        "method": "tools/call",
+        "params": {
+            "name": "send_email",
+            "arguments": {
+                "account": "clanker@example.com",
+                "to": ["user@example.com"],
+                "subject": "Hi",
+                "body": "Test body",
+            },
+        },
+    })
+    called_account, _ = mock_client.send_message.call_args[0]
+    assert called_account == "clanker"
+
