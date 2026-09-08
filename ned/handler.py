@@ -102,7 +102,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             # IPv6 literal: [::1]:8080
             end = host_hdr.find("]")
             if end < 0:
-                return host_hdr.lower(), None
+                return host_hdr.lower().rstrip("."), None
             host = host_hdr[1:end]
             rest = host_hdr[end + 1:]
             port = rest[1:] if rest.startswith(":") else ""
@@ -111,8 +111,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         else:
             host, port = host_hdr, ""
         if port.isdigit():
-            return host.lower(), int(port)
-        return host.lower(), None
+            return host.lower().rstrip("."), int(port)
+        return host.lower().rstrip("."), None
 
     def _allowed_hostnames(self) -> frozenset[str]:
         """Hostnames this listener legitimately answers for.
@@ -171,13 +171,26 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
                 origin_port = parts.port
             except ValueError:
                 origin_port = None
+            origin_scheme = parts.scheme.lower()
         except ValueError:
-            origin_host, origin_port = "", None
+            origin_host, origin_port, origin_scheme = "", None, ""
         if not origin_host or origin_host != req_host:
             self.send_error_json(
                 "Cross-origin request rejected", HTTPStatus.FORBIDDEN)
             return False
-        if req_port is not None and origin_port is not None and origin_port != req_port:
+        # Resolve implicit default ports (http://host -> 80, https://host -> 443)
+        # so a default-port origin cannot masquerade as a listener on a
+        # non-default port. The request port is only compared when explicit:
+        # a reverse proxy (Tailscale Serve, nginx) legitimately changes ports
+        # (https:443 -> backend :8080) and its Host header carries no port.
+        expected_origin_port = origin_port
+        if expected_origin_port is None:
+            if origin_scheme == "https":
+                expected_origin_port = 443
+            elif origin_scheme == "http":
+                expected_origin_port = 80
+        if (req_port is not None and expected_origin_port is not None
+                and expected_origin_port != req_port):
             self.send_error_json(
                 "Cross-origin request rejected", HTTPStatus.FORBIDDEN)
             return False

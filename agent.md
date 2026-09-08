@@ -472,13 +472,13 @@ The desktop no longer reads them; leftover entries in the lazarus config are ign
 1. **Explicitly for Notmuch**: NED is not a generic storage platform. It preserves native Notmuch query syntax (`tag:inbox AND date:2w..today`) and identifiers (`thread:...`, RFC Message-IDs).
 2. **Single concurrency boundary**: Notmuch permits concurrent readers, but only a single writer can modify the Xapian index at any time. NED owns the single serialized write queue (`MutationLock`). Clients request mutations, and NED executes them sequentially.
 3. **SSE for cache invalidation, not state replication**: Server-Sent Events broadcast minimal invalidation signals (`thread`, `threads`). Clients re-query NED when an event affects the active view rather than reconstructing state through delta patching.
-4. **Single-user simplicity**: Local IPC uses standard Linux filesystem permissions on a Unix domain socket. Remote network access uses Tailscale WireGuard encryption with a single bearer token.
+4. **Single-user simplicity**: Local IPC uses standard Linux filesystem permissions on a Unix domain socket. Remote network access uses Tailscale WireGuard encryption and tailnet ACLs for authorization (bearer tokens are deprecated).
 5. **Synchronous mutations without heavy job queues**: Tagging and file moves execute in milliseconds. Long-running IMAP sync runs with a busy lock and broadcasts an SSE completion event.
 6. **Unified daemon with bundled web assets**: NED serves the mobile PWA web assets directly on `/` and `/static/`.
 
 #### Transports and IPC
 - **Local IPC (Unix domain socket)**: `/run/user/$UID/ned/ned.sock` (or `~/.local/share/lazarus/ned/ned.sock`). Communicates using HTTP/1.1 over Unix domain stream sockets with sub-millisecond latency.
-- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1` when Tailscale Serve reverse proxy is active. Refuses an **unauthenticated** TCP bind on any non-loopback, non-Tailscale host (LAN `192.168.x.x`, `0.0.0.0`, …) unless `settings.web_token`/`--token` is set or `--allow-insecure` is passed (`ned.daemon.insecure_tcp_error`). Run `ned --status` to inspect active listeners and client connection URLs.
+- **Remote network (Tailscale)**: Binds to the host Tailscale WireGuard address (`100.x.y.z:8080`) or `127.0.0.1` when Tailscale Serve reverse proxy is active. Refuses an **unauthenticated** TCP bind on any non-loopback, non-Tailscale host (LAN `192.168.x.x`, `0.0.0.0`, …) unless `settings.web_token`/`--token` is set or `--allow-insecure` is passed (`ned.daemon.insecure_tcp_error`). Tokens are **deprecated** (header-only `Authorization: Bearer`; the `?token=` query parameter is gone and the PWA/SSE web client no longer uses them), and the TCP listener enforces Host-header and Origin checks against DNS rebinding and cross-site browser requests. Run `ned --status` to inspect active listeners and client connection URLs.
 - **Systemd service**: Unit file provided at `contrib/ned.service` for user systemd management (`systemctl --user enable --now ned`).
 
 #### API v1 specification

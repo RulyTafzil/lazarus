@@ -91,6 +91,34 @@ def test_cli_token_allows_lan_bind(tmp_path):
     assert "Refusing to expose NED unauthenticated" not in res.stderr
 
 
+def test_cli_token_deprecation_warning(tmp_path):
+    """A non-empty token logs a deprecation warning at startup."""
+    import tempfile
+    from pathlib import Path
+    sock = str(Path(tempfile.mkdtemp(dir=str(tmp_path))) / "ned.sock")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "ned.main", f"--socket={sock}",
+         "--host", "127.0.0.1", "--token", "secret"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        cwd=os.getcwd())
+    try:
+        collected = ""
+        while True:
+            line = proc.stderr.readline()
+            if not line:
+                break
+            collected += line
+            if "deprecated" in line.lower():
+                break
+        assert "deprecated" in collected.lower()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 # -- request-level CSRF / DNS-rebinding guard ----------------------------------
 
 
@@ -110,9 +138,11 @@ def _raw_http(port: int, request: bytes) -> tuple[int, bytes]:
         return int(status_line.split(b" ")[1]), buffer
 
 
-def _get(port: int, host: str = "127.0.0.1", origin: str | None = None,
-         path: str = "/api/v1/ping", token: str | None = None) -> tuple[int, bytes]:
-    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n".encode()
+def _get(port: int, host: str = "127.0.0.1", host_port: int | None = None,
+         origin: str | None = None, path: str = "/api/v1/ping",
+         token: str | None = None) -> tuple[int, bytes]:
+    host_hdr = f"{host}:{host_port}" if host_port is not None else host
+    req = f"GET {path} HTTP/1.1\r\nHost: {host_hdr}\r\n".encode()
     if origin is not None:
         req += f"Origin: {origin}\r\n".encode()
     if token is not None:
@@ -179,9 +209,36 @@ def test_tcp_null_origin_rejected(tcp_daemon):
 
 
 def test_tcp_same_origin_allowed(tcp_daemon):
-    """PWA-style same-origin requests pass (matching host + port)."""
-    origin = f"http://127.0.0.1:{tcp_daemon}"
+    """PWA-style same-origin requests pass — matching hostname only (host-less
+    Host header = implicit port, no comparison) and with explicit ports."""
+    origin = "http://127.0.0.1"
     status, _ = _get(tcp_daemon, origin=origin)
+    assert status == 200
+    origin = f"http://127.0.0.1:{tcp_daemon}"
+    status, _ = _get(tcp_daemon, host_port=tcp_daemon, origin=origin)
+    assert status == 200
+
+
+def test_tcp_implicit_default_port_origin_rejected(tcp_daemon):
+    """http://127.0.0.1 (implicit port 80) may not impersonate the listener on
+    a non-default port, even when the hostname matches."""
+    status, body = _get(tcp_daemon, host_port=tcp_daemon, origin="http://127.0.0.1")
+    assert status == 403
+    assert b"Cross-origin request rejected" in body
+
+
+def test_tcp_proxy_implicit_ports_allowed(tcp_daemon):
+    """Tailscale Serve / nginx: an https origin without a port against a
+    Host header without a port is legitimate (proxy changed the port)."""
+    status, _ = _get(tcp_daemon, host="localhost", origin="https://localhost")
+    assert status == 200
+
+
+def test_tcp_host_trailing_dot_allowed(tcp_daemon):
+    """FQDN trailing dots are normalized (curl / some proxies send them)."""
+    status, _ = _get(tcp_daemon, host="localhost.", origin="http://localhost.")
+    assert status == 200
+    status, _ = _get(tcp_daemon, host="127.0.0.1.", host_port=tcp_daemon)
     assert status == 200
 
 
@@ -233,6 +290,9 @@ def test_parse_host_header_variants():
     assert parse(SimpleNamespace(headers={"Host": "100.100.1.2:8080"})) == ("100.100.1.2", 8080)
     assert parse(SimpleNamespace(headers={"Host": "ned.tailnet.ts.net"})) == ("ned.tailnet.ts.net", None)
     assert parse(SimpleNamespace(headers={"Host": ""})) == ("", None)
+    # Trailing-dot FQDNs and dotted hosts normalize to their allowlist form.
+    assert parse(SimpleNamespace(headers={"Host": "ned.tailnet.ts.net."})) == ("ned.tailnet.ts.net", None)
+    assert parse(SimpleNamespace(headers={"Host": "127.0.0.1.:8080"})) == ("127.0.0.1", 8080)
 
 
 def test_compute_allowed_hostnames(monkeypatch):

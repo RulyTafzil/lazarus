@@ -201,6 +201,19 @@ def main() -> int:
     if args.token:
         settings.web_token = args.token
 
+    # Token deprecation notice: the web UI cannot authenticate with a token.
+    # Browsers do not send Authorization: Bearer on page navigation, the legacy
+    # ?token= query parameter was removed, and the PWA sends no credentials —
+    # so a non-empty web_token silently locks the PWA out while still serving
+    # non-browser clients (desktop, ned-client, ned-mcp) via the header.
+    if (getattr(settings, "web_token", "") or "").strip():
+        logger.warning(
+            "settings.web_token is set but deprecated: the web/PWA client "
+            "requires a tokenless listener (bind to loopback or a Tailscale "
+            "address protected by tailnet ACLs). Tokens still work for "
+            "non-browser clients via the Authorization: Bearer header."
+        )
+
     # Resolve host: prioritize CLI -> Tailscale auto-detect -> settings -> localhost
     host = args.host
     if not host and not args.no_tcp:
