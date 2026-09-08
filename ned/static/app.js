@@ -138,11 +138,11 @@
       state.eventSource = null;
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const eventsUrl = token
-      ? `/api/v1/events?token=${encodeURIComponent(token)}`
-      : '/api/v1/events';
+    // Token auth is deprecated for the web client: the PWA is served for
+    // local (Unix socket) and Tailscale (tailnet ACL) access only, and the
+    // daemon rejects cross-origin browser requests. The SSE stream is
+    // same-origin, so no credentials are needed here.
+    const eventsUrl = '/api/v1/events';
 
     try {
       const es = new EventSource(eventsUrl);

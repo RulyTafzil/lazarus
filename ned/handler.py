@@ -34,7 +34,7 @@ import mimetypes
 from pathlib import Path
 import queue
 import re
-from typing import Any
+from typing import Any, Optional
 import urllib.parse
 
 from . import openapi
@@ -70,20 +70,20 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         if self._is_unix_socket():
             return True
 
+        # CSRF / DNS-rebinding defenses for the TCP listener (browser clients).
+        if not self._check_browser_origin_and_host():
+            return False
+
         token = getattr(settings, "web_token", "").strip()
         if not token:
             return True
 
-        # Check Authorization header
+        # Authorization header only. The legacy ``?token=`` query parameter
+        # was removed: it leaked the secret into URLs and browser history, and
+        # the PWA no longer supports token auth — web clients rely on the
+        # Unix socket's OS permissions and Tailscale ACLs instead.
         auth_hdr = self.headers.get("Authorization", "")
-        if auth_hdr.startswith("Bearer "):
-            if auth_hdr[7:].strip() == token:
-                return True
-
-        # Check query parameter token
-        parsed = urllib.parse.urlparse(self.path)
-        qs = urllib.parse.parse_qs(parsed.query)
-        if "token" in qs and qs["token"][0] == token:
+        if auth_hdr.startswith("Bearer ") and auth_hdr[7:].strip() == token:
             return True
 
         self.send_response(HTTPStatus.UNAUTHORIZED)
@@ -92,6 +92,96 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({"error": "Unauthorized"}).encode("utf-8"))
         return False
+
+    def _parse_host_header(self) -> tuple[str, Optional[int]]:
+        """Return (hostname, port) from the ``Host`` header (lowercased)."""
+        host_hdr = self.headers.get("Host", "").strip()
+        if not host_hdr:
+            return "", None
+        if host_hdr.startswith("["):
+            # IPv6 literal: [::1]:8080
+            end = host_hdr.find("]")
+            if end < 0:
+                return host_hdr.lower(), None
+            host = host_hdr[1:end]
+            rest = host_hdr[end + 1:]
+            port = rest[1:] if rest.startswith(":") else ""
+        elif host_hdr.count(":") == 1:
+            host, _, port = host_hdr.rpartition(":")
+        else:
+            host, port = host_hdr, ""
+        if port.isdigit():
+            return host.lower(), int(port)
+        return host.lower(), None
+
+    def _allowed_hostnames(self) -> frozenset[str]:
+        """Hostnames this listener legitimately answers for.
+
+        Populated at bind time by :class:`ned.daemon.NedDaemon` and attached
+        to the server object (loopback names, the bind host, and any Tailscale
+        IP / MagicDNS / Serve hostname). Falls back to loopback names when the
+        attribute is absent (e.g. handler-only unit tests).
+        """
+        server = getattr(self, "server", None)
+        allowed = getattr(server, "ned_allowed_hostnames", None)
+        if isinstance(allowed, frozenset) and allowed:
+            return allowed
+        return frozenset({"localhost", "127.0.0.1", "::1"})
+
+    def _check_browser_origin_and_host(self) -> bool:
+        """Reject cross-site browser requests (CSRF) and DNS rebinding.
+
+        * The ``Host`` header must name the daemon — loopback, a Tailscale
+          IP/MagicDNS name, or the configured bind host. Arbitrary hostnames
+          (e.g. an attacker DNS-rebinding ``evil.example`` to the loopback or
+          Tailscale address) are refused.
+        * When an ``Origin`` header is present (browser clients), its hostname
+          must match the ``Host`` header, so no third-party website can drive
+          state-changing requests. Non-browser clients (desktop, ``ned-client``,
+          ``ned-mcp``, curl) send no ``Origin`` and are unaffected.
+
+        The ``Host`` allowlist is skipped only when the listener was bound to
+        ``0.0.0.0``/``::`` via ``--allow-insecure`` (the reachable hostname is
+        then unknown); the ``Origin`` match still applies in that case.
+        """
+        req_host, req_port = self._parse_host_header()
+        if not req_host:
+            self.send_error_json("Missing Host header", HTTPStatus.BAD_REQUEST)
+            return False
+
+        server = getattr(self, "server", None)
+        if not getattr(server, "ned_skip_host_guard", False) and req_host not in self._allowed_hostnames():
+            self.send_error_json(
+                "Forbidden host header", HTTPStatus.FORBIDDEN)
+            return False
+
+        origin = self.headers.get("Origin", "").strip().rstrip("/")
+        if not origin:
+            return True
+        if origin == "null":
+            # Opaque origins (data:/sandboxed documents) never legitimately
+            # call the mail API.
+            self.send_error_json(
+                "Cross-origin request rejected", HTTPStatus.FORBIDDEN)
+            return False
+        try:
+            parts = urllib.parse.urlsplit(origin)
+            origin_host = (parts.hostname or "").lower().rstrip(".")
+            try:
+                origin_port = parts.port
+            except ValueError:
+                origin_port = None
+        except ValueError:
+            origin_host, origin_port = "", None
+        if not origin_host or origin_host != req_host:
+            self.send_error_json(
+                "Cross-origin request rejected", HTTPStatus.FORBIDDEN)
+            return False
+        if req_port is not None and origin_port is not None and origin_port != req_port:
+            self.send_error_json(
+                "Cross-origin request rejected", HTTPStatus.FORBIDDEN)
+            return False
+        return True
 
     def send_json(self, data: Any, status: int = HTTPStatus.OK) -> None:
         """Write JSON response with standard non-caching headers."""

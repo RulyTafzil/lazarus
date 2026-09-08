@@ -168,5 +168,14 @@ web_port: int = 8080
 """Port to bind the optional TCP listener for remote clients."""
 
 web_token: str = ''
-"""Bearer token required for the web API. Empty string means no auth
-(recommended only if bound strictly to Tailscale/localhost)."""
+"""DEPRECATED. Bearer token required for the remote HTTP API.
+
+Legacy: set via ``--token`` or this config value; non-browser clients may
+still send it as an ``Authorization: Bearer`` header. NED's security model
+now relies on transport-level access control instead: the Unix domain
+socket (OS file permissions) for local clients and the Tailscale overlay
+network (tailnet ACLs) for remote clients. The PWA no longer supports
+token auth and the ``?token=`` query parameter was removed, so an empty
+string (no auth) is expected when the listener is bound strictly to
+loopback or a Tailscale address.
+"""

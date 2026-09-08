@@ -32,12 +32,14 @@ import socket
 import socketserver
 import threading
 from typing import Optional
+import urllib.parse
 
 from . import settings
 from . import service
 from .concurrency import mutation_lock
 from .events import broadcaster
 from .handler import NedRequestHandler
+from .tailscale import detect_tailscale
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,42 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
     daemon_threads = True
     allow_reuse_address = True
+
+    # Security guards for the TCP listener, populated by NedDaemon at bind
+    # time (see NedRequestHandler._check_browser_origin_and_host):
+    #   ned_allowed_hostnames — Host-header allowlist (DNS-rebinding defense)
+    #   ned_skip_host_guard   — True only for 0.0.0.0/:: binds (--allow-insecure)
+    ned_allowed_hostnames: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
+    ned_skip_host_guard: bool = False
+
+
+def _compute_allowed_hostnames(bind_host: str) -> frozenset[str]:
+    """Hostnames the TCP listener legitimately answers for.
+
+    The Host-header allowlist backing the DNS-rebinding guard in
+    :class:`ned.handler.NedRequestHandler`: loopback names, the configured
+    bind host, and any detected Tailscale IP / MagicDNS / Serve hostname.
+    """
+    names: set[str] = {"localhost", "127.0.0.1", "::1"}
+    bound = str(bind_host or "").strip().lower().rstrip(".")
+    if bound and bound not in ("0.0.0.0", "::"):
+        names.add(bound)
+    ts = detect_tailscale()
+    ts_ip = ts.get("ts_ip")
+    if ts_ip:
+        names.add(ts_ip)
+    ts_dns = ts.get("ts_dns")
+    if ts_dns:
+        names.add(ts_dns.lower().rstrip("."))
+    serve = ts.get("serve_url")
+    if serve:
+        try:
+            serve_host = urllib.parse.urlsplit(serve).hostname
+        except ValueError:
+            serve_host = None
+        if serve_host:
+            names.add(serve_host.lower().rstrip("."))
+    return frozenset(n for n in names if n)
 
 
 class NedDaemon:
@@ -196,6 +234,12 @@ class NedDaemon:
 
         try:
             self._tcp_server = ThreadingHTTPServer((host, port), NedRequestHandler)
+            # Host-header allowlist + CSRF guard for the TCP listener
+            # (see NedRequestHandler._check_browser_origin_and_host).
+            self._tcp_server.ned_allowed_hostnames = _compute_allowed_hostnames(host)
+            self._tcp_server.ned_skip_host_guard = (
+                host.strip().lower() in ("0.0.0.0", "::")
+            )
             self._tcp_thread = threading.Thread(
                 target=self._tcp_server.serve_forever,
                 name="NED-TCPListener",

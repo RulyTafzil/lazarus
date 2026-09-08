@@ -245,7 +245,7 @@ def build_spec() -> dict[str, Any]:
         "components": {
             "securitySchemes": {
                 "bearerAuth": {"type": "http", "scheme": "bearer",
-                               "description": "Required only over TCP when settings.web_token is set; Unix socket uses OS file permissions. Token may also be passed as ?token= query param (used by the SSE EventSource)."}
+                               "description": "Deprecated and header-only: required only over TCP when settings.web_token is set; Unix socket uses OS file permissions. The legacy ?token= query parameter was removed and the PWA no longer supports token auth — web clients rely on Tailscale ACLs / local access."}
             },
             "schemas": {
                 "Error": {"type": "object", "properties": {"error": {"type": "string"}}},

@@ -373,7 +373,6 @@ at no charge on the personal plan.
 
    settings.web_host = '127.0.0.1'
    settings.web_port = 8080
-   settings.web_token = 'choose-a-secret-token'
    ```
 
    If running NED via systemd, ensure `~/.config/systemd/user/ned.service`
@@ -407,7 +406,7 @@ at no charge on the personal plan.
    https://your-node.tailnet.ts.net (tailnet only)
    |-- / proxy http://127.0.0.1:8080
    ```
-4. Open `https://your-node.tailnet.ts.net/?token=choose-a-secret-token` in your
+4. Open `https://your-node.tailnet.ts.net` in your
    phone browser and install it as a home screen app:
    - **iOS Safari:** Tap Share, then tap **Add to Home Screen**.
    - **Android Chrome:** Tap the three dots menu, then tap **Add to Home

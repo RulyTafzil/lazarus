@@ -123,7 +123,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--token",
-        help="Bearer token for remote HTTP authentication",
+        help="DEPRECATED: bearer token for non-browser HTTP clients (Authorization header only; the PWA no longer supports tokens — use Tailscale ACLs or the Unix socket)",
     )
     parser.add_argument(
         "--sync-interval",

@@ -17,10 +17,20 @@ GET /api/v1/openapi.json
 | Transport | Where | Auth |
 |---|---|---|
 | Unix domain socket | `/run/user/$UID/ned/ned.sock` (default) | none — OS file permissions |
-| TCP | Tailscale IP or `settings.web_host` on `settings.web_port` (default `8080`) | optional Bearer token (`settings.web_token`) |
+| TCP | Tailscale IP or `settings.web_host` on `settings.web_port` (default `8080`) | optional legacy Bearer token (`settings.web_token`), header-only |
 
-Token options: `Authorization: Bearer <token>` header, or `?token=<token>`
-query parameter (needed for the SSE `EventSource`, which cannot set headers).
+Token auth is **deprecated**. Non-browser clients may still send
+`Authorization: Bearer <token>` (the `?token=` query parameter was removed),
+but the web client and the recommended deployments rely on access control:
+the Unix socket's OS permissions and Tailscale ACLs.
+
+The TCP listener additionally enforces CSRF / DNS-rebinding defenses for
+browser clients: the `Host` header must be the loopback device, a Tailscale
+IP / MagicDNS name, or the configured bind host, and any `Origin` header
+must match that `Host`. Plain non-browser clients (desktop, `ned-client`,
+`ned-mcp`, curl) send no `Origin` and are unaffected. The `Host` allowlist is
+skipped only for `0.0.0.0`/`::` binds made with `--allow-insecure`; the
+`Origin` match still applies.
 
 When bound over WireGuard/Tailscale, transport security comes from the tailnet;
 when bound to the loopback device, it is local-only. Binding a plain-LAN or
