@@ -2,6 +2,7 @@ __pycache__
 .venv
 docs/build
 build
+course/
 *.egg-info
 .prettierrc
 uv.lock
