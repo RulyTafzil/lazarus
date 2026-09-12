@@ -32,7 +32,7 @@ Running Lazarus and its daemon requires several host packages and Python librari
 
 ---
 
-## Project Layout
+## Project layout
 
 ```text
 ~/Projects/lazarus/
@@ -104,7 +104,7 @@ Running Lazarus and its daemon requires several host packages and Python librari
 
 ---
 
-## Where to Look: Subsystem Guide
+## Where to look: subsystem guide
 
 When investigating issues or making changes, refer to these primary modules:
 
@@ -137,15 +137,17 @@ When investigating issues or making changes, refer to these primary modules:
 
 ---
 
-## Architecture & Data Flow
+## Architecture & data flow
 
-### Desktop Client Architecture
+### Desktop client architecture
 The desktop is purely a consumer of the daemon:
 - It **never** shells out to `notmuch` directly.
 - It **never** invokes `msmtp` or writes to Maildir files directly.
-- On startup, [`lazarus/client.py:ensure_daemon`](file:///home/rulyt/Projects/lazarus/lazarus/client.py) verifies NED is running, spawning it as a child process if necessary.
-- Mutations dispatch via `NedClient` over the Unix domain socket.
+- It **never** opens or parses local Maildir email files or `~/.config/ned` configs on disk. All reply seeds, references, signatures, and CID images route through the NED API.
+- On startup, [`lazarus/client.py:ensure_daemon`](file:///home/rulyt/Projects/lazarus/lazarus/client.py) verifies NED is running, spawning it as a child process if necessary when local socket access is configured.
+- Mutations dispatch via `NedClient` over the Unix domain socket or remote HTTP/Tailscale connection.
 - State changes invalidate desktop views via a background Server-Sent Events (SSE) listener (`_NedEventBridge` in [`lazarus/controller.py`](file:///home/rulyt/Projects/lazarus/lazarus/controller.py)), debounced to 150ms.
+- Preview selection advance: When deleting or archiving a thread shown in the preview pane, [`SearchPanel._advance_selection`](file:///home/rulyt/Projects/lazarus/lazarus/search.py) moves the selection to the adjacent thread and loads it immediately, keeping the preview pane open.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -234,7 +236,7 @@ The desktop client spawns NED automatically through [`lazarus/client.py:ensure_d
 - `ned --socket <path>`: Overrides the Unix domain socket location (default: `/run/user/$UID/ned/ned.sock`).
 - `ned --host <ip>` and `--port <int>`: Binds the HTTP listener (default port `8080`). NED auto-detects Tailscale IP and MagicDNS.
 - `ned --no-tcp`: Restricts the daemon strictly to the Unix domain socket.
-- `ned --token <secret>`: **Deprecated.** Bearer token for **non-browser** HTTP clients via the `Authorization: Bearer` header only — the legacy `?token=` query parameter is gone and the web/PWA client no longer supports tokens (browser SSE / page navigation cannot send headers). Remote access is expected to rely on Tailscale ACLs; the TCP listener also enforces Host-header and Origin checks for browser requests.
+- `ned --token <secret>`: **Deprecated.** Bearer token for **non-browser** HTTP clients via the `Authorization: Bearer` header only. The legacy `?token=` query parameter is removed and the web/PWA client no longer supports tokens (browser SSE / page navigation cannot send headers). Remote access relies on Tailscale ACLs; the TCP listener also enforces Host-header and Origin checks for browser requests.
 - `ned --allow-insecure`: Overrides the guard that prevents binding an unauthenticated TCP listener to non-loopback interfaces.
 - `ned --sync-interval <seconds>`: Configures periodic background mail sync (-1 disables).
 
@@ -246,22 +248,23 @@ The desktop client spawns NED automatically through [`lazarus/client.py:ensure_d
 
 ---
 
-## Durable Invariants & Development Rules
+## Durable invariants & development rules
 
 1. **Daemon Headless Separation**: The `ned/` and `ned-mcp/` packages must contain **zero Qt imports**. Background threads in daemon packages must use `threading.Thread`, never `QThread`. Verify with `python3 -S`.
-2. **Compose Closed Key Surface**: Compose intercepts and swallows global navigation keys (`j`, `k`, `d`, `a`, etc.) via `ComposePanel._allow_global_key` and [`COMPOSE_ALLOWED_GLOBALS`](file:///home/rulyt/Projects/lazarus/lazarus/keymap.py). List actions must never trigger on background panels while typing.
-3. **One-Directional Escape in Compose**: `<escape>` inside `ComposePanel` moves focus out of text fields into the outer chrome. It must **never** toggle back into the editor.
-4. **Structural Signature Placement**: Signatures are injected structurally using [`compose_model.sig_edit`](file:///home/rulyt/Projects/lazarus/ned/compose_model.py) above `ComposeSeed.quoted_tail`. Never scan for marker strings or append blindly to prevent newline drift.
-5. **Theme Palette Invariant**: Every theme must define all 19 keys in `THEME_KEYS`. Fallbacks must resolve through [`style.theme_color_or()`](file:///home/rulyt/Projects/lazarus/lazarus/style.py).
-6. **CardDelegate Contrast**: When painting custom list items, never paint opaque `bg_highlight` without color adjustment. Use a 25% alpha blend wash over `bg` so distinct text colors (`fg_from`, `fg_subject_unread`, `fg_tags`) remain legible.
-7. **Thread Preview Double-Buffering**: Rapid toggles between HTML and plaintext create multiple in-flight loads. [`_SwapGuard`](file:///home/rulyt/Projects/lazarus/lazarus/thread.py) ensures only the most recent request swaps into view.
-8. **Offscreen Pytest Safety**:
+2. **Pure Client Invariant**: The desktop package (`lazarus/`) must remain a pure NED API client. It must never inspect local Maildir files, read `~/.config/ned`, or assume the daemon runs on the same physical filesystem.
+3. **Compose Closed Key Surface**: Compose intercepts and swallows global navigation keys (`j`, `k`, `d`, `a`, etc.) via `ComposePanel._allow_global_key` and [`COMPOSE_ALLOWED_GLOBALS`](file:///home/rulyt/Projects/lazarus/lazarus/keymap.py). List actions must never trigger on background panels while typing.
+4. **One-Directional Escape in Compose**: `<escape>` inside `ComposePanel` moves focus out of text fields into the outer chrome. It must **never** toggle back into the editor.
+5. **Structural Signature Placement**: Signatures are injected structurally using [`compose_model.sig_edit`](file:///home/rulyt/Projects/lazarus/ned/compose_model.py) above `ComposeSeed.quoted_tail`. Never scan for marker strings or append blindly to prevent newline drift.
+6. **Theme Palette Invariant**: Every theme must define all 19 keys in `THEME_KEYS`. Fallbacks must resolve through [`style.theme_color_or()`](file:///home/rulyt/Projects/lazarus/lazarus/style.py).
+7. **CardDelegate Contrast**: When painting custom list items, never paint opaque `bg_highlight` without color adjustment. Use a 25% alpha blend wash over `bg` so distinct text colors (`fg_from`, `fg_subject_unread`, `fg_tags`) remain legible.
+8. **Thread Preview Double-Buffering**: Rapid toggles between HTML and plaintext create multiple in-flight loads. [`_SwapGuard`](file:///home/rulyt/Projects/lazarus/lazarus/thread.py) ensures only the most recent request swaps into view.
+9. **Offscreen Pytest Safety**:
    - Constructing `QWebEngineView` or `QWebEnginePage` in offscreen Qt segfaults pytest. Test models and interceptors using stubs; only instantiate bare scheme handlers.
    - All displayed Qt widgets in tests must be deleted at test end via `deleteLater()` fixtures to prevent garbage collection crashes during subsequent test runs.
    - Tests use the `client_stub` fixture; panels must never hit a live daemon socket during standard test runs.
-9. **URL Segment Unquoting**: Browser and web clients percent-encode URL parameters (e.g. `@` as `%40` in Message-IDs). Always unquote URL segments with `urllib.parse.unquote()` before querying Notmuch.
-10. **Desktop Packaging**: Desktop integration icons and `.desktop` files are managed exclusively via `lazarus --install-desktop` copying package data into `~/.local/share`. Do not use `data_files` in `setup.py`.
-11. **Type Checking & Tests**:
+10. **URL Segment Unquoting**: Browser and web clients percent-encode URL parameters (e.g. `@` as `%40` in Message-IDs). Always unquote URL segments with `urllib.parse.unquote()` before querying Notmuch.
+11. **Desktop Packaging**: Desktop integration icons and `.desktop` files are managed exclusively via `lazarus --install-desktop` copying package data into `~/.local/share`. Do not use `data_files` in `setup.py`.
+12. **Type Checking & Tests**:
     - Tests: Run `python -m pytest` via the project environment (such as `~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest` or within an active virtualenv). All test suites must pass before submitting changes.
     - Types: Run `mypy lazarus ned` under `disallow_untyped_defs = True` (configured in [`mypy.ini`](file:///home/rulyt/Projects/lazarus/mypy.ini)). When running mypy outside the GUI virtualenv, pass `--python-executable` pointing to the Python environment containing PyQt6 so types resolve correctly.
-12. **Git Workflow**: Mainline branch is `main`. Never commit directly to `main`. Create feature branches (`pr/<slug>`), push to Forgejo (`forge.rulytafzil.com:2222`), and submit PRs.
+13. **Git Workflow**: Mainline branch is `main`. Never commit directly to `main`. Create feature branches (`pr/<slug>`), push to Forgejo (`forge.rulytafzil.com:2222`), and submit PRs.
