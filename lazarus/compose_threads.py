@@ -67,29 +67,14 @@ class SendmailThread(QThread):
                 eml['In-Reply-To'] = msg_id
                 resolved_refs: Optional[str] = None
 
-                # Try local file parse first when available
-                if ('filename' in self.panel.msg and
-                        len(self.panel.msg['filename']) != 0 and
-                        os.path.isfile(self.panel.msg['filename'][0])):
-                    try:
-                        with open(self.panel.msg['filename'][0], 'rb') as f:
-                            old_msg = email.parser.BytesParser().parse(
-                                f, headersonly=True)
-                            if 'References' in old_msg:
-                                refs = old_msg['References'].split() + [msg_id]
-                                resolved_refs = ' '.join(refs)
-                    except OSError:
-                        logger.debug("Couldn't open message locally for References")
-
-                # If local file was inaccessible (remote daemon or moved file), resolve via NED API
-                if resolved_refs is None:
-                    try:
-                        from .client import get_client
-                        seed = get_client().get_reply_seed(clean_id)
-                        if seed and seed.get('references'):
-                            resolved_refs = str(seed['references'])
-                    except Exception as exc:
-                        logger.debug("Could not resolve References from NED daemon: %s", exc)
+                # Resolve References via NED API
+                try:
+                    from .client import get_client
+                    seed = get_client().get_reply_seed(clean_id)
+                    if seed and seed.get('references'):
+                        resolved_refs = str(seed['references'])
+                except Exception as exc:
+                    logger.debug("Could not resolve References from NED daemon: %s", exc)
 
                 eml['References'] = resolved_refs or msg_id
 

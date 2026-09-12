@@ -10,6 +10,7 @@ import time
 import pytest
 
 from lazarus import actions, settings
+from ned import actions as ned_actions
 
 
 def _wait_until(pred, timeout=5.0):
@@ -39,17 +40,17 @@ def stub_worker_notmuch(notmuch_stub):
 # -- pure helpers -----------------------------------------------------------
 
 def test_strip_uid_annotation():
-    assert actions._strip_uid_annotation('msg:2,S') == 'msg:2,S'
-    assert actions._strip_uid_annotation('msg,U=123:2,S') == 'msg:2,S'
+    assert ned_actions._strip_uid_annotation('msg:2,S') == 'msg:2,S'
+    assert ned_actions._strip_uid_annotation('msg,U=123:2,S') == 'msg:2,S'
 
 
 def test_unique_dest(tmp_path):
     p = tmp_path / 'f.txt'
     p.write_text('x')
-    assert actions._unique_dest(str(p)).endswith('f.1.txt')
+    assert ned_actions._unique_dest(str(p)).endswith('f.1.txt')
     q = tmp_path / 'f.1.txt'
     q.write_text('y')
-    assert actions._unique_dest(str(p)).endswith('f.2.txt')
+    assert ned_actions._unique_dest(str(p)).endswith('f.2.txt')
 
 
 def test_resolve_stale_path_new_to_cur(maildir):
@@ -59,34 +60,34 @@ def test_resolve_stale_path_new_to_cur(maildir):
     with open(os.path.join(new, 'msg-9:2,'), 'w') as f:
         f.write('x')
     stale = os.path.join(cur, 'msg-9:2,S')
-    resolved = actions._resolve_stale_path(stale)
+    resolved = ned_actions._resolve_stale_path(stale)
     assert resolved is not None
     assert os.path.basename(resolved).startswith('msg-9')
 
 
 def test_mail_file_account(maildir):
     path = os.path.join(maildir, 'default', 'INBOX', 'cur', 'm')
-    assert actions._mail_file_account(path) == ('default', 'INBOX/cur/m')
-    assert actions._mail_file_account('/etc/hosts') is None
+    assert ned_actions._mail_file_account(path) == ('default', 'INBOX/cur/m')
+    assert ned_actions._mail_file_account('/etc/hosts') is None
 
 
 def test_check_archive_refused():
-    assert actions.check_archive_refused({'inbox', 'unread'})
-    assert not actions.check_archive_refused({'inbox', 'unread', 'work'})
-    assert actions.check_archive_refused(set())
+    assert ned_actions.check_archive_refused({'inbox', 'unread'})
+    assert not ned_actions.check_archive_refused({'inbox', 'unread', 'work'})
+    assert ned_actions.check_archive_refused(set())
 
 
 def test_is_trash_path():
-    assert actions._is_trash_path('/Mail/gmail/[Gmail]/Trash/cur/x')
-    assert actions._is_trash_path('/Mail/gmail/Trash/cur/x')
-    assert not actions._is_trash_path('/Mail/gmail/INBOX/cur/x')
+    assert ned_actions._is_trash_path('/Mail/gmail/[Gmail]/Trash/cur/x')
+    assert ned_actions._is_trash_path('/Mail/gmail/Trash/cur/x')
+    assert not ned_actions._is_trash_path('/Mail/gmail/INBOX/cur/x')
 
 
 # -- move flows -------------------------------------------------------------
 
 def test_move_to_trash_moves_file(notmuch_stub, maildir, inbox_file):
     notmuch_stub.files = [inbox_file]
-    n = actions.move_to_trash('tag:inbox')
+    n = ned_actions.move_to_trash('tag:inbox')
     assert n == 1
     assert notmuch_stub.tag_calls == [('+trash -inbox -unread', 'tag:inbox', True)]
     trash = os.path.join(maildir, 'default', 'Trash', 'cur')
@@ -96,7 +97,7 @@ def test_move_to_trash_moves_file(notmuch_stub, maildir, inbox_file):
 
 def test_move_to_archive(notmuch_stub, maildir, inbox_file):
     notmuch_stub.files = [inbox_file]
-    n = actions.move_to_archive('tag:inbox')
+    n = ned_actions.move_to_archive('tag:inbox')
     assert n == 1
     archive_cur = os.path.join(maildir, 'Archive', 'cur')
     assert _wait_until(lambda: any('msg-1' in f for f in os.listdir(archive_cur)))
@@ -108,7 +109,7 @@ def test_restore_from_trash(notmuch_stub, maildir):
     with open(src, 'w') as f:
         f.write('x')
     notmuch_stub.files = [src]
-    n = actions.restore_from_trash('tag:trash')
+    n = ned_actions.restore_from_trash('tag:trash')
     assert n == 1
     assert notmuch_stub.tag_calls[0][:2] == ('-trash +inbox', 'tag:trash')
     inbox_cur = os.path.join(maildir, 'default', 'INBOX', 'cur')
@@ -121,7 +122,7 @@ def test_expunge_trash_appends_t_flag(notmuch_stub, maildir):
     with open(src, 'w') as f:
         f.write('x')
     notmuch_stub.files = [src]
-    n = actions.expunge_trash()
+    n = ned_actions.expunge_trash()
     assert n == 1
     assert notmuch_stub.tag_calls[0][:2] == ('-trash', 'tag:trash')
     names = os.listdir(trash_dir)
@@ -134,7 +135,7 @@ def test_expunge_skips_already_trashed(notmuch_stub, maildir):
     with open(src, 'w') as f:
         f.write('x')
     notmuch_stub.files = [src]
-    assert actions.expunge_trash() == 0
+    assert ned_actions.expunge_trash() == 0
     assert notmuch_stub.tag_calls == []
 
 
@@ -150,7 +151,7 @@ def test_worker_runs_notmuch_new_after_batch(notmuch_stub, maildir, inbox_file, 
         qapp.processEvents()
     baseline = notmuch_stub.new_calls
     notmuch_stub.files = [inbox_file]
-    actions.move_to_trash('tag:inbox')
+    ned_actions.move_to_trash('tag:inbox')
     deadline = time.time() + 5
     while time.time() < deadline and notmuch_stub.new_calls <= baseline:
         qapp.processEvents()
@@ -241,7 +242,7 @@ def test_plan_trash_moves_alternate_mail_root(tmp_path):
     msg_file = inbox_cur / '12345.alpine,U=100:2,S'
     msg_file.write_text('From: test\n')
 
-    moves = actions.plan_trash_moves([str(msg_file)], mail_root=str(tmp_path / 'nonexistent' / 'Mail'))
+    moves = ned_actions.plan_trash_moves([str(msg_file)], mail_root=str(tmp_path / 'nonexistent' / 'Mail'))
     assert len(moves) == 1
     src, dst = moves[0]
     assert src == str(msg_file)
@@ -261,7 +262,7 @@ def test_restore_from_trash_alternate_mail_root(tmp_path, notmuch_stub):
     msg_file.write_text('From: test\n')
     notmuch_stub.files = [str(msg_file)]
 
-    n = actions.restore_from_trash('tag:trash')
+    n = ned_actions.restore_from_trash('tag:trash')
     assert n == 1
     assert _wait_until(lambda: (inbox_cur / 'msg-99:2,S').exists())
 
@@ -278,6 +279,65 @@ def test_get_mail_root_falls_back_to_notmuch(monkeypatch, tmp_path):
         stdout = str(fake_mail) + '\n'
 
     monkeypatch.setattr(notmuch, 'run', lambda *args, **kwargs: FakeRun())
-    assert actions.get_mail_root() == str(fake_mail)
+    assert ned_actions.get_mail_root() == str(fake_mail)
+
+
+def test_search_panel_advance_selection_forward(qapp, fake_app, client_stub):
+    """SearchPanel._advance_selection moves cursor to the next thread."""
+    from lazarus.search import SearchPanel
+    from tests.conftest import make_thread
+
+    client_stub.threads = [
+        make_thread('t1', 'Thread 1'),
+        make_thread('t2', 'Thread 2'),
+        make_thread('t3', 'Thread 3'),
+    ]
+    p = SearchPanel(fake_app, 'tag:inbox')
+    assert p.tree.currentIndex().row() == 0
+    p._advance_selection()
+    assert p.tree.currentIndex().row() == 1
+    p.close()
+    p.deleteLater()
+    qapp.processEvents()
+
+
+def test_search_panel_advance_selection_at_end(qapp, fake_app, client_stub):
+    """SearchPanel._advance_selection moves cursor to the previous thread if on the last row."""
+    from lazarus.search import SearchPanel
+    from tests.conftest import make_thread
+
+    client_stub.threads = [
+        make_thread('t1', 'Thread 1'),
+        make_thread('t2', 'Thread 2'),
+    ]
+    p = SearchPanel(fake_app, 'tag:inbox')
+    p.tree.setCurrentIndex(p.model.index(1, 0))
+    assert p.tree.currentIndex().row() == 1
+    p._advance_selection()
+    assert p.tree.currentIndex().row() == 0
+    p.close()
+    p.deleteLater()
+    qapp.processEvents()
+
+
+def test_search_panel_advance_selection_opens_preview(qapp, fake_app, client_stub):
+    """SearchPanel._advance_selection immediately opens the new thread preview if preview is open."""
+    from lazarus.search import SearchPanel
+    from tests.conftest import make_thread
+
+    client_stub.threads = [
+        make_thread('t1', 'Thread 1'),
+        make_thread('t2', 'Thread 2'),
+    ]
+    fake_app.main_window.has_thread_preview = lambda: True
+    p = SearchPanel(fake_app, 'tag:inbox')
+    opened = []
+    fake_app.open_thread = lambda tid, q: opened.append((tid, q))
+    p._advance_selection()
+    assert opened == [('t2', 'tag:inbox')]
+    p.close()
+    p.deleteLater()
+    qapp.processEvents()
+
 
 

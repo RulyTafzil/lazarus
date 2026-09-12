@@ -232,6 +232,7 @@ class ClientStub:
             'signatures': {},
             'signatures_html': {},
         }
+        self.reply_seeds: dict[str, dict] = {}
         self.send_message_calls: list[tuple[str, bytes]] = []
 
     # -- recording helpers ---------------------------------------------
@@ -377,7 +378,19 @@ class ClientStub:
         return self.sync_result
 
     def get_reply_seed(self, msg_id: str, to_all: bool = False) -> dict:
-        return {'to': '', 'cc': '', 'subject': 'RE: ', 'body': ''}
+        clean_id = msg_id.strip("<>")
+        if clean_id in self.reply_seeds:
+            return dict(self.reply_seeds[clean_id])
+        if msg_id in self.reply_seeds:
+            return dict(self.reply_seeds[msg_id])
+        return {
+            'to': '',
+            'cc': '',
+            'subject': 'RE: ',
+            'body': '',
+            'in_reply_to': f'<{clean_id}>',
+            'references': f'<{clean_id}>',
+        }
 
     def get_signatures(self) -> dict:
         return {'signatures': {}}

@@ -27,49 +27,9 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional, Set
 
-from ned.actions import (  # re-exported for lazarus.actions.<name> consumers
-    collect_files,
-    get_mail_root,
-    plan_trash_moves,
-    plan_archive_moves,
-    move_to_trash,
-    move_to_archive,
-    move_specific_files,
-    expunge_trash,
-    restore_from_trash,
-    check_archive_refused,
-    _strip_uid_annotation,
-    _unique_dest,
-    _resolve_stale_path,
-    _mail_file_account,
-    _trash_dir_path,
-    _find_trash_dir,
-    _find_archive_dir,
-    _is_trash_path,
-)
+from ned.actions import check_archive_refused
 
-# Re-exported from ``ned.actions`` for module-namespace consumers
-# (``lazarus.rules``, tests). The composition (mixin use + module re-export)
-# is deliberate.
-__all__ = [
-    "collect_files",
-    "get_mail_root",
-    "plan_trash_moves",
-    "plan_archive_moves",
-    "move_to_trash",
-    "move_to_archive",
-    "move_specific_files",
-    "expunge_trash",
-    "restore_from_trash",
-    "_strip_uid_annotation",
-    "_unique_dest",
-    "_resolve_stale_path",
-    "_mail_file_account",
-    "_trash_dir_path",
-    "_find_trash_dir",
-    "_find_archive_dir",
-    "_is_trash_path",
-]
+__all__ = ["MarkableActionsMixin"]
 
 logger = logging.getLogger(__name__)
 

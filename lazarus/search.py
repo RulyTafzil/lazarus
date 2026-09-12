@@ -641,11 +641,14 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             else:
                 self.dirty = True
         else:
-            current = self.tree.currentIndex()
-            target_row = current.row()
+            current_id = self.model.thread_id(self.tree.currentIndex())
+            target_row = self.tree.currentIndex().row()
             self.model.refresh_thread(thread_id)
             if self.model.num_threads == 0:
                 self.app.main_window.clear_thread()
+            elif current_id and current_id in self.model.threads:
+                self.tree.setCurrentIndex(
+                    self.model.index(self.model.threads[current_id], 0))
             elif target_row >= self.model.num_threads:
                 self.last_thread()
             else:
@@ -820,7 +823,22 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
         return set(thread.get('tags', []))
 
     def _advance_selection(self) -> None:
-        """No-op: ``refresh()`` handles position restoration via
-        ``_select_near_row`` fallback when the deleted thread ID is
-        no longer in the model."""
+        """Advance the cursor to the adjacent thread before a destructive action.
+
+        When deleting or archiving the current thread, moving the cursor
+        immediately ensures rapid hotkey triage stays on distinct threads
+        and transitions the preview pane to the next email without closing it.
+        """
+        count = self.model.rowCount()
+        if count <= 1:
+            return
+        current_row = self.tree.currentIndex().row()
+        if current_row < count - 1:
+            target_row = current_row + 1
+        else:
+            target_row = current_row - 1
+        self.tree.setCurrentIndex(self.model.index(target_row, 0))
+        mw = getattr(self.app, 'main_window', None)
+        if mw is not None and hasattr(mw, 'has_thread_preview') and mw.has_thread_preview():
+            self.open_current_thread()
 

@@ -322,7 +322,12 @@ class ThreadPanel(panel.Panel):
         try:
             self.model.refresh()
         except EmptyThreadError:
-            self.app.close_panel(self)
+            w = getattr(self.app, 'tabs', None)
+            curr = w.currentWidget() if w is not None else None
+            if curr is not None and hasattr(curr, 'model') and getattr(curr.model, 'rowCount', lambda: 0)() > 0 and hasattr(curr, 'open_current_thread'):
+                curr.open_current_thread()
+            else:
+                self.app.close_panel(self)
             return
         if self.model.error_msg:
             self.app.status_message(self.model.error_msg, 'error',
@@ -498,7 +503,12 @@ class ThreadPanel(panel.Panel):
                 try:
                     self.model.refresh_message(msg_id)
                 except EmptyThreadError:
-                    self.app.close_panel(self)
+                    w = getattr(self.app, 'tabs', None)
+                    curr = w.currentWidget() if w is not None else None
+                    if curr is not None and hasattr(curr, 'model') and getattr(curr.model, 'rowCount', lambda: 0)() > 0 and hasattr(curr, 'open_current_thread'):
+                        curr.open_current_thread()
+                    else:
+                        self.app.close_panel(self)
             else:
                 self.dirty = True
 

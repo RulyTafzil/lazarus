@@ -72,15 +72,16 @@ def test_send_failure_sets_error(qapp, client_stub):
 
 
 def test_reply_sets_references_and_replied_tag(tmp_path, qapp, client_stub):
-    # Original message with a References header, as notmuch stores it.
-    orig = tmp_path / 'orig.eml'
-    orig.write_text(
-        'From: Alice <alice@example.com>\n'
-        'References: <r1> <r2>\n'
-        'Subject: orig\n\nbody\n')
+    # Original message with a References header, as NED extracts it.
+    client_stub.reply_seeds['msg-9'] = {
+        'to': 'Alice <alice@example.com>',
+        'subject': 'Re: orig',
+        'references': '<r1> <r2> <msg-9>',
+        'in_reply_to': '<msg-9>',
+    }
     panel = FakePanel()
     panel.mode = 'reply'
-    panel.msg = {'id': 'msg-9', 'filename': [str(orig)]}
+    panel.msg = {'id': 'msg-9'}
 
     t = _run_send(panel, qapp)
 

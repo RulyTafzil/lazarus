@@ -144,7 +144,6 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
         if not message_or_filename:
             return
 
-        filename: Optional[str] = None
         if isinstance(message_or_filename, dict):
             self.message_json = message_or_filename
             self.message_id = str(message_or_filename.get('id', ''))
@@ -157,23 +156,6 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
                         self.cid_map[clean_cid] = (int(part['id']), ctype)
                     except (ValueError, TypeError):
                         pass
-            files = message_or_filename.get('filename')
-            if isinstance(files, list) and files:
-                filename = files[0]
-            elif isinstance(files, str):
-                filename = files
-        elif isinstance(message_or_filename, str):
-            filename = message_or_filename
-
-        if filename and os.path.isfile(filename):
-            try:
-                with open(filename, 'rb') as f:
-                    self.message = email.parser.BytesParser().parse(f)
-            except OSError as e:
-                logger.debug('set_message: cannot read %s: %s', filename, e)
-                self.message = None
-        else:
-            self.message = None
 
     def requestStarted(self, request: QWebEngineUrlRequestJob | None) -> None:
         if request is None:
@@ -195,20 +177,6 @@ class EmbeddedImageHandler(QWebEngineUrlSchemeHandler):
                     return
             except Exception as e:
                 logger.debug('requestStarted: failed fetching cid part %s: %s', clean_cid, e)
-
-        if self.message:
-            for part in self.message.walk():
-                part_cid = part.get("Content-id")
-                if part_cid and part_cid.strip('<>').strip() == clean_cid:
-                    content_type = part.get_content_type()
-                    buf = QBuffer(parent=self)
-                    buf.open(QIODevice.OpenModeFlag.WriteOnly)
-                    payload = part.get_payload(decode=True)
-                    if isinstance(payload, (bytes, bytearray, memoryview)):
-                        buf.write(payload)
-                    buf.close()
-                    request.reply(content_type.encode('latin1'), buf)
-                    return
 
         request.fail(QWebEngineUrlRequestJob.Error.UrlNotFound)
 
