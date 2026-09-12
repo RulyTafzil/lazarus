@@ -1367,11 +1367,11 @@ def main(args: Optional[list[str]] = None) -> int:
             return 0
 
         elif cmd == "sync":
-            ok, msg = client.sync_mail()
+            ok, sync_msg = client.sync_mail()
             if ok:
-                print(f"Sync succeeded: {msg}")
+                print(f"Sync succeeded: {sync_msg}")
                 return 0
-            print(f"Sync failed: {msg}", file=sys.stderr)
+            print(f"Sync failed: {sync_msg}", file=sys.stderr)
             return 1
 
         elif cmd == "events":
@@ -1384,11 +1384,11 @@ def main(args: Optional[list[str]] = None) -> int:
             target = parsed_args.target.strip()
             is_msg = target.startswith("id:") or target.startswith("<") or ("@" in target and not target.startswith("thread:"))
             if is_msg:
-                msg = client.get_message(target)
+                msg_data = client.get_message(target)
                 if parsed_args.json:
-                    print(json.dumps(msg, indent=2))
+                    print(json.dumps(msg_data, indent=2))
                 else:
-                    print(_format_raw_message_readable(msg, include_quoted=parsed_args.all))
+                    print(_format_raw_message_readable(msg_data, include_quoted=parsed_args.all))
             else:
                 thread = client.get_thread(target)
                 if parsed_args.json:
@@ -1414,7 +1414,7 @@ def main(args: Optional[list[str]] = None) -> int:
                 print("Error: at least one tag to add (--add) or remove (--remove) is required.", file=sys.stderr)
                 return 1
 
-            threads: list[str] = []
+            target_threads: list[str] = []
             messages: list[str] = []
             for tgt in parsed_args.targets:
                 tgt = tgt.strip()
@@ -1423,15 +1423,15 @@ def main(args: Optional[list[str]] = None) -> int:
                 if tgt.startswith("id:") or tgt.startswith("<") or ("@" in tgt and not tgt.startswith("thread:")):
                     messages.append(tgt)
                 else:
-                    threads.append(tgt)
+                    target_threads.append(tgt)
 
-            if not parsed_args.query and not threads and not messages:
+            if not parsed_args.query and not target_threads and not messages:
                 print("Error: at least one target ID or --query must be provided.", file=sys.stderr)
                 return 1
 
             ok = client.modify_tags(
                 queries=parsed_args.query,
-                threads=threads,
+                threads=target_threads,
                 messages=messages,
                 add=add_tags,
                 remove=remove_tags,
@@ -1443,7 +1443,7 @@ def main(args: Optional[list[str]] = None) -> int:
                 if remove_tags:
                     changes.append("-" + ", -".join(remove_tags))
                 summary = " ".join(changes)
-                target_desc = parsed_args.query or f"{len(threads) + len(messages)} target(s)"
+                target_desc = parsed_args.query or f"{len(target_threads) + len(messages)} target(s)"
                 print(f"Tags updated ({summary}) on {target_desc}.")
                 return 0
             print("Failed to update tags.", file=sys.stderr)
@@ -1495,11 +1495,11 @@ def main(args: Optional[list[str]] = None) -> int:
             if not raw_bytes:
                 print("Error: empty message payload.", file=sys.stderr)
                 return 1
-            ok, msg = client.send_message(parsed_args.account, raw_bytes)
+            ok, send_err = client.send_message(parsed_args.account, raw_bytes)
             if ok:
                 print(f"Message sent successfully via account '{parsed_args.account}'.")
                 return 0
-            print(f"Failed to send message: {msg}", file=sys.stderr)
+            print(f"Failed to send message: {send_err}", file=sys.stderr)
             return 1
 
     except KeyboardInterrupt:
