@@ -197,6 +197,26 @@ def main() -> int:
     except Exception as e:
         logger.warning("Could not load configuration: %s", e)
 
+    # Configure file logging if specified in settings
+    log_file = getattr(settings, "log_file", None)
+    if log_file:
+        try:
+            log_path = os.path.expanduser(log_file)
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            fh = logging.FileHandler(log_path)
+            fh.setFormatter(
+                logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+            )
+            logging.getLogger().addHandler(fh)
+        except Exception as e:
+            logger.warning("Failed to configure log file %s: %s", log_file, e)
+
+    # Adjust root log level from settings if not overridden by explicit CLI argument
+    if not any(arg.startswith("--log-level") for arg in sys.argv[1:]):
+        cfg_level = getattr(settings, "log_level", None)
+        if cfg_level and hasattr(logging, str(cfg_level).upper()):
+            logging.getLogger().setLevel(getattr(logging, str(cfg_level).upper()))
+
     # Resolve token override
     if args.token:
         settings.web_token = args.token

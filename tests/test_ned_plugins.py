@@ -457,8 +457,9 @@ DOMAIN_CRITERIA = {"Utilities": "Utilities"}
 
     mock_client.search_threads.assert_called_once()
     mock_client.modify_tags.assert_called_once_with(
-        threads="thread_abc123",
+        threads=["thread_abc123"],
         add=["Statements", "Utilities", "ai-tagged"],
+        add_tags=["Statements", "Utilities", "ai-tagged"],
     )
     assert invalidations == [("threads", None, "plugin:typesafe_jev")]
 

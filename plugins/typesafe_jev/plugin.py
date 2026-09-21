@@ -310,11 +310,13 @@ class TypeSafeJevPlugin:
                     tid, to_add, to_remove = fut.result()
                     if not to_add and not to_remove:
                         continue
-                    kwargs: dict[str, Any] = {"threads": tid}
+                    kwargs: dict[str, Any] = {"threads": [tid]}
                     if to_add:
                         kwargs["add"] = to_add
+                        kwargs["add_tags"] = to_add
                     if to_remove:
                         kwargs["remove"] = to_remove
+                        kwargs["remove_tags"] = to_remove
 
                     if hasattr(context.client, "modify_tags"):
                         ok = context.client.modify_tags(**kwargs)

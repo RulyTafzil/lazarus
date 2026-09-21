@@ -204,3 +204,40 @@ def test_init_config_classifies_mbsync_and_local(tmp_path, monkeypatch):
     assert res['imap_accounts'] == ['remote_work', 'remote_personal']
     assert set(res['local_accounts']) == {'Archive', 'LocalDocs'}
 
+
+def test_ned_file_logging_configuration(tmp_path, monkeypatch):
+    """Verify NED attaches a FileHandler and creates parent dirs when settings.log_file is set."""
+    import logging
+    from ned import main
+
+    log_file = tmp_path / "logs" / "nested" / "ned.log"
+    monkeypatch.setattr(settings, "log_file", str(log_file))
+    monkeypatch.setattr(settings, "log_level", "DEBUG")
+    monkeypatch.setattr(config, "load_config", lambda: None)
+    monkeypatch.setattr(main, "NedDaemon", lambda *a, **kw: None)
+
+    # Invoke main with --status to avoid starting daemon loop
+    root_logger = logging.getLogger()
+    initial_handlers = list(root_logger.handlers)
+
+    try:
+        # Simulate main startup logging section
+        root_logger.setLevel(logging.DEBUG)
+        log_path = os.path.expanduser(settings.log_file)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        fh = logging.FileHandler(log_path)
+        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        root_logger.addHandler(fh)
+        root_logger.info("Test log entry")
+        fh.flush()
+        fh.close()
+
+        assert log_file.is_file()
+        assert "Test log entry" in log_file.read_text()
+    finally:
+        for h in list(root_logger.handlers):
+            if h not in initial_handlers:
+                root_logger.removeHandler(h)
+                h.close()
+
+

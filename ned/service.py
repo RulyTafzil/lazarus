@@ -335,10 +335,10 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
 # ---------------------------------------------------------------------------
 
 def _build_target_query(
-    queries: Sequence[str] = (),
-    threads: Sequence[str] = (),
-    messages: Sequence[str] = (),
-    ids: Sequence[str] = (),
+    queries: Sequence[str] | str = (),
+    threads: Sequence[str] | str = (),
+    messages: Sequence[str] | str = (),
+    ids: Sequence[str] | str = (),
 ) -> str:
     """Build a consolidated Notmuch query from explicit targets.
 
@@ -347,24 +347,29 @@ def _build_target_query(
     """
     query_parts: list[str] = []
 
-    for q in queries:
+    queries_list = [queries] if isinstance(queries, str) else queries
+    threads_list = [threads] if isinstance(threads, str) else threads
+    messages_list = [messages] if isinstance(messages, str) else messages
+    ids_list = [ids] if isinstance(ids, str) else ids
+
+    for q in queries_list:
         clean_q = str(q).strip()
         if clean_q:
             query_parts.append(clean_q)
 
-    for tid in threads:
+    for tid in threads_list:
         clean_tid = urllib.parse.unquote(str(tid).strip())
         if clean_tid:
             query_parts.append(clean_tid if clean_tid.startswith("thread:") else f"thread:{clean_tid}")
 
-    for mid in messages:
+    for mid in messages_list:
         clean_mid = urllib.parse.unquote(str(mid).strip())
         if clean_mid.startswith("<") and clean_mid.endswith(">"):
             clean_mid = clean_mid[1:-1]
         if clean_mid:
             query_parts.append(clean_mid if clean_mid.startswith("id:") else f"id:{clean_mid}")
 
-    for item in ids:
+    for item in ids_list:
         clean_item = urllib.parse.unquote(str(item).strip())
         if not clean_item:
             continue
@@ -423,22 +428,29 @@ def build_account_query(
 
 
 def modify_tags(
-    queries: Sequence[str] = (),
-    add_tags: Sequence[str] = (),
-    remove_tags: Sequence[str] = (),
+    queries: Sequence[str] | str = (),
+    add_tags: Sequence[str] | str = (),
+    remove_tags: Sequence[str] | str = (),
     *,
-    threads: Sequence[str] = (),
-    messages: Sequence[str] = (),
-    ids: Sequence[str] = (),
+    threads: Sequence[str] | str = (),
+    messages: Sequence[str] | str = (),
+    ids: Sequence[str] | str = (),
+    add: Sequence[str] | str | None = None,
+    remove: Sequence[str] | str | None = None,
 ) -> bool:
     """Add or remove tags on specified queries, threads, or messages."""
     expr_parts: list[str] = []
-    for t in add_tags:
-        clean = t.strip().lstrip('+-')
+    raw_add = add if add is not None else add_tags
+    raw_remove = remove if remove is not None else remove_tags
+    add_list = [raw_add] if isinstance(raw_add, str) else list(raw_add or [])
+    remove_list = [raw_remove] if isinstance(raw_remove, str) else list(raw_remove or [])
+
+    for t in add_list:
+        clean = str(t).strip().lstrip('+-')
         if clean:
             expr_parts.append(f"+{clean}")
-    for t in remove_tags:
-        clean = t.strip().lstrip('+-')
+    for t in remove_list:
+        clean = str(t).strip().lstrip('+-')
         if clean:
             expr_parts.append(f"-{clean}")
 
