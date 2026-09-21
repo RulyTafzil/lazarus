@@ -230,20 +230,13 @@ def decide_proposed_tags(
                 tags_to_add.append(dm)
             reasons.append(f"{dm} ({dm_conf:.0%})")
 
-    # 5. Check if unclassifiable or unassigned
-    all_concrete = [t for t in (set(current_tags) | set(tags_to_add)) if t not in ("ai-tagged", "ai-unassigned")]
+    # 5. Check if unclassifiable (no tag added for low confidence)
+    all_concrete = [t for t in (set(current_tags) | set(tags_to_add)) if t != "ai-tagged"]
     if not all_concrete and dt != "Personal" and "ai-trash" not in tags_to_add:
         if dt_conf < 0.60 and dm_conf < 0.60:
-            if "ai-unassigned" not in current_tags:
-                tags_to_add.append("ai-unassigned")
             reasons.append(f"Ambiguous / Low conf ({dt_conf:.0%}, {dm_conf:.0%})")
         else:
             reasons.append(f"Archive (doc={dt} {dt_conf:.0%}, dom={dm} {dm_conf:.0%})")
-
-    # If concrete tags exist or Personal/trash or clear Archive, remove ai-unassigned if present
-    if (all_concrete or dt in ("Personal", "ai-trash") or (dt_conf >= 0.60 or dm_conf >= 0.60)) and "ai-unassigned" not in tags_to_add:
-        if "ai-unassigned" in current_tags:
-            tags_to_remove.append("ai-unassigned")
 
     # Always add 'ai-tagged' marker
     if "ai-tagged" not in current_tags:

@@ -265,6 +265,19 @@ def run_sync(
     new, flagged, expunged, deleted = parse_sync_stats(sync_summaries)
     ok = (sync_rc == 0 and notmuch_rc == 0)
 
+    # 5. post-sync plugins phase (asynchronous background execution)
+    if notmuch_rc == 0 and apply_rules and getattr(settings, 'post_sync_plugins', None):
+        try:
+            from .plugins import default_runner
+            default_runner.enqueue({
+                'new': new,
+                'flagged': flagged,
+                'expunged': expunged,
+                'deleted': deleted,
+            })
+        except Exception as e:
+            logger.warning('Error enqueuing post-sync plugins: %s', e)
+
     if sync_rc != 0:
         summary_msg = f'Sync error (exit {sync_rc})'
         if sync_stderr:

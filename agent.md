@@ -62,6 +62,9 @@ Running Lazarus and its daemon requires several host packages and Python librari
 │   ├── mail_utils.py         # Body extraction, part parsing, attachment decoding
 │   ├── html_utils.py         # HTML to plaintext conversion and linkification
 │   ├── signature.py          # Per-account signature file loader
+│   ├── plugins/              # Post-sync plugin subsystem
+│   │   ├── base.py           # PostSyncContext and PostSyncPlugin protocol
+│   │   └── runner.py         # PluginRunner background worker queue and resolver
 │   ├── settings.py           # Headless daemon settings defaults
 │   ├── config.py             # Config validation and rules loader
 │   ├── static/               # Mobile PWA web client (index.html, app.js, app.css)
@@ -97,6 +100,8 @@ Running Lazarus and its daemon requires several host packages and Python librari
 │   │   ├── client.py         # MCP transport adapter to NedClient
 │   │   └── formatters.py     # Token-saving payload pruners (quotes, HTML, headers)
 │   └── setup.py              # `ned-mcp` standalone distribution
+├── plugins/                  # Optional standalone post-sync plugins (installed to ~/.config/ned/plugins/)
+│   └── typesafe_jev/         # TypeSafe System One (Jev) email classifier (plugin.py, taxonomy.py)
 ├── tests/                    # Pytest test suite covering desktop, daemon, and MCP
 ├── tools/                    # import_themes.py CLI and terminal mapping definitions
 └── contrib/                  # User systemd service (ned.service)
@@ -127,6 +132,7 @@ When investigating issues or making changes, refer to these primary modules:
 - **Maildir Operations & Trashing**: [`ned/actions.py`](file:///home/rulyt/Projects/lazarus/ned/actions.py) (`_BulkMoveWorker`, trash/archive planning, UID strip, expunge).
 - **Notmuch CLI Abstraction**: [`ned/notmuch.py`](file:///home/rulyt/Projects/lazarus/ned/notmuch.py) (subprocesses for search, show, count, tag, address).
 - **Sync & Filtering**: [`ned/sync.py`](file:///home/rulyt/Projects/lazarus/ned/sync.py) (parallel `mbsync`, `notmuch new`) and [`ned/rules.py`](file:///home/rulyt/Projects/lazarus/ned/rules.py) (`Rule`, `apply_rules`).
+- **Post-Sync Plugins**: [`ned/plugins/runner.py`](file:///home/rulyt/Projects/lazarus/ned/plugins/runner.py) (`PluginRunner`), [`ned/plugins/base.py`](file:///home/rulyt/Projects/lazarus/ned/plugins/base.py) (`PostSyncContext`, `PostSyncPlugin`), and standalone plugins in [`plugins/`](file:///home/rulyt/Projects/lazarus/plugins/) (`typesafe_jev`).
 - **MIME Generation & Signatures**: [`ned/mime_builder.py`](file:///home/rulyt/Projects/lazarus/ned/mime_builder.py), [`ned/compose_model.py`](file:///home/rulyt/Projects/lazarus/ned/compose_model.py) (`sig_edit`), and [`ned/signature.py`](file:///home/rulyt/Projects/lazarus/ned/signature.py).
 - **Python Client API**: [`ned/client.py`](file:///home/rulyt/Projects/lazarus/ned/client.py) (`NedClient`, Unix socket and HTTP transport implementations).
 
@@ -167,6 +173,7 @@ The desktop is purely a consumer of the daemon:
 - **REST Conventions**: Formally documented in [`docs/api.md`](file:///home/rulyt/Projects/lazarus/docs/api.md) and served live at `GET /api/v1/openapi.json`. Read endpoints return raw Notmuch JSON structures. Mutation endpoints return status envelopes (`{"status": "ok", "ok": true, ...}`).
 - **Cache Invalidation via SSE**: `GET /api/v1/events` streams cache invalidations (`{"scope": "threads"|"thread", "id": ..., "reason": ...}`). Desktop and web clients invalidate and re-query views rather than patching state locally.
 - **Mobile PWA Web App**: When the TCP listener is enabled, the daemon serves the bundled mobile PWA web assets from [`ned/static/`](file:///home/rulyt/Projects/lazarus/ned/static/) at `GET /`. The PWA interacts with the exact same `/api/v1/` REST and SSE endpoints as the desktop client.
+- **Post-Sync Plugin Execution**: Plugins execute asynchronously in a background worker thread managed by [`PluginRunner`](file:///home/rulyt/Projects/lazarus/ned/plugins/runner.py). They run after `mbsync`, `notmuch new`, and static `filter_rules` complete, receiving a [`PostSyncContext`](file:///home/rulyt/Projects/lazarus/ned/plugins/base.py). Plugins modify tags via the client handle and call `ctx.invalidate("threads")` to trigger SSE updates in connected clients without delaying mail sync.
 
 ### `ned-mcp` Security & Sandboxing Model
 The MCP server enforces strict controls for AI agents:
@@ -195,6 +202,7 @@ Configurations are decoupled into separate files:
 | `~/.config/lazarus/config.py` | Desktop GUI (`lazarus.settings`) | UI-only preferences: theme, fonts, hotkey definitions, `search_list_mode` ('list' or 'card'), external browser commands. |
 | `~/.config/ned/config.py` | Daemon (`ned.settings`) | Mail routing: `email_address`, `smtp_accounts`, `imap_accounts`, `local_accounts`, `sent_dir`, `send_mail_command`, `sync_mail_interval`, `web_token`. Auto-generate with `ned --init-config`. |
 | `~/.config/ned/rules.py` | Daemon (`ned.config.load_rules`) | Custom filter rules: `Rule(name, query, add_tags, remove_tags, move_to)`. |
+| `~/.config/ned/plugins/typesafe_jev/taxonomy.py` | Plugin (`TypeSafeJevPlugin`) | Document type and domain criteria, confidence thresholds, and tagging markers for TypeSafe Jev email classifier. |
 | `~/.config/ned/<acct>/signature(.html)` | Daemon (`ned.signature`) | Account plain and HTML signatures loaded on demand. |
 
 ---
@@ -268,3 +276,9 @@ The desktop client spawns NED automatically through [`lazarus/client.py:ensure_d
     - Tests: Run `python -m pytest` via the project environment (such as `~/.local/share/pipx/venvs/lazarus-mail/bin/python -m pytest` or within an active virtualenv). All test suites must pass before submitting changes.
     - Types: Run `mypy lazarus ned` under `disallow_untyped_defs = True` (configured in [`mypy.ini`](file:///home/rulyt/Projects/lazarus/mypy.ini)). When running mypy outside the GUI virtualenv, pass `--python-executable` pointing to the Python environment containing PyQt6 so types resolve correctly.
 13. **Git Workflow**: Mainline branch is `main`. Never commit directly to `main`. Create feature branches (`pr/<slug>`), push to Forgejo (`forge.rulytafzil.com:2222`), and submit PRs.
+14. **Post-Sync Plugin Safety & Isolation**:
+    - **Zero AI in NED Core**: NED core daemon stays 100% lightweight and pure standard library. All external API or AI classification plugins live strictly outside the core daemon package (in `plugins/` and copied to `~/.config/ned/plugins/`).
+    - **Strict Privacy**: Plugins evaluating mail via external services must strictly restrict input to metadata (`from`, `subject`). Email message bodies must never be read, transmitted, or logged.
+    - **No Hidden Defaults**: Classification criteria, rubrics, and API keys are explicitly configured in the user's `taxonomy.py`. No fallback internal dictionaries exist.
+    - **Non-Blocking Execution**: Plugins execute asynchronously via `PluginRunner` after `mbsync` and static rules complete, emitting live SSE invalidations (`ctx.invalidate("threads")`) so GUI clients update reactively.
+

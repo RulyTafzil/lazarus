@@ -292,4 +292,11 @@ class NedDaemon:
         except OSError:
             pass
 
+        # Stop background plugin runner
+        try:
+            from .plugins import default_runner
+            default_runner.stop(timeout=2.0)
+        except Exception:
+            pass
+
         logger.info("NED daemon stopped cleanly")

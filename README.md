@@ -321,6 +321,71 @@ also trigger them manually with `C-r`.
 
 ---
 
+## Post-sync plugins (optional)
+
+Post-sync plugins extend NED by running tasks asynchronously in the background
+after mail synchronization (`mbsync` + `notmuch new`) and static filter rules
+complete. Because plugins execute in a dedicated worker thread, mail sync is
+never delayed, and plugins emit live Server-Sent Events (SSE) so updated tags
+and metadata appear in Lazarus desktop and mobile clients in real time.
+
+Plugins live in your config directory under `~/.config/ned/plugins/<plugin_name>/`
+(which NED automatically adds to Python's module search path).
+
+To enable a plugin, add it to `~/.config/ned/config.py` under Section 4:
+
+```python
+import ned.settings
+
+ned.settings.post_sync_plugins = [
+    # Class instance, callable, or import path string
+    'my_plugin.MyPlugin',
+]
+```
+
+### TypeSafe Jev email classification plugin
+
+An optional AI email classifier is provided in the repository under
+`plugins/typesafe_jev/` (completely separate from NED core):
+
+- **Strict Privacy**: Transmits strictly email metadata (`from` and `subject`).
+  Message bodies are never read or transmitted over the network.
+- **Two-Facet Classification**: Classifies emails across two independent
+  taxonomies: Document Type (`Statements`, `Receipts`, `Delivery`, `Support`,
+  `Marketing`, `Registrations`, `Urgent`, `Personal`, `ai-trash`) and Domain
+  (`Utilities`, `Housing`, `Medical`, `Investments`, `TravelBookings`,
+  `TravelRewards`, `StudentLoans`, `Taxes`).
+- **No Hidden Defaults**: Classification rubrics, categories, confidence thresholds,
+  and API key are configured in `taxonomy.py` right inside the plugin directory.
+
+**Installation**:
+
+1. Copy the plugin directory to your NED config plugins folder:
+   ```bash
+   mkdir -p ~/.config/ned/plugins
+   cp -r plugins/typesafe_jev ~/.config/ned/plugins/
+   ```
+
+2. Open `~/.config/ned/plugins/typesafe_jev/taxonomy.py` and set your API key:
+   ```python
+   API_KEY = "ts_..."
+   ```
+
+3. Enable the plugin in `~/.config/ned/config.py`:
+   ```python
+   from typesafe_jev import TypeSafeJevPlugin
+
+   ned.settings.post_sync_plugins = [
+       TypeSafeJevPlugin(
+           scope_query="not tag:ai-tagged and (tag:inbox or tag:unread)",
+           concurrency=3,
+       ),
+   ]
+   ```
+   *(Or by string: `'typesafe_jev.TypeSafeJevPlugin'`)*
+
+---
+
 ## Multiple accounts
 
 NED and Lazarus supports multiple email accounts with account-specific

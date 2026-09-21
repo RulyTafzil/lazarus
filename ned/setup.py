@@ -39,7 +39,7 @@ if __name__ == "__main__":
             "Programming Language :: Python :: 3",
             "Operating System :: POSIX :: Linux",
         ],
-        packages=["ned"],
+        packages=["ned", "ned.plugins"],
         package_dir={"ned": "."},
         package_data={'ned': ['static/*']},
         install_requires=[],

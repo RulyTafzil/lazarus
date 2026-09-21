@@ -136,6 +136,11 @@ def _validate_settings() -> list[str]:
     if not isinstance(settings.filter_rules, list):
         errors.append(f"filter_rules must be a list, got {type(settings.filter_rules).__name__}")
 
+    # -- post-sync plugins -------------------------------------------------
+    if hasattr(settings, 'post_sync_plugins') and settings.post_sync_plugins is not None:
+        if not isinstance(settings.post_sync_plugins, list):
+            errors.append(f"post_sync_plugins must be a list, got {type(settings.post_sync_plugins).__name__}")
+
     # -- log level ---------------------------------------------------------
     if settings.log_level.upper() not in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
         errors.append(f"log_level = {settings.log_level!r}. Must be DEBUG/INFO/WARNING/ERROR/CRITICAL")
@@ -535,6 +540,20 @@ def init_config() -> tuple[str, str | None]:
             "# Remote API listener for remote Lazarus desktop clients or web interface:\n"
         )
 
+    detected_plugins_comment = ""
+    plugins_dir = os.path.expanduser("~/.config/ned/plugins")
+    if os.path.isdir(plugins_dir):
+        discovered = [
+            e for e in sorted(os.listdir(plugins_dir))
+            if not e.startswith((".", "__")) and (os.path.isdir(os.path.join(plugins_dir, e)) or e.endswith(".py"))
+        ]
+        if discovered:
+            lines = ["# Detected plugin files/directories in ~/.config/ned/plugins:"]
+            for d in discovered:
+                lines.append(f"#   - {d}")
+            lines.append("# To enable, add them to ned.settings.post_sync_plugins above.")
+            detected_plugins_comment = "\n#\n" + "\n".join(lines)
+
     content = f"""# =============================================================================
 # NED Configuration
 #
@@ -622,6 +641,21 @@ ned.settings.web_token = ''
 rules_file = os.path.join(os.path.dirname(__file__), 'rules.py') if '__file__' in globals() else os.path.expanduser('~/.config/ned/rules.py')
 if os.path.isfile(rules_file):
     exec(open(rules_file).read())
+
+
+# =============================================================================
+# SECTION 4: POST-SYNC PLUGINS (OPTIONAL)
+# =============================================================================
+# Post-sync plugins run asynchronously in the background after mail sync
+# and filter rules complete, without blocking your inbox. They emit live SSE
+# events so tags and changes appear in the GUI in real time.
+#
+# To install a plugin, copy it to ~/.config/ned/plugins/<plugin_name>/ and
+# add it to the list below (as an instance, class, callable, or import string):
+#
+# ned.settings.post_sync_plugins = [
+#     # 'typesafe_jev.TypeSafeJevPlugin',
+# ]{detected_plugins_comment}
 """
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)

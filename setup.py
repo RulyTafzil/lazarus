@@ -35,7 +35,7 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    packages=["lazarus", "ned"],
+    packages=setuptools.find_packages(include=['lazarus*', 'ned*']),
     py_modules=["ned_client"],
     package_data={
         'lazarus': ['icons/hicolor/*/apps/lazarus.png', 'theme_packs/*.json'],

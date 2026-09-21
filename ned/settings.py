@@ -160,6 +160,11 @@ are allowed to touch.
 Rules are applied as ``(filter_scope_query) and (rule.query)``.
 """
 
+post_sync_plugins: List[Any] = []
+"""A list of post-sync plugins (instances, classes, callables, or import path strings)
+executed asynchronously in the background after mail sync and filter rules complete.
+"""
+
 # logging
 log_level = 'WARNING'
 """Python logging level for NED.
