@@ -323,66 +323,141 @@ also trigger them manually with `C-r`.
 
 ## Post-sync plugins (optional)
 
-Post-sync plugins extend NED by running tasks asynchronously in the background
-after mail synchronization (`mbsync` + `notmuch new`) and static filter rules
-complete. Because plugins execute in a dedicated worker thread, mail sync is
-never delayed, and plugins emit live Server-Sent Events (SSE) so updated tags
-and metadata appear in Lazarus desktop and mobile clients in real time.
+NED includes an asynchronous, non-blocking post-sync plugin system. Whenever
+mail synchronization (`mbsync` + `notmuch new`) and static filter rules complete,
+NED enqueues sync statistics to a dedicated background worker thread.
 
-Plugins live in your config directory under `~/.config/ned/plugins/<plugin_name>/`
-(which NED automatically adds to Python's module search path).
+Key characteristics:
+- **Non-blocking**: Mail sync returns immediately. Heavy tasks, external API
+  calls, or local heuristics never stall your inbox or hold up subsequent syncs.
+- **Live UI updates**: Plugins receive a `PostSyncContext` and can call
+  `context.invalidate("threads")` to broadcast Server-Sent Events (SSE). Lazarus
+  desktop and mobile clients refresh their views reactively without polling.
+- **Standard Library Core**: NED core contains zero vendor or AI dependencies.
+  All plugins are decoupled and run from the user's config directory.
+- **Logging**: Plugin logs are captured alongside daemon events in
+  `~/.local/share/ned/ned.log`.
 
-To enable a plugin, add it to `~/.config/ned/config.py` under Section 4:
+### Installing and enabling plugins
+
+1. **Install plugin files**:
+   Plugins live in your NED configuration directory under
+   `~/.config/ned/plugins/<plugin_name>/`. NED automatically prepends
+   `~/.config/ned/plugins` to Python's module search path (`sys.path`).
+
+   To install a plugin, copy or clone its folder into your config directory:
+   ```bash
+   mkdir -p ~/.config/ned/plugins
+   cp -r /path/to/my_plugin ~/.config/ned/plugins/
+   ```
+
+2. **Enable in `config.py`**:
+   In `~/.config/ned/config.py`, add the plugin class or import path to
+   `ned.settings.post_sync_plugins`:
+   ```python
+   ned.settings.post_sync_plugins = [
+       "my_plugin.MyPlugin",
+   ]
+   ```
+
+3. **Restart NED**:
+   Restart the daemon to load new plugins and configuration:
+   ```bash
+   # OpenRC (Alpine):
+   rc-service ned restart
+
+   # systemd (User service):
+   systemctl --user restart ned
+   ```
+
+4. **Verify in logs**:
+   Inspect `~/.local/share/ned/ned.log` to watch plugin initialization and
+   execution upon sync:
+   ```bash
+   tail -f ~/.local/share/ned/ned.log
+   ```
+
+---
+
+### Writing a custom plugin
+
+Any Python class or callable implementing `on_post_sync(context)` can be used
+as a plugin. Create `~/.config/ned/plugins/notify/plugin.py`:
 
 ```python
-import ned.settings
+from ned.plugins import PostSyncContext
 
+class NotifyPlugin:
+    """Example plugin that inspects new mail and logs or tags threads."""
+
+    def on_post_sync(self, context: PostSyncContext) -> None:
+        new_count = context.stats.get("new", 0)
+        if new_count == 0:
+            return
+
+        context.logger.info("New mail arrived: %d message(s)", new_count)
+
+        # Search for untagged threads
+        threads = context.client.search_threads("tag:inbox and tag:unread and not tag:notified")
+        for t in threads:
+            tid = t.get("thread", t.get("thread_id", ""))
+            # Tag the thread
+            context.client.modify_tags(threads=[tid], add_tags=["notified"])
+
+        # Broadcast SSE invalidation so desktop and mobile UI refresh
+        context.invalidate("threads", reason="plugin:notify")
+```
+
+Then enable it in `~/.config/ned/config.py`:
+```python
 ned.settings.post_sync_plugins = [
-    # Class instance, callable, or import path string
-    'my_plugin.MyPlugin',
+    "notify.plugin.NotifyPlugin",
 ]
 ```
 
-### TypeSafe Jev email classification plugin
+---
 
-An optional AI email classifier is provided in the repository under
-`plugins/typesafe_jev/` (completely separate from NED core):
+### Example plugin: TypeSafe Jev email classifier
+
+The repository includes a production-ready post-sync plugin in `plugins/typesafe_jev/`
+demonstrating two-facet AI email classification using TypeSafe System One (Jev):
 
 - **Strict Privacy**: Transmits strictly email metadata (`from` and `subject`).
-  Message bodies are never read or transmitted over the network.
+  Message bodies are never read, transmitted, or logged.
 - **Two-Facet Classification**: Classifies emails across two independent
   taxonomies: Document Type (`Statements`, `Receipts`, `Delivery`, `Support`,
   `Marketing`, `Registrations`, `Urgent`, `Personal`, `ai-trash`) and Domain
   (`Utilities`, `Housing`, `Medical`, `Investments`, `TravelBookings`,
-  `TravelRewards`, `StudentLoans`, `Taxes`).
+  `TravelRewards`, `StudentLoans`, `Taxes`). Transient informational mail
+  (terms of service, policy updates, platform notices) resolves to `"None"`.
 - **No Hidden Defaults**: Classification rubrics, categories, confidence thresholds,
   and API key are configured in `taxonomy.py` right inside the plugin directory.
 
-**Installation**:
+**Setup Instructions**:
 
-1. Copy the plugin directory to your NED config plugins folder:
+1. Copy the plugin to your NED configuration directory:
    ```bash
    mkdir -p ~/.config/ned/plugins
    cp -r plugins/typesafe_jev ~/.config/ned/plugins/
    ```
 
-2. Open `~/.config/ned/plugins/typesafe_jev/taxonomy.py` and set your API key:
+2. Configure your API key in `~/.config/ned/plugins/typesafe_jev/taxonomy.py`:
    ```python
-   API_KEY = "ts_..."
+   API_KEY = "ts_your_actual_api_key"
    ```
 
 3. Enable the plugin in `~/.config/ned/config.py`:
    ```python
-   from typesafe_jev import TypeSafeJevPlugin
-
    ned.settings.post_sync_plugins = [
-       TypeSafeJevPlugin(
-           scope_query="not tag:ai-tagged and (tag:inbox or tag:unread)",
-           concurrency=3,
-       ),
+       "typesafe_jev.TypeSafeJevPlugin",
    ]
    ```
-   *(Or by string: `'typesafe_jev.TypeSafeJevPlugin'`)*
+
+4. Restart NED and trigger a sync:
+   ```bash
+   rc-service ned restart   # or systemctl --user restart ned
+   ned-client sync
+   ```
 
 ---
 
@@ -426,11 +501,9 @@ at no charge on the personal plan.
    tailscale up
    ```
 
-````
-
-1. Enable HTTPS in the Tailscale admin console under DNS by toggling
+2. Enable HTTPS in the Tailscale admin console under DNS by toggling
    **MagicDNS** and **HTTPS Certificates**.
-2. Configure NED to listen on loopback. Tailscale Serve forwards to
+3. Configure NED to listen on loopback. Tailscale Serve forwards to
    `127.0.0.1:8080` by default. In `~/.config/ned/config.py`:
 
    ```python
@@ -446,7 +519,7 @@ at no charge on the personal plan.
    ```ini
    ExecStart=%h/.local/bin/ned --host 127.0.0.1
    ```
-3. Expose NED via Tailscale Serve. Grant operator permissions once so running
+4. Expose NED via Tailscale Serve. Grant operator permissions once so running
    serve does not require root:
 
    ```bash
@@ -471,7 +544,7 @@ at no charge on the personal plan.
    https://your-node.tailnet.ts.net (tailnet only)
    |-- / proxy http://127.0.0.1:8080
    ```
-4. Open `https://your-node.tailnet.ts.net` in your
+5. Open `https://your-node.tailnet.ts.net` in your
    phone browser and install it as a home screen app:
    - **iOS Safari:** Tap Share, then tap **Add to Home Screen**.
    - **Android Chrome:** Tap the three dots menu, then tap **Add to Home

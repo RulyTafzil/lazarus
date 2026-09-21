@@ -200,9 +200,10 @@ Configurations are decoupled into separate files:
 | Configuration File | Read By | Purpose |
 | :--- | :--- | :--- |
 | `~/.config/lazarus/config.py` | Desktop GUI (`lazarus.settings`) | UI-only preferences: theme, fonts, hotkey definitions, `search_list_mode` ('list' or 'card'), external browser commands. |
-| `~/.config/ned/config.py` | Daemon (`ned.settings`) | Mail routing: `email_address`, `smtp_accounts`, `imap_accounts`, `local_accounts`, `sent_dir`, `send_mail_command`, `sync_mail_interval`, `web_token`. Auto-generate with `ned --init-config`. |
+| `~/.config/ned/config.py` | Daemon (`ned.settings`) | Daemon configuration: mail accounts, `log_file`, `log_level`, `send_mail_command`, `sync_mail_interval`, `post_sync_plugins`. Auto-generate with `ned --init-config`. |
 | `~/.config/ned/rules.py` | Daemon (`ned.config.load_rules`) | Custom filter rules: `Rule(name, query, add_tags, remove_tags, move_to)`. |
-| `~/.config/ned/plugins/typesafe_jev/taxonomy.py` | Plugin (`TypeSafeJevPlugin`) | Document type and domain criteria, confidence thresholds, and tagging markers for TypeSafe Jev email classifier. |
+| `~/.config/ned/plugins/<name>/` | Daemon (`ned.plugins.runner`) | Standalone user plugins loaded dynamically onto `sys.path`. |
+| `~/.config/ned/plugins/typesafe_jev/taxonomy.py` | Plugin (`TypeSafeJevPlugin`) | Document type and domain criteria, confidence thresholds, API key, and tagging markers for TypeSafe Jev email classifier. |
 | `~/.config/ned/<acct>/signature(.html)` | Daemon (`ned.signature`) | Account plain and HTML signatures loaded on demand. |
 
 ---
@@ -281,4 +282,5 @@ The desktop client spawns NED automatically through [`lazarus/client.py:ensure_d
     - **Strict Privacy**: Plugins evaluating mail via external services must strictly restrict input to metadata (`from`, `subject`). Email message bodies must never be read, transmitted, or logged.
     - **No Hidden Defaults**: Classification criteria, rubrics, and API keys are explicitly configured in the user's `taxonomy.py`. No fallback internal dictionaries exist.
     - **Non-Blocking Execution**: Plugins execute asynchronously via `PluginRunner` after `mbsync` and static rules complete, emitting live SSE invalidations (`ctx.invalidate("threads")`) so GUI clients update reactively.
+    - **Logging Integration**: Daemon and plugin activity automatically writes to `settings.log_file` (default `~/.local/share/ned/ned.log`) via a `FileHandler` attached at daemon startup.
 
