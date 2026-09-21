@@ -193,7 +193,7 @@ Configurations are decoupled into separate files:
 | Configuration File | Read By | Purpose |
 | :--- | :--- | :--- |
 | `~/.config/lazarus/config.py` | Desktop GUI (`lazarus.settings`) | UI-only preferences: theme, fonts, hotkey definitions, `search_list_mode` ('list' or 'card'), external browser commands. |
-| `~/.config/ned/config.py` | Daemon (`ned.settings`) | Mail routing: `email_address`, `smtp_accounts`, `sent_dir`, `send_mail_command`, `sync_mail_interval`, `web_token`. Auto-generate with `ned --init-config`. |
+| `~/.config/ned/config.py` | Daemon (`ned.settings`) | Mail routing: `email_address`, `smtp_accounts`, `imap_accounts`, `local_accounts`, `sent_dir`, `send_mail_command`, `sync_mail_interval`, `web_token`. Auto-generate with `ned --init-config`. |
 | `~/.config/ned/rules.py` | Daemon (`ned.config.load_rules`) | Custom filter rules: `Rule(name, query, add_tags, remove_tags, move_to)`. |
 | `~/.config/ned/<acct>/signature(.html)` | Daemon (`ned.signature`) | Account plain and HTML signatures loaded on demand. |
 
@@ -220,7 +220,7 @@ When moving files between folders (such as moving from INBOX to Trash), [`ned/ac
   - Local disk archive (`POST /api/v1/move-archive`): Relocates files to `~/Mail/Archive/` and strips `inbox` and `unread`.
 - **Trashing (`POST /api/v1/trash`)**: Relocates files to the account Trash directory, removes `inbox` and `unread`, and adds `trash`.
 - **Restoring (`POST /api/v1/restore`)**: Relocates files from Trash back to the account INBOX, removes `trash`, and adds `inbox`.
-- **Expunging (`POST /api/v1/expunge`)**: Irreversible step that appends the Maildir `T` (trashed) flag suffix to every file matching `tag:trash`. The next `mbsync` run purges these messages permanently from remote IMAP stores.
+- **Expunging (`POST /api/v1/expunge`)**: Irreversible step that permanently unlinks local non-IMAP trash files (such as `~/Mail/Archive/Trash/`) and updates Notmuch, while appending the Maildir `T` (trashed) flag suffix to remote IMAP store files so the next `mbsync` run purges them remotely.
 
 ---
 

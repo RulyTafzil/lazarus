@@ -139,6 +139,65 @@ def test_expunge_skips_already_trashed(notmuch_stub, maildir):
     assert notmuch_stub.tag_calls == []
 
 
+def test_expunge_trash_deletes_local_archive_files(notmuch_stub, maildir):
+    archive_trash = os.path.join(maildir, 'Archive', 'Trash', 'cur')
+    os.makedirs(archive_trash, exist_ok=True)
+    src = os.path.join(archive_trash, 'msg-local:2,S')
+    with open(src, 'w') as f:
+        f.write('x')
+    notmuch_stub.files = [src]
+    n = ned_actions.expunge_trash()
+    assert n == 1
+    assert not os.path.exists(src)
+    assert notmuch_stub.tag_calls[0][:2] == ('-trash', 'tag:trash')
+
+
+def test_expunge_trash_sweeps_local_trash_dir(notmuch_stub, maildir):
+    archive_trash = os.path.join(maildir, 'Archive', 'Trash', 'cur')
+    os.makedirs(archive_trash, exist_ok=True)
+    src = os.path.join(archive_trash, 'msg-orphan:2,ST')
+    with open(src, 'w') as f:
+        f.write('x')
+    notmuch_stub.files = []
+    n = ned_actions.expunge_trash()
+    assert n == 1
+    assert not os.path.exists(src)
+
+
+def test_expunge_mixed_local_and_imap(notmuch_stub, maildir):
+    imap_trash = os.path.join(maildir, 'default', 'Trash', 'cur')
+    archive_trash = os.path.join(maildir, 'Archive', 'Trash', 'cur')
+    os.makedirs(archive_trash, exist_ok=True)
+
+    src_imap = os.path.join(imap_trash, 'msg-imap:2,S')
+    src_local = os.path.join(archive_trash, 'msg-local:2,S')
+    with open(src_imap, 'w') as f:
+        f.write('imap')
+    with open(src_local, 'w') as f:
+        f.write('local')
+
+    notmuch_stub.files = [src_imap, src_local]
+    n = ned_actions.expunge_trash()
+    assert n == 2
+    # Local file deleted
+    assert not os.path.exists(src_local)
+    # IMAP file renamed with T flag
+    names = os.listdir(imap_trash)
+    assert any('msg-imap' in name and name.endswith(':2,ST') for name in names)
+
+
+def test_expunge_gmail_trash_never_unlinked(notmuch_stub, maildir):
+    gmail_trash = os.path.join(maildir, 'gmail', '[Gmail]', 'Trash', 'cur')
+    os.makedirs(gmail_trash, exist_ok=True)
+    src = os.path.join(gmail_trash, 'msg-gmail:2,S')
+    with open(src, 'w') as f:
+        f.write('gmail')
+    notmuch_stub.files = [src]
+    n = ned_actions.expunge_trash()
+    assert n == 1
+    assert os.path.exists(os.path.join(gmail_trash, 'msg-gmail:2,ST'))
+
+
 def test_worker_runs_notmuch_new_after_batch(notmuch_stub, maildir, inbox_file, qapp):
     """After a move batch lands, notmuch new fires exactly once more.
 

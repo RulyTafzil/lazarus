@@ -243,7 +243,7 @@ Move a single message file to the local Archive Maildir and tag `-inbox -unread`
 
 ##### `POST /api/v1/expunge`
 
-Apply the Maildir T flag to every file matching `tag:trash`. Irreversible.
+Permanently delete files in local non-IMAP trash folders (such as `~/Mail/Archive/Trash/`) and apply the Maildir T flag to remote IMAP trash files so `mbsync` purges them on next sync. Irreversible.
 
 ### Send
 

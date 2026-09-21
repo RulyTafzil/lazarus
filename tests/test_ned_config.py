@@ -52,6 +52,8 @@ def test_init_config_fresh(tmp_path, monkeypatch):
     assert "Alice Smith <alice@example.com>" in content
     assert "Alice Smith <alice@gmail.com>" in content
     assert "'gmail': None" in content
+    assert "ned.settings.imap_accounts" in content
+    assert "ned.settings.local_accounts = ['Archive']" in content
 
     # Check sample rules.py creation
     rules_file = tmp_path / "ned" / "rules.py"
@@ -160,4 +162,45 @@ ned.settings.filter_rules = [
     assert settings.filter_rules[0].name == 'Custom'
     assert settings.filter_rules[0].query == 'tag:alerts'
     assert settings.filter_rules[0].tag_add == ['urgent']
+
+
+def test_get_mbsync_accounts(tmp_path, monkeypatch):
+    mbsyncrc = tmp_path / ".mbsyncrc"
+    mbsyncrc.write_text("""
+# Comment line
+IMAPAccount gmail
+Host imap.gmail.com
+
+IMAPAccount work
+Host imap.work.com
+
+Channel personal
+Master :gmail:
+""")
+    monkeypatch.setenv("MBSYNCRC", str(mbsyncrc))
+    accounts = config._get_mbsync_accounts()
+    assert accounts == ["gmail", "work", "personal"]
+
+
+def test_init_config_classifies_mbsync_and_local(tmp_path, monkeypatch):
+    mbsyncrc = tmp_path / ".mbsyncrc"
+    mbsyncrc.write_text("IMAPAccount remote_work\nIMAPAccount remote_personal\n")
+    monkeypatch.setenv("MBSYNCRC", str(mbsyncrc))
+
+    mail_root = tmp_path / "Mail"
+    (mail_root / "remote_work" / "cur").mkdir(parents=True)
+    (mail_root / "remote_personal" / "cur").mkdir(parents=True)
+    (mail_root / "Archive" / "cur").mkdir(parents=True)
+    (mail_root / "LocalDocs" / "cur").mkdir(parents=True)
+
+    def mock_run(*args, **kwargs):
+        if args == ("config", "get", "database.mail_root"):
+            return subprocess.CompletedProcess(args, 0, stdout=f"{mail_root}\n", stderr="")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+
+    monkeypatch.setattr("ned.notmuch.run", mock_run)
+
+    res = config._inspect_notmuch_and_maildir()
+    assert res['imap_accounts'] == ['remote_work', 'remote_personal']
+    assert set(res['local_accounts']) == {'Archive', 'LocalDocs'}
 

@@ -193,12 +193,16 @@ except ImportError:
             add: Optional[str | list[str]] = None,
             remove: Optional[str | list[str]] = None,
         ) -> bool:
+            final_add = [add] if isinstance(add, str) else list(add or [])
+            final_remove = [remove] if isinstance(remove, str) else list(remove or [])
             payload: dict[str, Any] = {
                 "queries": [queries] if isinstance(queries, str) else list(queries or []),
                 "threads": [threads] if isinstance(threads, str) else list(threads or []),
                 "messages": [messages] if isinstance(messages, str) else list(messages or []),
-                "add_tags": [add] if isinstance(add, str) else list(add or []),
-                "remove_tags": [remove] if isinstance(remove, str) else list(remove or []),
+                "add": final_add,
+                "remove": final_remove,
+                "add_tags": final_add,
+                "remove_tags": final_remove,
             }
             res = self._request_json("POST", "/api/v1/tags", json_body=payload)
             return bool(isinstance(res, dict) and (res.get("status") == "ok" or res.get("ok")))

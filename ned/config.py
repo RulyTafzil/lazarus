@@ -111,6 +111,23 @@ def _validate_settings() -> list[str]:
             if not isinstance(acct, str) or not acct.strip():
                 errors.append(f"smtp_accounts[{i}] must be a non-empty string, got {acct!r}")
 
+    # -- imap_accounts and local_accounts sanity --------------------------
+    if hasattr(settings, 'imap_accounts') and settings.imap_accounts is not None:
+        if not isinstance(settings.imap_accounts, list):
+            errors.append(f"imap_accounts must be a list, got {type(settings.imap_accounts).__name__}")
+        else:
+            for i, acct in enumerate(settings.imap_accounts):
+                if not isinstance(acct, str) or not acct.strip():
+                    errors.append(f"imap_accounts[{i}] must be a non-empty string, got {acct!r}")
+
+    if hasattr(settings, 'local_accounts') and settings.local_accounts is not None:
+        if not isinstance(settings.local_accounts, list):
+            errors.append(f"local_accounts must be a list, got {type(settings.local_accounts).__name__}")
+        else:
+            for i, acct in enumerate(settings.local_accounts):
+                if not isinstance(acct, str) or not acct.strip():
+                    errors.append(f"local_accounts[{i}] must be a non-empty string, got {acct!r}")
+
     # -- sync interval -----------------------------------------------------
     if not isinstance(settings.sync_mail_interval, int):
         errors.append(f"sync_mail_interval must be int, got {type(settings.sync_mail_interval).__name__}")
@@ -231,6 +248,41 @@ def _get_msmtp_accounts() -> dict[str, str]:
     return mappings
 
 
+def _get_mbsync_accounts() -> list[str]:
+    """Parse mbsync configuration files for configured IMAP account or channel names."""
+    candidates = [
+        os.environ.get('MBSYNCRC'),
+        '~/.mbsyncrc',
+        '~/.config/isync/mbsyncrc',
+    ]
+    accounts: list[str] = []
+    for p in candidates:
+        if not p:
+            continue
+        path = os.path.expanduser(p)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    parts = line.split(None, 1)
+                    if len(parts) >= 2:
+                        cmd = parts[0].lower()
+                        arg = parts[1].split()[0].strip()
+                        if cmd == 'imapaccount' and arg not in accounts:
+                            accounts.append(arg)
+                        elif cmd == 'channel' and arg not in accounts:
+                            accounts.append(arg)
+        except Exception:
+            pass
+        if accounts:
+            break
+    return accounts
+
+
 def _path_to_display(path: str) -> str:
     """Format a path using ~ if it resides inside user home directory."""
     home = os.path.expanduser('~')
@@ -293,6 +345,7 @@ def _inspect_notmuch_and_maildir() -> dict[str, Any]:
     email_address_map: dict[str, str] = {}
     sent_dir_map: dict[str, str | None] = {}
     used_names: set[str] = set()
+    matched_imap_dirs: set[str] = set()
 
     for email in all_emails:
         local_part, _, domain = email.partition('@')
@@ -322,6 +375,10 @@ def _inspect_notmuch_and_maildir() -> dict[str, Any]:
             acct_name = f"{base_name}_{counter}"
         used_names.add(acct_name)
         smtp_accounts.append(acct_name)
+
+        if matched_dir:
+            matched_imap_dirs.add(matched_dir)
+        matched_imap_dirs.add(acct_name)
 
         if matched_dir and '@' in matched_dir and matched_dir.lower() == email.lower():
             display_email = matched_dir
@@ -359,9 +416,27 @@ def _inspect_notmuch_and_maildir() -> dict[str, Any]:
     archive_path = os.path.join(expanded_root, 'Archive')
     archive_disp = _path_to_display(archive_path)
 
+    # Classify IMAP accounts from mbsync config vs local non-IMAP directories
+    mbsync_accounts = _get_mbsync_accounts()
+    if mbsync_accounts:
+        imap_accounts = list(mbsync_accounts)
+    else:
+        imap_accounts = list(smtp_accounts)
+
+    known_imap = set(imap_accounts) | matched_imap_dirs
+    local_accounts: list[str] = []
+    for entry in dir_entries:
+        if entry not in known_imap and entry not in local_accounts:
+            local_accounts.append(entry)
+
+    if not local_accounts:
+        local_accounts = ['Archive']
+
     return {
         'mail_root': mail_root_disp,
         'smtp_accounts': smtp_accounts,
+        'imap_accounts': imap_accounts,
+        'local_accounts': local_accounts,
         'email_address': email_address_map,
         'sent_dir': sent_dir_map,
         'archive_dir': archive_disp,
@@ -484,14 +559,21 @@ from ned.rules import Rule
 # You can edit any of these values. For example:
 # - Edit contact names in email_address, changing 'User Name <email>' to your name.
 # - Adjust sent_dir paths or set an account to None if the server auto-saves.
-# - Rename or reorder smtp_accounts to match your msmtp configuration.
+# - Rename or reorder smtp_accounts / imap_accounts to match your msmtp/mbsync configuration.
+# - List local non-IMAP folders in local_accounts so expunge clears them directly.
 # - Change mail_root or archive_dir if your storage layout changes.
 
 # Root directory of your local mail store:
 ned.settings.mail_root = {derived['mail_root']!r}
 
-# Account names recognized by send_mail_command and sync_mail_command:
+# Outgoing SMTP accounts recognized by send_mail_command:
 ned.settings.smtp_accounts = {derived['smtp_accounts']!r}
+
+# Accounts synchronized with remote IMAP via mbsync:
+ned.settings.imap_accounts = {derived['imap_accounts']!r}
+
+# Local non-IMAP stores under mail_root (expunge clears directly from disk):
+ned.settings.local_accounts = {derived['local_accounts']!r}
 
 # Outgoing From identity per account.
 # Format: 'Display Name <address@domain.com>'

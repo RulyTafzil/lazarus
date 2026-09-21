@@ -111,7 +111,7 @@ def run_sync(
     def is_cancelled() -> bool:
         return bool(cancel_check and cancel_check())
 
-    target_accounts = accounts if accounts is not None else settings.smtp_accounts
+    target_accounts = accounts if accounts is not None else (settings.imap_accounts or settings.smtp_accounts)
     active_procs: list[subprocess.Popen[str]] = []
     sync_rc = 0
     sync_summaries: list[str] = []

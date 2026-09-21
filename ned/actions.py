@@ -411,7 +411,78 @@ def collect_files(query: str) -> list[str]:
 
 def _is_trash_path(path: str) -> bool:
     """Return True if *path* lives inside a Trash Maildir folder."""
-    return '/Trash/' in path or '/[Gmail]/Trash/' in path
+    return (
+        '/Trash/' in path
+        or '/[Gmail]/Trash/' in path
+        or '/.Trash/' in path
+        or '/trash/' in path
+    )
+
+
+def _is_local_trash(path: str, mail_root: Optional[str] = None) -> bool:
+    """Return True if *path* lives inside a local-only, non-IMAP Trash folder.
+
+    Gmail folders containing '/[Gmail]/' and accounts listed in
+    `settings.imap_accounts` are strictly remote IMAP and are never treated
+    as local trash. Accounts in `settings.local_accounts` or under `archive_dir`
+    are local stores directly cleared on expunge.
+    """
+    if not _is_trash_path(path):
+        return False
+    if '/[Gmail]/' in path:
+        return False
+
+    effective_archive = os.path.expanduser(get_archive_dir())
+    if path.startswith(effective_archive + os.sep) or path == effective_archive:
+        return True
+
+    res = _mail_file_account_and_root(path, mail_root)
+    if res is None:
+        return True
+    account, _, _ = res
+
+    local_accts = getattr(settings, 'local_accounts', None)
+    if local_accts and account in local_accts:
+        return True
+
+    imap_accts = getattr(settings, 'imap_accounts', None)
+    if imap_accts:
+        return account not in imap_accts
+
+    smtp_accts = getattr(settings, 'smtp_accounts', None)
+    if smtp_accts:
+        return account not in smtp_accts
+
+    return True
+
+
+def _get_local_trash_dirs(mail_root: Optional[str] = None) -> list[str]:
+    """Return existing directory paths for local non-IMAP Trash cur/ and new/ folders."""
+    effective_mail_root = os.path.expanduser(mail_root or get_mail_root())
+    archive_dir = os.path.expanduser(get_archive_dir())
+
+    trash_dirs: list[str] = []
+
+    # 1. Archive Trash
+    for sub in ('cur', 'new'):
+        for t_cand in ('Trash', '.Trash', 'trash'):
+            d = os.path.join(archive_dir, t_cand, sub)
+            if os.path.isdir(d) and d not in trash_dirs:
+                trash_dirs.append(d)
+
+    # 2. Local accounts under mail_root
+    local_names = set(getattr(settings, 'local_accounts', None) or [])
+    if os.path.isdir(effective_mail_root):
+        for acct in local_names:
+            acct_dir = os.path.join(effective_mail_root, acct)
+            if os.path.isdir(acct_dir):
+                for sub in ('cur', 'new'):
+                    for t_cand in ('Trash', '.Trash', 'trash'):
+                        d = os.path.join(acct_dir, t_cand, sub)
+                        if os.path.isdir(d) and d not in trash_dirs:
+                            trash_dirs.append(d)
+
+    return trash_dirs
 
 
 def plan_trash_moves(files: List[str],
@@ -522,22 +593,41 @@ def move_specific_files(files: List[str], target_dir: str) -> int:
 
 
 def expunge_trash(trash_folder: Optional[str] = None) -> int:
-    """Add the Maildir ``T`` (Trashed) flag to every file matching ``tag:trash``."""
+    """Expunge messages matching ``tag:trash`` and clear local non-IMAP trash folders.
+
+    For files in local, non-IMAP trash directories (such as Archive/Trash),
+    they are permanently unlinked and notmuch is updated immediately.
+    For files in IMAP accounts, the Maildir ``T`` (Trashed) flag is appended
+    so the next sync cycle (mbsync) will purge them remotely.
+    """
     files = collect_files('tag:trash')
+    effective_root = get_mail_root()
 
     tagged = 0
+    deleted_local = 0
+    unlinked_paths: set[str] = set()
+
     for f in files:
         if not _is_trash_path(f):
             logger.debug('expunge: not in trash folder: %s', f)
             continue
 
-        # Re-resolve right before the rename: the collect above may be a
+        # Re-resolve right before the rename/delete: the collect above may be a
         # beat old, and mbsync / flag-sync can rename the file meanwhile.
         resolved = _resolve_stale_path(f)
         if resolved is None:
             logger.debug('expunge: file gone: %s', os.path.basename(f))
             continue
         f = resolved
+
+        if _is_local_trash(f, effective_root):
+            try:
+                os.unlink(f)
+                unlinked_paths.add(f)
+                deleted_local += 1
+            except OSError as e:
+                logger.warning('expunge: local delete failed %s: %s', f, e)
+            continue
 
         dirname = os.path.dirname(f)
         basename = os.path.basename(f)
@@ -558,10 +648,31 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
         except OSError as e:
             logger.warning('expunge rename failed %s → %s: %s', f, new_path, e)
 
-    if tagged:
+    # Sweep any remaining files in local non-IMAP trash directories
+    for d in _get_local_trash_dirs(effective_root):
+        try:
+            for fname in os.listdir(d):
+                fpath = os.path.join(d, fname)
+                if os.path.isfile(fpath) and fpath not in unlinked_paths:
+                    try:
+                        os.unlink(fpath)
+                        unlinked_paths.add(fpath)
+                        deleted_local += 1
+                    except OSError as e:
+                        logger.warning('expunge: failed to sweep %s: %s', fpath, e)
+        except OSError:
+            pass
+
+    if deleted_local:
+        try:
+            notmuch.new(no_hooks=True)
+        except Exception as e:
+            logger.warning('notmuch new after local expunge failed: %s', e)
+
+    if tagged or deleted_local:
         notmuch.tag('-trash', 'tag:trash')
 
-    return tagged
+    return tagged + deleted_local
 
 
 def restore_from_trash(notmuch_query: str, unmark: bool = False) -> int:

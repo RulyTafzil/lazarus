@@ -71,10 +71,21 @@ currently selected account.
 
 smtp_accounts: List[str] = ['default']
 """A list of SMTP account names recognised by `send_mail_command`
+"""
 
-Note this also selects the sync path: with a non-empty list, mail sync runs
-``mbsync -V <account>`` per account and :func:`~ned.settings.sync_mail_command`
-is ignored (set ``[]`` here to use the shell command instead).
+imap_accounts: List[str] = []
+"""A list of account names synchronized with remote IMAP via mbsync.
+
+Mail sync runs ``mbsync -V <account>`` for each account in this list.
+During expunge, trashed files in these accounts are marked with the Maildir
+``T`` (Trashed) flag so mbsync will delete them from the remote IMAP store.
+"""
+
+local_accounts: List[str] = ['Archive']
+"""A list of local, non-IMAP account or directory names under mail_root.
+
+These are not synchronized with any remote server. During expunge, trashed
+files in these directories are permanently deleted from disk immediately.
 """
 
 sync_mail_command = 'offlineimap'
