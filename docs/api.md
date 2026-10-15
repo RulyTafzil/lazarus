@@ -96,9 +96,11 @@ curl --unix-socket /run/user/$UID/ned/ned.sock \
 
 #### `GET /api/v1/tags` — tags with counts
 ```text
-GET /api/v1/tags
-→ 200 [ {"name": "inbox", "count": 12}, … ]
+GET /api/v1/tags[?include_unread=true|false]
+→ 200 [ {"name": "inbox", "count": 12, "unread_count": 3}, … ]
 ```
+Cached in-memory on the daemon and automatically invalidated on mail mutation/sync events.
+Single combined batch query allows clients to retrieve both total and unread thread counts in one round-trip.
 
 #### `GET /api/v1/contacts` — address autocomplete
 `?q=<prefix>` → list of `{"name":…, "address":…}` dicts.

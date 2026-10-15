@@ -49,13 +49,17 @@ class TagModel(QAbstractItemModel):
         self.d: List[Tuple[str,str,str]] = []
         from .client import get_client
         client = get_client()
-        tag_data = client.get_tags()
+        tag_data = client.get_tags(include_unread=True)
         if tag_data:
-            tags = [t['name'] for t in tag_data]
-            totals = [t.get('count', 0) for t in tag_data]
-            unread = client.count_batch([f'tag:{t} AND tag:unread' for t in tags], output='threads')
-            for t, c, cu in zip(tags, totals, unread):
-                self.d.append((t, str(cu), str(c)))
+            if 'unread_count' in tag_data[0]:
+                for t in tag_data:
+                    self.d.append((t['name'], str(t.get('unread_count', 0)), str(t.get('count', 0))))
+            else:
+                tags = [t['name'] for t in tag_data]
+                totals = [t.get('count', 0) for t in tag_data]
+                unread = client.count_batch([f'tag:{t} AND tag:unread' for t in tags], output='threads')
+                for t, c, cu in zip(tags, totals, unread):
+                    self.d.append((t, str(cu), str(c)))
 
         self.endResetModel()
 

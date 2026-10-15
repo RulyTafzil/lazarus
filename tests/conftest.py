@@ -259,9 +259,14 @@ class ClientStub:
         self.count_calls.append(('__batch__', output))
         return [len(_filter_threads(self.threads, q)) for q in queries]
 
-    def get_tags(self) -> list[dict]:
-        return [{'name': t, 'count': len(_filter_threads(self.threads, f'tag:{t}'))}
-                for t in self.tag_list]
+    def get_tags(self, include_unread: bool = True) -> list[dict]:
+        res = []
+        for t in self.tag_list:
+            item = {'name': t, 'count': len(_filter_threads(self.threads, f'tag:{t}'))}
+            if include_unread:
+                item['unread_count'] = len(_filter_threads(self.threads, f'tag:{t} and tag:unread'))
+            res.append(item)
+        return res
 
     def get_contacts(self, query: str = '', limit: int | None = None) -> list[dict]:
         return []

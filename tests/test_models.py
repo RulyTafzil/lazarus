@@ -234,8 +234,12 @@ def test_tag_model_counts(client_stub, qapp):
         make_thread('t3', 'C', tags=['unread']),
     ]
     client_stub.tag_list = ['inbox', 'unread']
+    client_stub.count_calls.clear()
     model = TagModel()
     assert model.num_tags() == 2
+    # Verify count_batch was NOT called because get_tags provided unread_count (single round-trip)
+    assert not any(call[0] == '__batch__' for call in client_stub.count_calls)
+
     # column 0 = tag name; column 1 = '[unread/total]'
     inbox = [r for r in range(model.rowCount())
              if model.data(model.index(r, 0)) == 'inbox'][0]
@@ -243,3 +247,34 @@ def test_tag_model_counts(client_stub, qapp):
     unread = [r for r in range(model.rowCount())
               if model.data(model.index(r, 0)) == 'unread'][0]
     assert model.data(model.index(unread, 1)) == '[2/2]'
+
+
+def test_tag_model_fallback_without_unread_count(client_stub, qapp, monkeypatch):
+    """Verify fallback to count_batch if daemon/server does not provide unread_count."""
+    client_stub.threads = [
+        make_thread('t1', 'A', tags=['inbox', 'unread']),
+        make_thread('t2', 'B', tags=['inbox']),
+        make_thread('t3', 'C', tags=['unread']),
+    ]
+    client_stub.tag_list = ['inbox', 'unread']
+    client_stub.count_calls.clear()
+
+    # Emulate older daemon returning only name and count
+    monkeypatch.setattr(
+        client_stub,
+        "get_tags",
+        lambda include_unread=True: [
+            {"name": "inbox", "count": 2},
+            {"name": "unread", "count": 2},
+        ],
+    )
+
+    model = TagModel()
+    assert model.num_tags() == 2
+    # Verify count_batch WAS called as a fallback
+    assert any(call[0] == '__batch__' for call in client_stub.count_calls)
+
+    inbox = [r for r in range(model.rowCount())
+             if model.data(model.index(r, 0)) == 'inbox'][0]
+    assert model.data(model.index(inbox, 1)) == '[1/2]'
+
