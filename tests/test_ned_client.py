@@ -801,8 +801,8 @@ def test_cli_rules(mock_apply_rules, running_ned_unix, capsys):
 @patch("ned.service.send_raw")
 def test_cli_send(mock_send_raw, running_ned_unix, monkeypatch, tmp_path, capsys):
     """Test CLI send command from file and stdin."""
-    monkeypatch.setattr(settings, "smtp_accounts", ["work", "personal"])
     _, sock_path = running_ned_unix
+    monkeypatch.setattr(settings, "smtp_accounts", ["work", "personal"])
     mock_send_raw.return_value = (True, "Mail sent")
 
     # 1. Send from file

@@ -197,12 +197,10 @@ class NedDaemon:
         if self.sync_interval_seconds and self.sync_interval_seconds > 0:
             self._start_sync_scheduler()
 
-        # 4. Register actions batch listener for SSE broadcast and tag cache invalidation
-        def _on_move_batch_done() -> None:
-            service.invalidate_tag_cache()
-            broadcaster.broadcast_invalidate("threads", reason="move")
-
-        actions.set_batch_done_listener(_on_move_batch_done)
+        # 4. Register actions batch listener for SSE broadcast
+        actions.set_batch_done_listener(
+            lambda: broadcaster.broadcast_invalidate("threads", reason="move")
+        )
 
     def _start_unix_listener(self) -> None:
         """Bind and start the Unix domain socket server."""

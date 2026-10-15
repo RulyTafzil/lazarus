@@ -350,8 +350,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         if path == "/api/v1/tags":
-            include_unread = qs.get("include_unread", ["true"])[0].lower() in ("true", "1", "yes")
-            self.send_json(service.get_all_tags(include_unread=include_unread))
+            self.send_json(service.get_all_tags())
             return
 
         if path == "/api/v1/contacts":
