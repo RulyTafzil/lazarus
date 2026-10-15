@@ -33,6 +33,8 @@ from __future__ import annotations
 import subprocess
 from typing import List
 
+from .concurrency import mutation_lock
+
 
 def run(*args: str, check: bool = False,
         timeout: float | None = None) -> subprocess.CompletedProcess:
@@ -153,7 +155,8 @@ def tag(tag_expr: str, query: str, exclude_marked: bool = False) -> subprocess.C
     if exclude_marked:
         args.append('-marked')
     args += ['--', query]
-    return run(*args)
+    with mutation_lock:
+        return run(*args)
 
 
 def new(no_hooks: bool = True) -> None:
@@ -166,4 +169,5 @@ def new(no_hooks: bool = True) -> None:
     args = ['new']
     if no_hooks:
         args.append('--no-hooks')
-    run(*args)
+    with mutation_lock:
+        run(*args)

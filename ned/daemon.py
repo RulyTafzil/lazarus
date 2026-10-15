@@ -34,9 +34,9 @@ import threading
 from typing import Optional
 import urllib.parse
 
+from . import actions
 from . import settings
 from . import service
-from .concurrency import mutation_lock
 from .events import broadcaster
 from .handler import NedRequestHandler
 from .tailscale import detect_tailscale
@@ -197,6 +197,11 @@ class NedDaemon:
         if self.sync_interval_seconds and self.sync_interval_seconds > 0:
             self._start_sync_scheduler()
 
+        # 4. Register actions batch listener for SSE broadcast
+        actions.set_batch_done_listener(
+            lambda: broadcaster.broadcast_invalidate("threads", reason="move")
+        )
+
     def _start_unix_listener(self) -> None:
         """Bind and start the Unix domain socket server."""
         sock_file = Path(self.socket_path)
@@ -257,13 +262,12 @@ class NedDaemon:
             logger.info("Starting background sync loop (every %ds)", interval)
             while not self._stop_event.wait(interval):
                 logger.debug("Background sync triggered by NED scheduler")
-                with mutation_lock:
-                    try:
-                        ok, msg = service.sync_mail()
-                        if ok:
-                            broadcaster.broadcast_invalidate("threads", reason="sync")
-                    except Exception as e:
-                        logger.warning("Scheduled sync failed: %s", e)
+                try:
+                    ok, msg = service.sync_mail()
+                    if ok:
+                        broadcaster.broadcast_invalidate("threads", reason="sync")
+                except Exception as e:
+                    logger.warning("Scheduled sync failed: %s", e)
 
         self._sync_thread = threading.Thread(target=_sync_loop, name="NED-SyncScheduler", daemon=True)
         self._sync_thread.start()
@@ -274,6 +278,7 @@ class NedDaemon:
             return
         self._running = False
         self._stop_event.set()
+        actions.set_batch_done_listener(None)
 
         # Stop servers
         if self._unix_server:

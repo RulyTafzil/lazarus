@@ -206,3 +206,31 @@ def test_run_wraps_subprocess(monkeypatch):
     assert cmd == ['notmuch', 'search', '--format=json', '--', 'tag:inbox']
     assert captured['kwargs']['capture_output'] is True
     assert captured['kwargs']['text'] is True
+
+
+def test_tag_and_new_acquire_mutation_lock(monkeypatch):
+    from ned.concurrency import MutationLock
+
+    lock_events = []
+    orig_enter = MutationLock.__enter__
+    orig_exit = MutationLock.__exit__
+
+    def enter_hook(self):
+        lock_events.append("enter")
+        return orig_enter(self)
+
+    def exit_hook(self, *args):
+        lock_events.append("exit")
+        return orig_exit(self, *args)
+
+    monkeypatch.setattr(MutationLock, "__enter__", enter_hook)
+    monkeypatch.setattr(MutationLock, "__exit__", exit_hook)
+    monkeypatch.setattr(nm, "run", lambda *args, **kwargs: MagicMock(returncode=0))
+
+    nm.tag("+test", "tag:inbox")
+    assert lock_events == ["enter", "exit"]
+
+    lock_events.clear()
+    nm.new(no_hooks=True)
+    assert lock_events == ["enter", "exit"]
+

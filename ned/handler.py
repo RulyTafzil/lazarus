@@ -685,8 +685,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         # Mail synchronization
         if path == "/api/v1/sync":
-            with mutation_lock:
-                ok, msg = service.sync_mail()
+            ok, msg = service.sync_mail()
             if ok:
                 broadcaster.broadcast_invalidate("threads", reason="sync")
                 self.send_json({"status": "ok", "message": msg, "ok": True})
@@ -762,8 +761,12 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             # only pipes it to msmtp, saves the sent copy, and indexes it.
             raw_b64 = body_json.get("message_b64")
             if raw_b64:
+                configured = service.get_configured_accounts()
                 if not account:
-                    account = service.get_configured_accounts()[0]
+                    account = configured[0] if configured else ""
+                if not account or account not in configured:
+                    self.send_error_json(f"Unknown or unconfigured account: {account!r}", HTTPStatus.BAD_REQUEST)
+                    return
                 try:
                     raw_bytes = base64.b64decode(raw_b64, validate=True)
                 except Exception:
@@ -783,8 +786,12 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_error_json("To field is required")
             return
 
+        configured = service.get_configured_accounts()
         if not account:
-            account = service.get_configured_accounts()[0]
+            account = configured[0] if configured else ""
+        if not account or account not in configured:
+            self.send_error_json(f"Unknown or unconfigured account: {account!r}", HTTPStatus.BAD_REQUEST)
+            return
 
         with mutation_lock:
             ok, err_or_msg = service.send_email(

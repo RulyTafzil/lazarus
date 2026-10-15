@@ -91,10 +91,10 @@ def sign(msg: email.message.Message, keyid: str) -> email.message.EmailMessage:
     msg_to_sign = email.message_from_string(msg.as_string(), policy=gpg_policy)
     # Create a new mail that will contain the original message and its signature
     signed_mail = email.message.EmailMessage(policy=msg.policy.clone(linesep='\r\n'))
-    # copy the non Content-* headers to the new mail and remove them from the
+    # copy the non Content-* and non-Bcc headers to the new mail and remove them from the
     # message that will be signed
     for k, v in msg.items():
-        if not k.lower().startswith('content-'):
+        if not k.lower().startswith('content-') and k.lower() != 'bcc':
             signed_mail[k] = v
             del msg_to_sign[k]
     signed_mail.set_type("multipart/signed")
@@ -124,23 +124,38 @@ def encrypt(msg: email.message.Message) -> email.message.EmailMessage:
     # be able to decrypt the mail that has been sent.
     recipients = [
         addr[1] for addr in email.utils.getaddresses([
-            val for key, val in msg.items() if key in ['From', 'To', 'Cc']
-        ])
+            val for key, val in msg.items() if key in ['From', 'To', 'Cc', 'Bcc']
+        ]) if addr[1]
     ]
-    recipients_keys = [key['fingerprint'] for key in gpg.list_keys()
-                       if any(addr == util.strip_email_address(uid)
-                           for uid in key['uids'] for addr in recipients)]
+    all_keys = gpg.list_keys()
+    recipients_keys: list[str] = []
+    missing: list[str] = []
+    for addr in recipients:
+        matched = [
+            key['fingerprint'] for key in all_keys
+            if any(addr.casefold() == util.strip_email_address(uid).casefold()
+                   for uid in key['uids'])
+        ]
+        if not matched:
+            missing.append(addr)
+        else:
+            recipients_keys.extend(matched)
+    if missing:
+        raise GpgError(f"No PGP public key found for: {', '.join(missing)}")
+
     # Generate a copy of the message, by working on the copy we leave
     # the original message (msg) unaltered.
     msg_to_encrypt = email.message_from_bytes(msg.as_bytes(), policy=msg.policy.clone())
     # Create a new message that will contain the control part and the encrypted
     # message. Copy the non Content-* headers and remove them from the
-    # message that will be encrypted
+    # message that will be encrypted (omitting Bcc to avoid leaking it in cleartext)
     encrypted_mail = email.message.EmailMessage(policy=msg.policy.clone())
     for k, v in msg.items():
-        if not k.lower().startswith('content-'):
+        if not k.lower().startswith('content-') and k.lower() != 'bcc':
             encrypted_mail[k] = v
             del msg_to_encrypt[k]
+        elif k.lower() == 'bcc':
+            pass
     encrypted_mail.set_type("multipart/encrypted")
     encrypted_mail.set_param("protocol", "application/pgp-encrypted")
 

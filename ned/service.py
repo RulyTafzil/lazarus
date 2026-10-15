@@ -23,7 +23,9 @@ contact lookups, and outbound email delivery without importing Qt.
 
 from __future__ import annotations
 
+import email
 import email.parser
+import email.policy
 import email.utils
 import json
 import logging
@@ -732,12 +734,18 @@ def _dispatch_and_save(acct: str, msg_bytes: bytes,
     """Pipe ``msg_bytes`` through the account's send command, save a sent
     copy, and index it. Shared by :func:`send_email` and :func:`send_raw`.
     """
+    configured = get_configured_accounts()
+    if acct not in configured:
+        return (False, f"Unknown account: {acct!r}")
+
     # Resolve command
     if isinstance(settings.send_mail_command, dict):
-        cmd_tmpl = settings.send_mail_command.get(acct, 'msmtp -a "{account}" -t')
+        cmd_tmpl = settings.send_mail_command.get(acct, 'msmtp -a {account} -t')
     else:
         cmd_tmpl = settings.send_mail_command
-    cmd_str = cmd_tmpl.format(account=acct)
+
+    normalized_tmpl = cmd_tmpl.replace('"{account}"', '{account}').replace("'{account}'", '{account}')
+    cmd_str = normalized_tmpl.format(account=shlex.quote(acct))
     cmd_args = shlex.split(cmd_str)
 
     proc = subprocess.Popen(
@@ -753,7 +761,7 @@ def _dispatch_and_save(acct: str, msg_bytes: bytes,
         logger.warning('Failed to send mail via %r: %s', cmd_str, err_msg)
         return (False, f"Send command failed: {err_msg}")
 
-    # Save to sent_dir if configured
+    # Save to sent_dir if configured (stripping Bcc so it is never uploaded to IMAP)
     sent_dest: str | None = None
     if isinstance(settings.sent_dir, dict):
         sent_dest = settings.sent_dir.get(acct)
@@ -763,9 +771,16 @@ def _dispatch_and_save(acct: str, msg_bytes: bytes,
     if sent_dest:
         expanded_sent = os.path.expanduser(sent_dest)
         try:
-            os.makedirs(expanded_sent, exist_ok=True)
-            box = mailbox.Maildir(expanded_sent, create=True)
-            box.add(eml if eml is not None else mailbox.MaildirMessage(msg_bytes))
+            for sub in ('tmp', 'new', 'cur'):
+                os.makedirs(os.path.join(expanded_sent, sub), exist_ok=True)
+            box = mailbox.Maildir(expanded_sent, create=False)
+            if eml is not None:
+                sent_copy = email.message_from_bytes(eml.as_bytes(), policy=email.policy.default)
+            else:
+                sent_copy = email.message_from_bytes(msg_bytes, policy=email.policy.default)
+            if 'Bcc' in sent_copy:
+                del sent_copy['Bcc']
+            box.add(mailbox.MaildirMessage(sent_copy.as_bytes()))
         except Exception as e:
             logger.warning('Could not save sent message to %r: %s', sent_dest, e)
 

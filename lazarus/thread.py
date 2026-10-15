@@ -671,9 +671,13 @@ class ThreadPanel(panel.Panel):
         if reveal == 'none' or not settings.file_browser_command or not settings.file_browser_command.strip():
             return
         template = settings.file_browser_command
-        cmd = template.format(dir=dest)
-        exe = shlex.split(template)[0] if template.strip() else ''
-        if exe and shutil.which(exe) is None:
+        normalized = template.replace("'{dir}'", "{dir}").replace('"{dir}"', "{dir}")
+        cmd = normalized.format(dir=shlex.quote(dest))
+        cmd_args = shlex.split(cmd)
+        if not cmd_args:
+            return
+        exe = cmd_args[0]
+        if shutil.which(exe) is None:
             # Configured browser is missing — fall back to any installed
             # file manager. argv form (no shell) so paths containing
             # quotes or metacharacters are handled safely.
@@ -687,6 +691,6 @@ class ThreadPanel(panel.Panel):
                     return
             return
         try:
-            subprocess.Popen(cmd, shell=True)
+            subprocess.Popen(cmd_args)
         except OSError as e:
             self.app.status_message(f"Failed to open file browser: {e}", 'error')

@@ -432,7 +432,7 @@ class NedMcpServer:
         tags = self.client.get_tags()
         if self.policy.allowed_tags is not None:
             allowed = self.policy.allowed_tags
-            tags = [t for t in tags if t.get("tag") in allowed]
+            tags = [t for t in tags if (t.get("name") or t.get("tag")) in allowed]
         return tags
 
     def _tool_send_email(self, args: dict[str, Any]) -> Any:

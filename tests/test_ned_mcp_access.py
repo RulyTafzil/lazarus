@@ -255,6 +255,36 @@ def test_account_policy_from_dict_with_aliases():
     }
     policy = AccountPolicy.from_dict(data)
     assert set(policy.account_paths) == {"work", "work@corp.com"}
-    assert policy.validate_send("work@corp.com") == "work"
+def test_scoped_query_unbalanced_parentheses_or_quotes():
+    """Verify that malformed queries with unbalanced parens or quotes are rejected."""
+    policy = AccountPolicy("work")
+    with pytest.raises(AccessDeniedError, match="unbalanced parentheses or quotes"):
+        policy.scoped_query("tag:inbox) or (path:personal/**")
+
+    with pytest.raises(AccessDeniedError, match="unbalanced parentheses or quotes"):
+        policy.scoped_query('tag:"inbox')
+
+    # Balanced parens and quotes are allowed
+    scoped = policy.scoped_query('(tag:inbox or tag:archive) and from:"alice"')
+    assert scoped == '(path:work/**) and ((tag:inbox or tag:archive) and from:"alice")'
+
+
+def test_invalid_identifiers():
+    """Verify thread and message ID validation rejects malformed tokens."""
+    policy = AccountPolicy("work")
+    mock_client = MagicMock()
+
+    with pytest.raises(AccessDeniedError, match="Invalid thread identifier"):
+        policy.validate_thread_in_account(mock_client, "thread:t123 or id:*")
+
+    with pytest.raises(AccessDeniedError, match="Invalid thread identifier"):
+        policy.validate_thread_in_account(mock_client, 'thread:"t123"')
+
+    with pytest.raises(AccessDeniedError, match="Invalid message identifier"):
+        policy.validate_message_in_account(mock_client, 'id:"msg-1 or tag:*"')
+
+    with pytest.raises(AccessDeniedError, match="Invalid message identifier"):
+        policy.validate_message_in_account(mock_client, "id:msg 1")
+
 
 

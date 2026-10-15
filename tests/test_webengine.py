@@ -55,3 +55,22 @@ def test_set_message_empty_clears_state(qapp):
     assert h.cid_map == {}
     assert h.message_id == ''
 
+
+def test_message_page_blocks_non_http_schemes(monkeypatch):
+    from PyQt6.QtCore import QUrl
+    from lazarus.webengine import MessagePage
+    import lazarus.webengine as we
+
+    blocked = []
+    monkeypatch.setattr(we.logger, "warning", lambda fmt, *args: blocked.append(fmt % args))
+
+    # Calling _handle_link with non-http/https schemes should return immediately and log warning
+    MessagePage._handle_link(None, QUrl("file:///etc/passwd"))
+    MessagePage._handle_link(None, QUrl("javascript:alert(1)"))
+    MessagePage._handle_link(None, QUrl("smb://server/share"))
+
+    assert len(blocked) == 3
+    assert any("file:///etc/passwd" in msg for msg in blocked)
+    assert any("javascript:alert(1)" in msg for msg in blocked)
+
+

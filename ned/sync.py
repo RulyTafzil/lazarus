@@ -35,6 +35,7 @@ from typing import Callable, List, Optional, Tuple
 from . import notmuch
 from . import rules
 from . import settings
+from .concurrency import mutation_lock
 
 logger = logging.getLogger(__name__)
 
@@ -247,19 +248,20 @@ def run_sync(
     emit('Indexing...')
     notmuch_rc = 0
     notmuch_stderr = ''
-    try:
-        notmuch.new(no_hooks=False)
-    except Exception as e:
-        logger.warning('notmuch new failed: %s', e)
-        notmuch_rc = 1
-        notmuch_stderr = str(e)
-
-    # 3. filter rules phase
-    if notmuch_rc == 0 and apply_rules and settings.filter_rules:
+    with mutation_lock:
         try:
-            rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+            notmuch.new(no_hooks=False)
         except Exception as e:
-            logger.warning('Error applying filter rules: %s', e)
+            logger.warning('notmuch new failed: %s', e)
+            notmuch_rc = 1
+            notmuch_stderr = str(e)
+
+        # 3. filter rules phase
+        if notmuch_rc == 0 and apply_rules and settings.filter_rules:
+            try:
+                rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+            except Exception as e:
+                logger.warning('Error applying filter rules: %s', e)
 
     # 4. format outcome
     new, flagged, expunged, deleted = parse_sync_stats(sync_summaries)

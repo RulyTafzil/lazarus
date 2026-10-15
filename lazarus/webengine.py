@@ -228,7 +228,8 @@ class MessagePage(QWebEnginePage):
         self._handle_link(req.requestedUrl())
 
     def _handle_link(self, url: QUrl) -> None:
-        if url.scheme() == 'mailto':
+        scheme = url.scheme().lower()
+        if scheme == 'mailto':
             query = QUrlQuery(url)
             msg = {
                 'headers': {
@@ -237,21 +238,29 @@ class MessagePage(QWebEnginePage):
                 }
             }
             self._app.open_compose(mode='mailto', msg=msg)
-        else:
-            if (not settings.html_confirm_open_links
-                    or url.host() in settings.html_confirm_open_links_trusted_hosts
-                    or QMessageBox.question(
-                        None, 'Open link',
-                        f'Open the following URL in browser?\n\n  {url.toString()}'
-                    ) == QMessageBox.StandardButton.Yes):
-                if settings.web_browser_command == '':
-                    QDesktopServices.openUrl(url)
-                else:
-                    subprocess.Popen(
-                        [settings.web_browser_command, url.toString()],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
+            return
+
+        if scheme not in ('http', 'https'):
+            logger.warning('Blocked opening non-HTTP(S) link scheme: %s', url.toString())
+            return
+
+        host = url.host()
+        if (not settings.html_confirm_open_links
+                or (host and host in settings.html_confirm_open_links_trusted_hosts)
+                or QMessageBox.question(
+                    None, 'Open link',
+                    f'Open the following URL in browser?\n\n  {url.toString()}'
+                ) == QMessageBox.StandardButton.Yes):
+            if settings.web_browser_command == '':
+                QDesktopServices.openUrl(url)
+            else:
+                import shlex
+                cmd_args = shlex.split(settings.web_browser_command) + [url.toString()]
+                subprocess.Popen(
+                    cmd_args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
     def acceptNavigationRequest(
             self, url: QUrl, ty: QWebEnginePage.NavigationType,

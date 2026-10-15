@@ -6,11 +6,41 @@ and guarantees that expunge is never permitted.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional, Sequence
 
 
 class AccessDeniedError(Exception):
     """Raised when an operation violates account scoping or permissions."""
+
+
+_THREAD_ID_RE = re.compile(r"^[0-9a-zA-Z_-]+$")
+
+
+def _has_balanced_parens(expr: str) -> bool:
+    """Return True if parentheses in expr are balanced outside double quotes."""
+    depth = 0
+    in_quotes = False
+    escape = False
+    for ch in expr:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_quotes = not in_quotes
+            continue
+        if in_quotes:
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_quotes
 
 
 class AccountPolicy:
@@ -170,6 +200,8 @@ class AccountPolicy:
         path_expr = f"({self.account_path_query})"
         if not clean or clean == "*":
             return path_expr
+        if not _has_balanced_parens(clean):
+            raise AccessDeniedError("Malformed query: unbalanced parentheses or quotes.")
         return f"{path_expr} and ({clean})"
 
     def validate_tag_mutation(
@@ -258,11 +290,11 @@ class AccountPolicy:
                 f"Trash operations are disabled for account '{self.primary_account}'."
             )
 
-    def validate_thread_in_account(self, client: Any, thread_id: str) -> None:
+    def validate_thread_in_account(self, client: Any, thread_id: str) -> str:
         """Verify that a thread contains messages belonging to the allowed accounts."""
         clean_id = thread_id.strip().removeprefix("thread:")
-        if not clean_id:
-            raise AccessDeniedError("Empty thread identifier.")
+        if not clean_id or not _THREAD_ID_RE.fullmatch(clean_id):
+            raise AccessDeniedError(f"Invalid thread identifier: {thread_id!r}")
 
         count_query = f"thread:{clean_id} and ({self.account_path_query})"
         matches = client.count(count_query, output="messages")
@@ -270,14 +302,15 @@ class AccountPolicy:
             raise AccessDeniedError(
                 f"Thread '{thread_id}' does not belong to allowed account(s): {list(self.accounts)}."
             )
+        return clean_id
 
-    def validate_message_in_account(self, client: Any, message_id: str) -> None:
+    def validate_message_in_account(self, client: Any, message_id: str) -> str:
         """Verify that a message belongs to the allowed accounts."""
         clean_id = message_id.strip().removeprefix("id:")
         if clean_id.startswith("<") and clean_id.endswith(">"):
             clean_id = clean_id[1:-1]
-        if not clean_id:
-            raise AccessDeniedError("Empty message identifier.")
+        if not clean_id or any(c in clean_id for c in ('"', "'", " ", "\t", "\n", "\r", "(", ")")):
+            raise AccessDeniedError(f"Invalid message identifier: {message_id!r}")
 
         count_query = f"id:{clean_id} and ({self.account_path_query})"
         matches = client.count(count_query, output="messages")
@@ -285,6 +318,7 @@ class AccountPolicy:
             raise AccessDeniedError(
                 f"Message '{message_id}' does not belong to allowed account(s): {list(self.accounts)}."
             )
+        return clean_id
 
     def assert_no_expunge(self) -> None:
         """Expunge operations are strictly forbidden in ned-mcp."""

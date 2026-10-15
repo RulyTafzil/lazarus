@@ -475,3 +475,33 @@ def test_server_auto_resolves_account_aliases(mock_client):
     called_account, _ = mock_client.send_message.call_args[0]
     assert called_account == "clanker"
 
+
+def test_server_list_tags_with_name_key(mock_client):
+    """Test list_tags works when NED returns dicts with 'name' instead of 'tag'."""
+    policy = AccountPolicy("work", allowed_tags=["todo", "inbox"])
+    server = NedMcpServer(client=mock_client, policy=policy)
+
+    mock_client.get_tags.return_value = [
+        {"name": "todo", "count": 5},
+        {"name": "unread", "count": 12},
+        {"name": "inbox", "count": 20},
+    ]
+
+    resp = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 18,
+        "method": "tools/call",
+        "params": {
+            "name": "list_tags",
+            "arguments": {},
+        },
+    })
+    assert resp is not None
+    assert resp["result"]["isError"] is False
+    tags = json.loads(resp["result"]["content"][0]["text"])
+    tag_names = [t["name"] for t in tags]
+    assert "todo" in tag_names
+    assert "inbox" in tag_names
+    assert "unread" not in tag_names
+
+

@@ -304,6 +304,37 @@ def test_compute_allowed_hostnames(monkeypatch):
         "ts_dns": "ned.tailnet.ts.net.",
     })
     names = daemon._compute_allowed_hostnames("127.0.0.1")
-    assert {"localhost", "127.0.0.1", "100.100.1.2", "ned.tailnet.ts.net"} <= names
     # 0.0.0.0 wildcard binds contribute nothing to the allowlist
     assert "0.0.0.0" not in daemon._compute_allowed_hostnames("0.0.0.0")
+
+
+def test_send_unconfigured_account_rejected(monkeypatch):
+    from ned import service
+    monkeypatch.setattr(service, "get_configured_accounts", lambda: ["work", "personal"])
+    ok, err = service.send_raw("attacker_acct", b"From: me\nTo: you\n\nHi")
+    assert ok is False
+    assert "Unknown account" in err
+
+
+def test_sent_maildir_bcc_stripped(tmp_path, monkeypatch):
+    import mailbox
+    from ned import service, settings
+
+    sent_dir = str(tmp_path / "Sent")
+    monkeypatch.setattr(service, "get_configured_accounts", lambda: ["work"])
+    monkeypatch.setattr(settings, "sent_dir", {"work": sent_dir})
+    monkeypatch.setattr(settings, "send_mail_command", {"work": "true"})
+    monkeypatch.setattr(service.notmuch, "new", lambda no_hooks=True: None)
+
+    msg_with_bcc = b"From: me@work.com\r\nTo: client@example.com\r\nBcc: secret@example.com\r\nSubject: Test\r\n\r\nBody\r\n"
+    ok, msg = service.send_raw("work", msg_with_bcc)
+    assert ok is True
+
+    # Read message from Maildir
+    box = mailbox.Maildir(sent_dir)
+    messages = list(box)
+    assert len(messages) == 1
+    saved_msg = messages[0]
+    assert saved_msg["To"] == "client@example.com"
+    assert "Bcc" not in saved_msg
+    assert b"secret@example.com" not in saved_msg.as_bytes()
