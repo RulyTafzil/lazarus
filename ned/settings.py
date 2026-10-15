@@ -32,7 +32,7 @@ defaults, as detailed below.
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 if TYPE_CHECKING:
     from . import rules

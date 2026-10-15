@@ -18,19 +18,10 @@
 """Compatibility shim — :mod:`ned.compose_model` re-exported as ``lazarus.compose_model``.
 
 Qt-free reply/forward seed logic lives with the standalone NED package;
-this shim keeps the desktop's public import names and wires the desktop's
-settings module into the shared headless helpers (see ``lazarus.util``).
+this shim keeps the desktop's public import names.
 """
 
 from __future__ import annotations
-
-from . import settings as _laz_settings
-import ned.util as _ned_util
-import ned.compose_model as _ned_compose_model
-
-# Desktop-process wiring — see lazarus/util.py for the rationale.
-_ned_util.settings = _laz_settings
-_ned_compose_model.settings = _laz_settings
 
 from ned.compose_model import (  # noqa: F401  (re-exported for desktop modules)
     ComposeSeed,

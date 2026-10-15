@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import os
 import traceback
+from typing import Any
 
 from PyQt6.QtCore import QStandardPaths
 
@@ -198,5 +199,25 @@ def load_config(app_names: tuple[str, ...] = ('lazarus',)) -> tuple[str, list[st
             "settings.theme in config.py is deprecated. Theme selection is now "
             "managed in-app (:theme <name>) and saved in lazarus.conf."
         )
+
+    daemon_defaults: dict[str, Any] = {
+        'email_address': '',
+        'sent_dir': '',
+        'send_mail_command': 'msmtp -a "{account}" -t',
+        'smtp_accounts': ['default'],
+        'sync_mail_command': 'offlineimap',
+        'sync_mail_interval': 300,
+        'mail_root': '~/Mail',
+        'archive_dir': '~/Mail/Archive',
+        'no_hooks_on_send': True,
+        'filter_rules': [],
+        'filter_scope_query': 'tag:inbox and tag:unread',
+    }
+    for key, default_val in daemon_defaults.items():
+        if hasattr(settings, key) and getattr(settings, key) != default_val:
+            warnings.append(
+                f"settings.{key} in config.py is deprecated and ignored by the desktop client. "
+                "Mail routing and daemon settings must be configured in ~/.config/ned/config.py."
+            )
 
     return path, warnings

@@ -26,6 +26,7 @@ from __future__ import annotations
 import email
 import email.policy
 import base64
+import hmac
 from http import HTTPStatus
 import http.server
 import json
@@ -46,12 +47,14 @@ from .events import broadcaster
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+MAX_BODY_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 
 class NedRequestHandler(http.server.BaseHTTPRequestHandler):
     """Handles REST API, SSE, and static asset requests for NED."""
 
     server_version = "NED/0.1"
+    timeout = 30
 
     def address_string(self) -> str:
         """Return safe peer address, handling Unix stream sockets cleanly."""
@@ -83,7 +86,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         # the PWA no longer supports token auth — web clients rely on the
         # Unix socket's OS permissions and Tailscale ACLs instead.
         auth_hdr = self.headers.get("Authorization", "")
-        if auth_hdr.startswith("Bearer ") and auth_hdr[7:].strip() == token:
+        if auth_hdr.startswith("Bearer ") and hmac.compare_digest(auth_hdr[7:].strip(), token):
             return True
 
         self.send_response(HTTPStatus.UNAUTHORIZED)
@@ -218,6 +221,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
             length = 0
         if length <= 0:
             return b""
+        if length > MAX_BODY_BYTES:
+            raise ValueError(f"Request body too large ({length} bytes)")
         return self.rfile.read(length)
 
     def _read_json_body(self) -> dict[str, Any]:
@@ -406,6 +411,17 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         """Route POST requests."""
         if not self._check_auth():
+            return
+
+        try:
+            content_len = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_len = 0
+        if content_len > MAX_BODY_BYTES:
+            self.send_error_json(
+                f"Request body too large ({content_len} bytes)",
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
             return
 
         parsed = urllib.parse.urlparse(self.path)

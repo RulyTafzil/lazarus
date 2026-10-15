@@ -29,7 +29,6 @@ import os
 import queue
 import re
 import shutil
-import sys
 import threading
 import time
 from typing import Callable, List, Optional, Set, Tuple
@@ -518,28 +517,9 @@ def plan_archive_moves(files: List[str],
     return moves
 
 
-def _get_collector() -> Callable[[str], list[str]]:
-    """Return the active file collector for a move operation.
-
-    Core move actions resolve the collector through ``lazarus.actions``
-    when it exposes a different ``collect_files`` than this module's own.
-    That is the swappable seam the desktop/tests use to override file
-    collection (e.g. ``monkeypatch.setattr(lazarus.actions, 'collect_files', fn)``
-    in tests, or a future UI-level collector) without changing core
-    semantics. In the headless daemon ``lazarus.actions`` is never
-    imported, so this resolves to the core collector.
-    """
-    actions_mod = sys.modules.get('lazarus.actions')
-    if actions_mod and hasattr(actions_mod, 'collect_files'):
-        fn = getattr(actions_mod, 'collect_files')
-        if fn is not collect_files:
-            return fn  # type: ignore[no-any-return]
-    return collect_files
-
-
 def move_to_trash(notmuch_query: str, unmark: bool = True, exclude_marked: bool | None = None) -> int:
     """Tag ``+trash -inbox -unread`` and move matching files to account Trash."""
-    files = _get_collector()(notmuch_query)
+    files = collect_files(notmuch_query)
     if not files:
         return 0
 
@@ -564,7 +544,7 @@ def move_to_trash(notmuch_query: str, unmark: bool = True, exclude_marked: bool 
 
 def move_to_archive(notmuch_query: str, unmark: bool = True, exclude_marked: bool | None = None) -> int:
     """Untag ``-inbox -unread`` and move matching files to local ``archive_dir/cur/``."""
-    files = _get_collector()(notmuch_query)
+    files = collect_files(notmuch_query)
     if not files:
         return 0
     should_unmark = unmark if exclude_marked is None else exclude_marked

@@ -25,7 +25,6 @@ import logging
 import os
 import signal
 import socket
-import subprocess
 import sys
 import time
 
@@ -203,6 +202,12 @@ def main() -> int:
         try:
             log_path = os.path.expanduser(log_file)
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            fd = os.open(log_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            os.close(fd)
+            try:
+                os.chmod(log_path, 0o600)
+            except OSError:
+                pass
             fh = logging.FileHandler(log_path)
             fh.setFormatter(
                 logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")

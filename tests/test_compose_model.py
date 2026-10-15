@@ -1,10 +1,9 @@
 """compose_model — reply/forward/mailto seed builders."""
-import lazarus.settings as settings
+import ned.settings as settings
 from lazarus.compose_model import (
     build_mailto_seed, build_reply_seed, build_forward_seed,
     account_for_message, sig_block_text, sig_edit,
 )
-from tests.conftest import make_message
 
 
 def _msg(extra_headers=None):

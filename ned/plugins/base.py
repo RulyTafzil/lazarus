@@ -55,7 +55,7 @@ class PostSyncContext:
         reason: Optional[str] = None,
     ) -> None:
         """Emit an SSE invalidation event to notify desktop clients (e.g. Lazarus GUI) to refresh."""
-        if self.invalidate_fn:
+        if self.invalidate_fn is not None:
             try:
                 self.invalidate_fn(scope, item_id, reason)
             except Exception as e:

@@ -477,6 +477,10 @@ ned.settings.filter_rules = [
 """
     with open(path, 'w', encoding='utf-8') as f:
         f.write(sample)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
     return path, True
 
@@ -659,4 +663,13 @@ if os.path.isfile(rules_file):
 """
     with open(path, 'w', encoding='utf-8') as f:
         f.write(content)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    if backup_path and os.path.exists(backup_path):
+        try:
+            os.chmod(backup_path, 0o600)
+        except OSError:
+            pass
     return path, backup_path

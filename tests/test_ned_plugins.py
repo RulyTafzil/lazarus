@@ -19,16 +19,14 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 import os
 from pathlib import Path
-import tempfile
 import unittest.mock as mock
 import pytest
 
-from ned.plugins.base import PostSyncContext, PostSyncPlugin
+from ned.plugins.base import PostSyncContext
 from ned.plugins.runner import PluginRunner, resolve_plugin
 from plugins.typesafe_jev import TypeSafeJevPlugin
 import ned.settings
@@ -431,6 +429,7 @@ DOMAIN_CRITERIA = {"Utilities": "Utilities"}
     ]
 
     mock_client = mock.MagicMock()
+    del mock_client.modify_tags_batch
     mock_client.search_threads.return_value = threads
     mock_client.modify_tags.return_value = True
 
@@ -562,4 +561,73 @@ def test_init_config_includes_plugins_section(tmp_path: Path):
     assert "Detected plugin files/directories" in content
     assert "custom_tagger" in content
     assert "typesafe_jev" in content
+
+
+def test_typesafe_jev_batch_tagging(tmp_path: Path):
+    """PERF-3: TypeSafeJevPlugin calls modify_tags_batch when supported."""
+    tax_path = tmp_path / "taxonomy.py"
+    tax_path.write_text(
+        """
+DOC_TYPE_CRITERIA = {"Statements": "Statements"}
+DOMAIN_CRITERIA = {"Utilities": "Utilities"}
+""",
+        encoding="utf-8",
+    )
+    plugin = TypeSafeJevPlugin(
+        taxonomy_path=str(tax_path),
+        api_key="fake-key",
+    )
+
+    threads = [
+        {"thread": "t1", "authors": "a@pge.com", "subject": "Bill", "tags": []},
+        {"thread": "t2", "authors": "b@pge.com", "subject": "Bill 2", "tags": []},
+    ]
+
+    mock_client = mock.MagicMock(spec=["search_threads", "modify_tags_batch"])
+    mock_client.search_threads.return_value = threads
+    mock_client.modify_tags_batch.return_value = True
+
+    ctx = PostSyncContext(
+        stats={"new": 2},
+        client=mock_client,
+        logger=logging.getLogger("test"),
+        invalidate_fn=lambda *a: None,
+    )
+
+    with mock.patch.object(
+        plugin,
+        "evaluate_email",
+        return_value={
+            "doc_type": "Statements",
+            "doc_type_conf": 0.95,
+            "domain": "Utilities",
+            "domain_conf": 0.92,
+        },
+    ):
+        plugin.on_post_sync(ctx)
+
+    mock_client.modify_tags_batch.assert_called_once()
+    call_args = mock_client.modify_tags_batch.call_args[0][0]
+    assert len(call_args) == 2
+    assert any("thread:t1" in line for line in call_args)
+    assert any("thread:t2" in line for line in call_args)
+
+
+def test_typesafe_api_key_cached():
+    """PERF-3: get_typesafe_api_key caches result and avoids repeated shell subprocesses."""
+    from plugins.typesafe_jev import plugin as pj
+
+    with mock.patch.dict(os.environ, {}, clear=True), \
+         mock.patch("subprocess.run") as mock_run:
+        mock_run.return_value = mock.MagicMock(stdout="cached-key\n")
+        pj._TYPESAFE_API_KEY_CHECKED = False
+        pj._TYPESAFE_API_KEY_CACHE = None
+
+        key1 = pj.get_typesafe_api_key()
+        key2 = pj.get_typesafe_api_key()
+
+        assert key1 == "cached-key"
+        assert key2 == "cached-key"
+        assert mock_run.call_count == 1
+
 

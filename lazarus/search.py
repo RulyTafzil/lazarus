@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
 )
 from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPen
-import json
 import logging
 
 from . import settings
@@ -335,7 +334,6 @@ class SearchModel(QAbstractItemModel):
         self.q = q
         self.d: list = []
         self.threads: dict = {}
-        self.json_str = ""
         self.num_threads = 0
         self.error_msg: str | None = None
         self.refresh()
@@ -348,7 +346,6 @@ class SearchModel(QAbstractItemModel):
         try:
             threads = get_client().search(self.q, limit=1000)
             self.d = threads
-            self.json_str = json.dumps(threads)
             self.error_msg = None
         except Exception as e:
             self.error_msg = f"ned: {e}"

@@ -94,6 +94,17 @@ def test_theme_in_config_warns_deprecation(monkeypatch, tmp_path):
     assert any('deprecated' in w for w in warnings)
 
 
+def test_daemon_settings_warns_deprecation(monkeypatch, tmp_path):
+    from lazarus.config import load_config
+    cfg = tmp_path / "config.py"
+    cfg.write_text("import lazarus\nlazarus.settings.sync_mail_interval = 60\n")
+    monkeypatch.setattr('lazarus.config._config_path', lambda: (str(cfg), []))
+    _reset()
+    settings.sync_mail_interval = 60
+    path, warnings = load_config()
+    assert any("sync_mail_interval" in w and "deprecated" in w for w in warnings)
+
+
 # -- themes ----------------------------------------------------------------
 
 ALL_THEMES = [

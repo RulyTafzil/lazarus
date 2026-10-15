@@ -36,17 +36,6 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from . import settings as _laz_settings
-import ned.util as _ned_util
-import ned.compose_model as _ned_compose_model
-
-# Desktop process wiring: the shared headless helpers (reply seeds, account
-# matching, wrapping) must see the DESKTOP's own configuration
-# (``lazarus.settings`` — loaded from ~/.config/lazarus/config.py), not the
-# daemon's (``ned.settings`` — ~/.config/ned/config.py). The daemon process
-# never imports these shims, so its copy of the modules stays on ned.settings.
-_ned_util.settings = _laz_settings
-_ned_compose_model.settings = _laz_settings
 
 from ned.util import (  # noqa: F401  (re-exported for the public lazarus.util surface)
     get_header_addresses,

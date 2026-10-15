@@ -159,6 +159,20 @@ def tag(tag_expr: str, query: str, exclude_marked: bool = False) -> subprocess.C
         return run(*args)
 
 
+def tag_batch(lines: list[str]) -> subprocess.CompletedProcess:
+    """Apply multiple tag operations in a single `notmuch tag --batch` call."""
+    if not lines:
+        return subprocess.CompletedProcess(args=['notmuch', 'tag', '--batch'], returncode=0, stdout='', stderr='')
+    payload = '\n'.join(lines) + '\n'
+    with mutation_lock:
+        return subprocess.run(
+            ['notmuch', 'tag', '--batch'],
+            input=payload,
+            capture_output=True,
+            text=True,
+        )
+
+
 def new(no_hooks: bool = True) -> None:
     """Run ``notmuch new`` to pick up files moved on disk.
 

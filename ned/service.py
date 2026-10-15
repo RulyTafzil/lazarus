@@ -288,6 +288,7 @@ def get_message_raw(message_id: str) -> dict[str, Any]:
 
 _PART_METADATA_CACHE: dict[str, dict[int, tuple[str, str]]] = {}
 _PART_METADATA_CACHE_MAX = 64
+_part_cache_lock = threading.Lock()
 
 
 def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
@@ -303,7 +304,10 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
     content_type = 'application/octet-stream'
 
     # Check cache first for metadata mapping
-    if clean_id not in _PART_METADATA_CACHE:
+    with _part_cache_lock:
+        parts_meta = _PART_METADATA_CACHE.get(clean_id)
+
+    if parts_meta is None:
         try:
             r = notmuch.run(
                 'show',
@@ -316,21 +320,23 @@ def get_part_data(message_id: str, part_id: int) -> tuple[bytes, str, str]:
             data = json.loads(r.stdout)
             flat: list[dict[str, Any]] = []
             _flatten_messages(data, flat)
-            parts_meta: dict[int, tuple[str, str]] = {}
+            loaded_meta: dict[int, tuple[str, str]] = {}
             if flat:
                 for part in mail_utils.message_parts(flat[0]):
                     pid = part.get('id')
                     if pid is not None:
                         fname = part.get('filename') or f'part-{pid}'
                         ctype = part.get('content-type') or 'application/octet-stream'
-                        parts_meta[int(pid)] = (fname, ctype)
-            if len(_PART_METADATA_CACHE) >= _PART_METADATA_CACHE_MAX:
-                _PART_METADATA_CACHE.pop(next(iter(_PART_METADATA_CACHE)))
-            _PART_METADATA_CACHE[clean_id] = parts_meta
+                        loaded_meta[int(pid)] = (fname, ctype)
+            with _part_cache_lock:
+                if len(_PART_METADATA_CACHE) >= _PART_METADATA_CACHE_MAX:
+                    _PART_METADATA_CACHE.pop(next(iter(_PART_METADATA_CACHE)))
+                _PART_METADATA_CACHE[clean_id] = loaded_meta
+                parts_meta = loaded_meta
         except Exception:
             pass
 
-    cached = _PART_METADATA_CACHE.get(clean_id, {}).get(part_id)
+    cached = (parts_meta or {}).get(part_id)
     if cached:
         filename, content_type = cached
 
@@ -477,6 +483,18 @@ def modify_tags(
         return False
 
 
+def modify_tags_batch(lines: list[str]) -> bool:
+    """Apply multiple tag expressions via `notmuch tag --batch`."""
+    if not lines:
+        return True
+    try:
+        r = notmuch.tag_batch(lines)
+        return r.returncode == 0
+    except Exception as e:
+        logger.warning('notmuch tag --batch failed: %s', e)
+        return False
+
+
 def trash(
     queries: Sequence[str] = (),
     *,
@@ -558,6 +576,11 @@ def index_new() -> bool:
 def sync_mail() -> tuple[bool, str]:
     """Execute parallel mbsync per account (or sync_mail_command), run notmuch new, apply filter rules."""
     res = sync.run_sync()
+    if res.ok and getattr(res, "new_count", 1) > 0:
+        try:
+            load_contacts(force_reload=True)
+        except Exception as e:
+            logger.debug('Failed reloading contacts post-sync: %s', e)
     return (res.ok, res.message)
 
 

@@ -45,33 +45,42 @@ from ned.plugins.base import PostSyncContext
 logger = logging.getLogger(__name__)
 
 
+_TYPESAFE_API_KEY_CACHE: Optional[str] = None
+_TYPESAFE_API_KEY_CHECKED: bool = False
+
+
 def get_typesafe_api_key() -> Optional[str]:
     """Retrieve TYPESAFE_API_KEY from environment or shell without leaking."""
+    global _TYPESAFE_API_KEY_CACHE, _TYPESAFE_API_KEY_CHECKED
+    if _TYPESAFE_API_KEY_CHECKED:
+        return _TYPESAFE_API_KEY_CACHE
+
     key = os.environ.get("TYPESAFE_API_KEY")
     if key and key.strip():
-        return key.strip()
-    try:
-        res = subprocess.run(
-            ["fish", "-c", "echo -n $TYPESAFE_API_KEY"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        if res.stdout and res.stdout.strip():
-            return res.stdout.strip()
-    except Exception:
-        pass
-    try:
-        res = subprocess.run(
-            ["bash", "-c", "echo -n $TYPESAFE_API_KEY"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        if res.stdout and res.stdout.strip():
-            return res.stdout.strip()
-    except Exception:
-        pass
+        _TYPESAFE_API_KEY_CACHE = key.strip()
+        _TYPESAFE_API_KEY_CHECKED = True
+        return _TYPESAFE_API_KEY_CACHE
+
+    for shell_cmd in (
+        ["fish", "-c", "echo -n $TYPESAFE_API_KEY"],
+        ["bash", "-c", "echo -n $TYPESAFE_API_KEY"],
+    ):
+        try:
+            res = subprocess.run(
+                shell_cmd,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if res.stdout and res.stdout.strip():
+                _TYPESAFE_API_KEY_CACHE = res.stdout.strip()
+                _TYPESAFE_API_KEY_CHECKED = True
+                return _TYPESAFE_API_KEY_CACHE
+        except Exception:
+            pass
+
+    _TYPESAFE_API_KEY_CHECKED = True
+    _TYPESAFE_API_KEY_CACHE = None
     return None
 
 
@@ -303,32 +312,55 @@ class TypeSafeJevPlugin:
             to_add, to_remove = self.decide_tags(eval_res, current_tags, taxonomy)
             return tid, to_add, to_remove
 
+        batch_results: list[tuple[str, list[str], list[str]]] = []
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
             futures = {executor.submit(_process_thread, t): t for t in threads}
             for fut in as_completed(futures):
                 try:
                     tid, to_add, to_remove = fut.result()
-                    if not to_add and not to_remove:
-                        continue
-                    kwargs: dict[str, Any] = {"threads": [tid]}
-                    if to_add:
-                        kwargs["add"] = to_add
-                        kwargs["add_tags"] = to_add
-                    if to_remove:
-                        kwargs["remove"] = to_remove
-                        kwargs["remove_tags"] = to_remove
-
-                    if hasattr(context.client, "modify_tags"):
-                        ok = context.client.modify_tags(**kwargs)
-                    elif hasattr(context.client, "tag_thread"):
-                        ok = context.client.tag_thread(tid, to_add, to_remove)
-                    else:
-                        ok = False
-
-                    if ok:
-                        modified_count += 1
+                    if to_add or to_remove:
+                        batch_results.append((tid, to_add, to_remove))
                 except Exception as e:
                     context.logger.warning("Failed processing thread: %s", e)
+
+        if not batch_results:
+            return
+
+        batch_tagged = False
+        if hasattr(context.client, "modify_tags_batch") and callable(getattr(context.client, "modify_tags_batch")):
+            batch_lines: list[str] = []
+            for tid, to_add, to_remove in batch_results:
+                clean_id = tid.removeprefix("thread:")
+                parts = [f"+{t.lstrip('+-')}" for t in to_add if t] + [f"-{t.lstrip('+-')}" for t in to_remove if t]
+                if parts:
+                    batch_lines.append(f"{' '.join(parts)} -- thread:{clean_id}")
+            try:
+                ok = context.client.modify_tags_batch(batch_lines)
+                if ok:
+                    modified_count = len(batch_results)
+                    batch_tagged = True
+            except Exception as e:
+                context.logger.warning("Batch tagging failed, falling back: %s", e)
+
+        if not batch_tagged:
+            for tid, to_add, to_remove in batch_results:
+                kwargs: dict[str, Any] = {"threads": [tid]}
+                if to_add:
+                    kwargs["add"] = to_add
+                    kwargs["add_tags"] = to_add
+                if to_remove:
+                    kwargs["remove"] = to_remove
+                    kwargs["remove_tags"] = to_remove
+
+                if hasattr(context.client, "modify_tags"):
+                    ok = context.client.modify_tags(**kwargs)
+                elif hasattr(context.client, "tag_thread"):
+                    ok = context.client.tag_thread(tid, to_add, to_remove)
+                else:
+                    ok = False
+
+                if ok:
+                    modified_count += 1
 
         if modified_count > 0:
             context.logger.info("Successfully classified and tagged %d thread(s)", modified_count)
