@@ -719,9 +719,12 @@ class NedClient:
         """Alias for toggle_flag."""
         return self.toggle_flag(thread_id, flag=star)
 
-    def get_tags(self) -> list[dict[str, Any]]:
+    def get_tags(self, include_unread: bool = True) -> list[dict[str, Any]]:
         """Fetch all known tags with message or thread counts."""
-        data = self._request_json("GET", "/api/v1/tags")
+        params = {}
+        if not include_unread:
+            params["include_unread"] = "false"
+        data = self._request_json("GET", "/api/v1/tags", query_params=params if params else None)
         return data if isinstance(data, list) else []
 
     def get_contacts(self, query: str = "") -> list[dict[str, str]]:

@@ -160,8 +160,9 @@ def build_spec() -> dict[str, Any]:
             },
             "/api/v1/tags": {
                 "get": {
-                    "summary": "List all known tags with thread counts",
-                    "responses": {"200": {"description": "List of {name, count}", "content": {"application/json": {"schema": {"type": "array", "items": {"type": "object"}}}}}},
+                    "summary": "List all known tags with total and unread thread counts",
+                    "parameters": [{"name": "include_unread", "in": "query", "schema": {"type": "boolean", "default": True}, "description": "Include unread thread counts"}],
+                    "responses": {"200": {"description": "List of {name, count, unread_count}", "content": {"application/json": {"schema": {"type": "array", "items": {"type": "object"}}}}}},
                 },
                 "post": {
                     "summary": "Modify tags on queries, threads, or messages",

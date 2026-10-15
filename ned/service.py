@@ -35,8 +35,9 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import time
 import urllib.parse
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 from . import actions
 from . import sync
@@ -466,7 +467,10 @@ def modify_tags(
 
     try:
         r = notmuch.tag(tag_expr, query)
-        return r.returncode == 0
+        ok = r.returncode == 0
+        if ok:
+            invalidate_tag_cache()
+        return ok
     except Exception as e:
         logger.warning('notmuch tag failed for %r on %r: %s', tag_expr, query, e)
         return False
@@ -484,7 +488,10 @@ def trash(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return 0
-    return actions.move_to_trash(query, unmark=unmark)
+    res = actions.move_to_trash(query, unmark=unmark)
+    if res > 0:
+        invalidate_tag_cache()
+    return res
 
 
 def restore(
@@ -499,7 +506,10 @@ def restore(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return 0
-    return actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark)
+    res = actions.restore_from_trash(f"tag:trash AND ({query})", unmark=unmark)
+    if res > 0:
+        invalidate_tag_cache()
+    return res
 
 
 def archive_local(
@@ -514,7 +524,10 @@ def archive_local(
     query = _build_target_query(queries=queries, threads=threads, messages=messages, ids=ids)
     if not query:
         return 0
-    return actions.move_to_archive(query, unmark=unmark)
+    res = actions.move_to_archive(query, unmark=unmark)
+    if res > 0:
+        invalidate_tag_cache()
+    return res
 
 
 def expunge_trash() -> int:
@@ -524,7 +537,10 @@ def expunge_trash() -> int:
     serialized with the other single-writer mutations. Returns the number
     of files that were newly flagged.
     """
-    return actions.expunge_trash()
+    res = actions.expunge_trash()
+    if res > 0:
+        invalidate_tag_cache()
+    return res
 
 
 def apply_filter_rules() -> int:
@@ -536,7 +552,10 @@ def apply_filter_rules() -> int:
     """
     if not settings.filter_rules:
         return 0
-    return rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+    res = rules.apply_rules(settings.filter_rules, settings.filter_scope_query)
+    if res > 0:
+        invalidate_tag_cache()
+    return res
 
 
 def index_new() -> bool:
@@ -545,6 +564,7 @@ def index_new() -> bool:
     """
     try:
         notmuch.new(no_hooks=True)
+        invalidate_tag_cache()
         return True
     except Exception as e:
         logger.warning('notmuch new failed: %s', e)
@@ -553,6 +573,7 @@ def index_new() -> bool:
 def sync_mail() -> tuple[bool, str]:
     """Execute parallel mbsync per account (or sync_mail_command), run notmuch new, apply filter rules."""
     res = sync.run_sync()
+    invalidate_tag_cache()
     return (res.ok, res.message)
 
 
@@ -564,12 +585,59 @@ def toggle_flag(thread_id: str, flag: bool) -> bool:
     return modify_tags(threads=[clean_id], add_tags=[], remove_tags=['flagged'])
 
 
-def get_all_tags() -> list[dict[str, Any]]:
-    """Return all known tags with thread counts."""
+# ---------------------------------------------------------------------------
+# Tags cache
+# ---------------------------------------------------------------------------
+
+_tags_cache: Optional[tuple[float, list[dict[str, Any]]]] = None
+_tags_lock = threading.Lock()
+_TAGS_CACHE_TTL = 60.0  # seconds
+
+
+def invalidate_tag_cache() -> None:
+    """Invalidate the cached tag list and thread counts."""
+    global _tags_cache
+    with _tags_lock:
+        _tags_cache = None
+
+
+def get_all_tags(include_unread: bool = True) -> list[dict[str, Any]]:
+    """Return all known tags with thread counts and optional unread thread counts.
+
+    Results are cached in memory for up to 60 seconds or until invalidated by
+    a tag/mail mutation or sync event. When uncached, totals and unread counts
+    are fetched in a single combined batch to eliminate redundant round trips.
+    """
+    global _tags_cache
+    now = time.monotonic()
+    with _tags_lock:
+        if _tags_cache is not None:
+            cache_time, cached_data = _tags_cache
+            if now - cache_time < _TAGS_CACHE_TTL:
+                if not include_unread:
+                    return [{'name': t['name'], 'count': t.get('count', 0)} for t in cached_data]
+                return [dict(t) for t in cached_data]
+
     all_tags = sorted(notmuch.tags())
-    queries = [f'tag:{t}' for t in all_tags]
+    if not all_tags:
+        return []
+
+    queries = [f'tag:{t}' for t in all_tags] + [f'tag:{t} AND tag:unread' for t in all_tags]
     counts = notmuch.count_batch(queries, output='threads')
-    return [{'name': t, 'count': c} for t, c in zip(all_tags, counts)]
+    n = len(all_tags)
+    totals = counts[:n]
+    unreads = counts[n:]
+    data = [
+        {'name': t, 'count': tot, 'unread_count': unread}
+        for t, tot, unread in zip(all_tags, totals, unreads)
+    ]
+
+    with _tags_lock:
+        _tags_cache = (now, [dict(d) for d in data])
+
+    if not include_unread:
+        return [{'name': t['name'], 'count': t['count']} for t in data]
+    return data
 
 
 def count_query(query: str, output: str = 'messages') -> int:
