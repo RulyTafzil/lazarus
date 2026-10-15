@@ -153,7 +153,7 @@ except ImportError:
         def ping(self) -> bool:
             try:
                 res = self._request_json("GET", "/api/v1/ping")
-                return isinstance(res, dict) and res.get("status") == "pong"
+                return isinstance(res, dict) and res.get("status") in ("ok", "pong")
             except Exception:
                 return False
 
@@ -256,8 +256,13 @@ except ImportError:
             data = self._request_json("GET", "/api/v1/tags")
             return list(data) if isinstance(data, list) else []
 
-        def get_contacts(self, query: str = "") -> list[dict[str, Any]]:
-            data = self._request_json("GET", "/api/v1/contacts", query_params={"q": query})
+        def get_contacts(self, query: str = "", limit: int | None = None) -> list[dict[str, Any]]:
+            params: dict[str, Any] = {}
+            if query:
+                params["q"] = query
+            if limit is not None:
+                params["limit"] = limit
+            data = self._request_json("GET", "/api/v1/contacts", query_params=params)
             return list(data) if isinstance(data, list) else []
 
         def send_message(self, account: str, message_bytes: bytes) -> tuple[bool, str]:

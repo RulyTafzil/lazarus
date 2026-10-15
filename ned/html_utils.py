@@ -24,10 +24,13 @@ Split from ``util.py`` so rendering helpers have a single owner.
 
 from __future__ import annotations
 
-import html
-import re
-import subprocess
 import email.header
+import html
+from html.parser import HTMLParser
+import re
+import shutil
+import subprocess
+from typing import Any
 
 try:
     from bleach.linkifier import Linker  # type: ignore[import-untyped]
@@ -35,19 +38,66 @@ except ImportError:
     Linker = None  # type: ignore[assignment,misc]
 
 
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.result: list[str] = []
+        self._ignore = False
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in ("script", "style", "head", "title"):
+            self._ignore = True
+        elif tag in ("p", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "hr", "blockquote"):
+            self.result.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style", "head", "title"):
+            self._ignore = False
+        elif tag in ("p", "div", "tr", "li", "blockquote"):
+            self.result.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignore:
+            self.result.append(data)
+
+
+def sanitize_html_to_plain(html_content: str) -> str:
+    """Convert HTML content into clean plaintext without extra dependencies."""
+    if not html_content:
+        return ""
+    parser = _HTMLTextExtractor()
+    parser.feed(html_content)
+    raw = "".join(parser.result)
+    raw = html.unescape(raw)
+    lines = [line.strip() for line in raw.splitlines()]
+    output: list[str] = []
+    prev_blank = False
+    for line in lines:
+        if not line:
+            if not prev_blank:
+                output.append("")
+                prev_blank = True
+        else:
+            output.append(line)
+            prev_blank = False
+    return "\n".join(output).strip()
+
+
 def w3m_html2text(s: str) -> str:
-    """Convert HTML to plain text using "w3m -dump" """
-    try:
-        p = subprocess.run(
-            ["w3m", "-T", "text/html", "-O", "utf8", "-dump"],
-            stdout=subprocess.PIPE,
-            encoding="utf8",
-            input=s,
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as e:
-        return f"lazarus w3m error: {e}"
-    return p.stdout
+    """Convert HTML to plain text using "w3m -dump", falling back to stdlib parser."""
+    if shutil.which("w3m") is not None:
+        try:
+            p = subprocess.run(
+                ["w3m", "-T", "text/html", "-O", "utf8", "-dump"],
+                stdout=subprocess.PIPE,
+                encoding="utf8",
+                input=s,
+                check=True,
+            )
+            return p.stdout
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    return sanitize_html_to_plain(s)
 
 
 def linkify(s: str) -> str:

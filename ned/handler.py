@@ -355,7 +355,9 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/v1/contacts":
             q = qs.get("q", [""])[0]
-            matches = service.get_contacts(q)
+            limit_raw = qs.get("limit", [None])[0]
+            contacts_limit = int(limit_raw) if limit_raw is not None and limit_raw.isdigit() else None
+            matches = service.get_contacts(q, limit=contacts_limit)
             self.send_json(matches)
             return
 

@@ -304,6 +304,7 @@ def test_compute_allowed_hostnames(monkeypatch):
         "ts_dns": "ned.tailnet.ts.net.",
     })
     names = daemon._compute_allowed_hostnames("127.0.0.1")
+    assert "127.0.0.1" in names
     # 0.0.0.0 wildcard binds contribute nothing to the allowlist
     assert "0.0.0.0" not in daemon._compute_allowed_hostnames("0.0.0.0")
 
@@ -338,3 +339,111 @@ def test_sent_maildir_bcc_stripped(tmp_path, monkeypatch):
     assert saved_msg["To"] == "client@example.com"
     assert "Bcc" not in saved_msg
     assert b"secret@example.com" not in saved_msg.as_bytes()
+
+
+def test_thread_panel_refresh_info_escaping(qapp):
+    """SEC-4: message metadata, PGP status, and attachment names must be escaped."""
+    from PyQt6.QtWidgets import QTextBrowser
+    from lazarus.thread import ThreadPanel
+
+    class FakePanel:
+        def __init__(self):
+            class FakeSignal:
+                def emit(self):
+                    pass
+
+            self.has_refreshed = FakeSignal()
+            self.current_message = {
+                'headers': {
+                    'Subject': 'Test <script>',
+                    'From': 'Alice <alice@example.com>',
+                    'Date': 'Invalid Date Format <oops>',
+                },
+                'tags': ['<tag1>', 'unread'],
+                'crypto': {
+                    'signed': {
+                        'status': [{
+                            'status': 'good',
+                            'userid': 'Alice <alice@example.com>',
+                            'fingerprint': 'FP1234',
+                        }],
+                    },
+                    'decrypted': {
+                        'status': 'ok <decrypted>',
+                    },
+                },
+                'body': [
+                    {'filename': '<b>test.txt</b>', 'content-disposition': 'attachment'},
+                ],
+            }
+            self.message_info = QTextBrowser()
+            self.subject = ''
+
+    panel = FakePanel()
+    ThreadPanel.refresh_info(panel)  # type: ignore[arg-type]
+    plain = panel.message_info.toPlainText()
+    assert '<alice@example.com>' in plain
+    assert '<b>test.txt</b>' in plain
+    assert '[<tag1>]' in plain
+    assert 'Invalid Date Format <oops>' in plain
+    assert 'ok <decrypted>' in plain
+
+
+def test_contacts_limit(monkeypatch):
+    """PERF-4: get_contacts supports limit parameter."""
+    from ned import service
+
+    mock_contacts = [
+        {'name': f'User {i}', 'address': f'user{i}@example.com', 'display': f'User {i} <user{i}@example.com>'}
+        for i in range(100)
+    ]
+    monkeypatch.setattr(service, "load_contacts", lambda force_reload=False: mock_contacts)
+
+    # Empty query: default 50
+    assert len(service.get_contacts("")) == 50
+    # Empty query with limit=0: full list
+    assert len(service.get_contacts("", limit=0)) == 100
+    # Empty query with limit=10: 10 items
+    assert len(service.get_contacts("", limit=10)) == 10
+
+    # Non-empty query: default 30
+    assert len(service.get_contacts("user")) == 30
+    # Non-empty query with limit=0: full matching list
+    assert len(service.get_contacts("user", limit=0)) == 100
+    # Non-empty query with limit=15: 15 items
+    assert len(service.get_contacts("user", limit=15)) == 15
+
+
+def test_w3m_html2text_fallback(monkeypatch):
+    """PERF-4: w3m_html2text falls back to sanitize_html_to_plain on failure."""
+    from ned import html_utils
+
+    # Simulate missing w3m
+    monkeypatch.setattr(html_utils.shutil, "which", lambda cmd: None)
+    res = html_utils.w3m_html2text("<p>Hello <b>World</b>!</p>")
+    assert res == "Hello World!"
+    assert "error" not in res
+
+
+def test_ned_mcp_client_ping(monkeypatch):
+    """MAINT-1: ned_mcp NedClient ping accepts ok or pong status."""
+    import importlib
+    from unittest.mock import patch
+
+    # Test the fallback NedClient when ned.client is not importable
+    with patch.dict("sys.modules", {"ned": None, "ned.client": None}):
+        import ned_mcp.client as fallback_mod
+        importlib.reload(fallback_mod)
+        c = fallback_mod.NedClient()
+        monkeypatch.setattr(c, "_request_json", lambda method, path: {"status": "ok"})
+        assert c.ping() is True
+
+        monkeypatch.setattr(c, "_request_json", lambda method, path: {"status": "pong"})
+        assert c.ping() is True
+
+        monkeypatch.setattr(c, "_request_json", lambda method, path: {"status": "error"})
+        assert c.ping() is False
+
+    # Reload ned_mcp.client back to normal
+    import ned_mcp.client as normal_mod
+    importlib.reload(normal_mod)

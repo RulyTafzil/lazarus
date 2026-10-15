@@ -358,7 +358,7 @@ class ThreadPanel(panel.Panel):
                                 m['headers']['Date'])
                             value = dt.astimezone().strftime('%c')
                         except (ValueError, TypeError):
-                            value = m['headers']['Date']
+                            value = util.simple_escape(m['headers']['Date'])
                     else:
                         value = util.simple_escape(m['headers'][name])
                     header_html += (
@@ -370,7 +370,7 @@ class ThreadPanel(panel.Panel):
             if 'tags' in m:
                 tags = ' '.join(
                     settings.tag_icons[t] if t in settings.tag_icons
-                    else f'[{t}]'
+                    else f'[{util.simple_escape(t)}]'
                     for t in util.sort_tags(m['tags']))
                 header_html += (
                     f'<tr>'
@@ -381,7 +381,7 @@ class ThreadPanel(panel.Panel):
                     f'font-size: {settings.tag_font_size}">{tags}</span></td>'
                     f'</tr>')
             attachments = [
-                f"[{part['filename']}]"
+                f"[{util.simple_escape(str(part['filename']))}]"
                 for part in util.message_parts(m)
                 if util.is_attachment(part)
             ]
@@ -395,31 +395,34 @@ class ThreadPanel(panel.Panel):
                     f'</tr>')
 
             # PGP signature status
-            if 'signed' in m['crypto']:
-                for sig in m['crypto']['signed']['status']:
+            if 'signed' in m.get('crypto', {}):
+                for sig in m['crypto']['signed'].get('status', []):
+                    status_esc = util.simple_escape(str(sig.get('status', '')))
+                    keyid_esc = util.simple_escape(str(sig.get('keyid', '')))
                     header_html += (
                         f'<tr>'
                         f'<td><b style="color: {settings.theme["fg_bright"]}">'
                         f'Pgp-signed:&nbsp;</b></td>'
-                        f'<td>{sig["status"]}: ')
-                    if sig['status'] == 'error':
-                        header_html += (
-                            f'{" ".join(sig["errors"].keys())} '
-                            f'(keyid={sig["keyid"]})')
-                    elif sig['status'] == 'good':
-                        header_html += (
-                            f'{sig.get("userid")} ({sig["fingerprint"]})')
-                    elif sig['status'] == 'bad':
-                        header_html += f'keyid={sig["keyid"]}'
+                        f'<td>{status_esc}: ')
+                    if sig.get('status') == 'error':
+                        errs = util.simple_escape(" ".join(sig.get("errors", {}).keys()))
+                        header_html += f'{errs} (keyid={keyid_esc})'
+                    elif sig.get('status') == 'good':
+                        uid = util.simple_escape(str(sig.get("userid", "")))
+                        fpr = util.simple_escape(str(sig.get("fingerprint", "")))
+                        header_html += f'{uid} ({fpr})'
+                    elif sig.get('status') == 'bad':
+                        header_html += f'keyid={keyid_esc}'
                     header_html += '</td></tr>'
 
             # Decryption status
-            if 'decrypted' in m['crypto']:
+            if 'decrypted' in m.get('crypto', {}):
+                dec_status = util.simple_escape(str(m['crypto']['decrypted'].get('status', '')))
                 header_html += (
                     f'<tr>'
                     f'<td><b style="color: {settings.theme["fg_bright"]}">'
                     f'Decryption:&nbsp;</b></td>'
-                    f'<td>{m["crypto"]["decrypted"]["status"]}</td>'
+                    f'<td>{dec_status}</td>'
                     f'</tr>')
 
             # Message ID

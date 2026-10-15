@@ -35,49 +35,51 @@ def collapse_quotes(text: str) -> str:
     return "\n".join(trimmed).strip()
 
 
-class _HTMLTextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.result: list[str] = []
-        self._ignore = False
-
-    def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag in ("script", "style", "head", "title"):
-            self._ignore = True
-        elif tag in ("p", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "hr", "blockquote"):
-            self.result.append("\n")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style", "head", "title"):
+try:
+    from ned.html_utils import _HTMLTextExtractor, sanitize_html_to_plain  # type: ignore[assignment]
+except ImportError:
+    class _HTMLTextExtractor(HTMLParser):  # type: ignore[no-redef]
+        def __init__(self) -> None:
+            super().__init__()
+            self.result: list[str] = []
             self._ignore = False
-        elif tag in ("p", "div", "tr", "li", "blockquote"):
-            self.result.append("\n")
 
-    def handle_data(self, data: str) -> None:
-        if not self._ignore:
-            self.result.append(data)
+        def handle_starttag(self, tag: str, attrs: Any) -> None:
+            if tag in ("script", "style", "head", "title"):
+                self._ignore = True
+            elif tag in ("p", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li", "hr", "blockquote"):
+                self.result.append("\n")
 
+        def handle_endtag(self, tag: str) -> None:
+            if tag in ("script", "style", "head", "title"):
+                self._ignore = False
+            elif tag in ("p", "div", "tr", "li", "blockquote"):
+                self.result.append("\n")
 
-def sanitize_html_to_plain(html_content: str) -> str:
-    """Convert HTML content into clean plaintext without extra dependencies."""
-    if not html_content:
-        return ""
-    parser = _HTMLTextExtractor()
-    parser.feed(html_content)
-    raw = "".join(parser.result)
-    raw = html_module.unescape(raw)
-    lines = [line.strip() for line in raw.splitlines()]
-    output: list[str] = []
-    prev_blank = False
-    for line in lines:
-        if not line:
-            if not prev_blank:
-                output.append("")
-                prev_blank = True
-        else:
-            output.append(line)
-            prev_blank = False
-    return "\n".join(output).strip()
+        def handle_data(self, data: str) -> None:
+            if not self._ignore:
+                self.result.append(data)
+
+    def sanitize_html_to_plain(html_content: str) -> str:  # type: ignore[no-redef]
+        """Convert HTML content into clean plaintext without extra dependencies."""
+        if not html_content:
+            return ""
+        parser = _HTMLTextExtractor()
+        parser.feed(html_content)
+        raw = "".join(parser.result)
+        raw = html_module.unescape(raw)
+        lines = [line.strip() for line in raw.splitlines()]
+        output: list[str] = []
+        prev_blank = False
+        for line in lines:
+            if not line:
+                if not prev_blank:
+                    output.append("")
+                    prev_blank = True
+            else:
+                output.append(line)
+                prev_blank = False
+        return "\n".join(output).strip()
 
 
 

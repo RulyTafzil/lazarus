@@ -679,7 +679,10 @@
       if (m.body_html) {
         // Embed inside responsive sandboxed iframe
         const frameId = `frame-${m.id.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        bodyContentHtml = `<iframe id="${frameId}" class="message-html-frame" sandbox="allow-same-origin" srcdoc="${escapeAttr(m.body_html)}"></iframe>`;
+        const docHtml = (/<head\b[^>]*>/i.test(m.body_html))
+          ? m.body_html.replace(/<head\b[^>]*>/i, '$&<base target="_blank" rel="noopener noreferrer">')
+          : `<base target="_blank" rel="noopener noreferrer">${m.body_html}`;
+        bodyContentHtml = `<iframe id="${frameId}" class="message-html-frame" sandbox="allow-same-origin" srcdoc="${escapeAttr(docHtml)}"></iframe>`;
       } else {
         bodyContentHtml = `<pre class="message-plain-body">${linkify(escapeHtml(m.body_text || ''))}</pre>`;
       }
@@ -744,7 +747,7 @@
 
   // --- Triage Actions ---
   async function archiveThread(threadId, subject) {
-    const card = document.querySelector(`[data-thread-id="${threadId}"]`);
+    const card = document.querySelector(`[data-thread-id="${CSS.escape(threadId)}"]`);
     if (card) {
       card.style.opacity = '0';
       card.style.transform = 'translateX(100px)';
@@ -763,7 +766,7 @@
   }
 
   async function trashThread(threadId, subject) {
-    const card = document.querySelector(`[data-thread-id="${threadId}"]`);
+    const card = document.querySelector(`[data-thread-id="${CSS.escape(threadId)}"]`);
     if (card) {
       card.style.opacity = '0';
       card.style.transform = 'translateX(-100px)';
@@ -796,7 +799,7 @@
         }
         renderThreadDetail(state.currentThread);
       }
-      const card = document.querySelector(`[data-thread-id="${threadId}"]`);
+      const card = document.querySelector(`[data-thread-id="${CSS.escape(threadId)}"]`);
       const threadObj = (state.threads || []).find(item => item.thread === threadId);
       if (threadObj) {
         if (!threadObj.tags) threadObj.tags = [];

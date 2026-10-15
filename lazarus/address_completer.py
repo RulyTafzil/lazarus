@@ -59,7 +59,10 @@ class _AddressLoader(QThread):
 
         from .client import get_client
         try:
-            contacts = get_client().get_contacts("")
+            try:
+                contacts = get_client().get_contacts("", limit=0)
+            except TypeError:
+                contacts = get_client().get_contacts("")
             for item in contacts:
                 formatted = item.get('display', '') or item.get('address', '')
                 if not formatted:

@@ -102,7 +102,7 @@ def test_preload_addresses_loads_once(qapp, monkeypatch, client_stub):
     class C:
         contacts = [{'display': 'Alice <alice@example.com>',
                      'address': 'alice@example.com', 'name': 'Alice'}]
-        def get_contacts(self, query=''):
+        def get_contacts(self, query='', limit=None):
             return self.contacts
 
     monkeypatch.setattr(ac, '_shared_loader', None)

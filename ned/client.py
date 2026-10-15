@@ -724,9 +724,13 @@ class NedClient:
         data = self._request_json("GET", "/api/v1/tags")
         return data if isinstance(data, list) else []
 
-    def get_contacts(self, query: str = "") -> list[dict[str, str]]:
+    def get_contacts(self, query: str = "", limit: int | None = None) -> list[dict[str, str]]:
         """Query address autocomplete matching prefix or substring."""
-        params = {"q": query} if query else {}
+        params: dict[str, Any] = {}
+        if query:
+            params["q"] = query
+        if limit is not None:
+            params["limit"] = str(limit)
         data = self._request_json("GET", "/api/v1/contacts", query_params=params)
         return data if isinstance(data, list) else []
 

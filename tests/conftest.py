@@ -263,7 +263,7 @@ class ClientStub:
         return [{'name': t, 'count': len(_filter_threads(self.threads, f'tag:{t}'))}
                 for t in self.tag_list]
 
-    def get_contacts(self, query: str = '') -> list[dict]:
+    def get_contacts(self, query: str = '', limit: int | None = None) -> list[dict]:
         return []
 
     def get_thread(self, thread_id: str, full: bool = True) -> dict:

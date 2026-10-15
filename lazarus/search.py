@@ -775,7 +775,7 @@ class SearchPanel(actions.MarkableActionsMixin, panel.Panel):
             return None
         from .client import get_client
         try:
-            res = get_client().get_thread(thread_id)
+            res = get_client().get_thread(thread_id, full=False)
             data = res.get('tree') or []
         except Exception:
             return None

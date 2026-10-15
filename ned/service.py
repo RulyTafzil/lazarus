@@ -101,17 +101,22 @@ def load_contacts(force_reload: bool = False) -> list[dict[str, str]]:
         return _contacts_cache
 
 
-def get_contacts(query: str = '') -> list[dict[str, str]]:
+def get_contacts(query: str = '', limit: int | None = None) -> list[dict[str, str]]:
     """Return contacts matching substring in name or address."""
     all_contacts = load_contacts()
     q = query.strip().lower()
     if not q:
-        return all_contacts[:50]
+        if limit is None:
+            return all_contacts[:50]
+        if limit <= 0:
+            return list(all_contacts)
+        return all_contacts[:limit]
     matched: list[dict[str, str]] = []
+    max_len = limit if (limit is not None and limit > 0) else (30 if limit is None else None)
     for c in all_contacts:
         if q in c['name'].lower() or q in c['address'].lower() or q in c['display'].lower():
             matched.append(c)
-            if len(matched) >= 30:
+            if max_len is not None and len(matched) >= max_len:
                 break
     return matched
 
