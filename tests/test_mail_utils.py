@@ -105,12 +105,10 @@ def test_wrap_message_keeps_quotes():
 
 
 def test_email_is_me(monkeypatch):
-    import lazarus.settings as settings
-    # The desktop's utility surface is wired to see lazarus.settings.
-    settings.email_address = 'Bob <bob@example.com>'
+    import ned.settings as settings
+    monkeypatch.setattr(settings, 'email_address', 'Bob <bob@example.com>')
     assert util.email_is_me('bob@example.com')
     assert not util.email_is_me('alice@example.com')
-    settings.email_address = ''
 
 
 def test_strip_email_address():
