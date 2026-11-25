@@ -30,6 +30,7 @@ import re
 import select
 import signal
 import subprocess
+import threading
 from typing import Callable, List, Optional, Tuple
 
 from . import notmuch
@@ -38,6 +39,10 @@ from . import settings
 from .concurrency import mutation_lock
 
 logger = logging.getLogger(__name__)
+
+# Ensures at most one mbsync + notmuch new cycle runs at a time across
+# the background scheduler, HTTP /api/v1/sync, and startup syncs.
+_sync_lock = threading.Lock()
 
 
 @dataclass
@@ -111,6 +116,33 @@ def run_sync(
 
     def is_cancelled() -> bool:
         return bool(cancel_check and cancel_check())
+
+    if not _sync_lock.acquire(blocking=False):
+        logger.info('Mail sync already in progress; skipping concurrent run')
+        emit('Sync already in progress')
+        return SyncResult(ok=True, message='Sync already in progress')
+
+    try:
+        return _run_sync_locked(
+            emit=emit,
+            is_cancelled=is_cancelled,
+            accounts=accounts,
+            sync_cmd=sync_cmd,
+            apply_rules=apply_rules,
+        )
+    finally:
+        _sync_lock.release()
+
+
+def _run_sync_locked(
+    *,
+    emit: Callable[[str], None],
+    is_cancelled: Callable[[], bool],
+    accounts: Optional[List[str]],
+    sync_cmd: Optional[str],
+    apply_rules: bool,
+) -> SyncResult:
+    """Execute one serialized sync cycle with ``_sync_lock`` held."""
 
     target_accounts = accounts if accounts is not None else (settings.imap_accounts or settings.smtp_accounts)
     active_procs: list[subprocess.Popen[str]] = []

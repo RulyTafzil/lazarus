@@ -50,6 +50,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_BODY_BYTES = 50 * 1024 * 1024  # 50 MiB
 
 
+class _PayloadTooLargeError(ValueError):
+    """Raised when an incoming HTTP body exceeds MAX_BODY_BYTES."""
+
+
 class NedRequestHandler(http.server.BaseHTTPRequestHandler):
     """Handles REST API, SSE, and static asset requests for NED."""
 
@@ -222,18 +226,39 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         if length <= 0:
             return b""
         if length > MAX_BODY_BYTES:
-            raise ValueError(f"Request body too large ({length} bytes)")
+            raise _PayloadTooLargeError(f"Request body too large ({length} bytes)")
         return self.rfile.read(length)
 
     def _read_json_body(self) -> dict[str, Any]:
-        """Read and parse JSON body."""
+        """Read and parse JSON object body, raising ValueError on malformed payloads."""
         raw = self._read_body()
         if not raw:
             return {}
         try:
-            return json.loads(raw.decode("utf-8"))
-        except Exception:
-            return {}
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise ValueError(f"Invalid JSON body: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError("JSON body must be an object")
+        return parsed
+
+    @staticmethod
+    def _parse_int(raw: str, name: str) -> int:
+        """Parse an integer parameter or raise a descriptive ValueError."""
+        try:
+            return int(raw)
+        except ValueError as e:
+            raise ValueError(f"Invalid integer for '{name}': {raw!r}") from e
+
+    @classmethod
+    def _parse_int_param(
+        cls, qs: dict[str, list[str]], name: str, default: int
+    ) -> int:
+        """Extract an integer query parameter from parsed query dict."""
+        vals = qs.get(name)
+        if not vals:
+            return default
+        return cls._parse_int(vals[0], name)
 
     def _parse_target_body(self) -> tuple[list[str], list[str], list[str], list[str], dict[str, Any]]:
         """Parse target queries, threads, messages, and ids from request JSON body."""
@@ -268,10 +293,18 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         return path
 
     def do_GET(self) -> None:
-        """Route GET requests."""
+        """Route GET requests with clean 400/413 error handling."""
         if not self._check_auth():
             return
+        try:
+            self._dispatch_GET()
+        except _PayloadTooLargeError as e:
+            self.send_error_json(str(e), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        except ValueError as e:
+            self.send_error_json(str(e), HTTPStatus.BAD_REQUEST)
 
+    def _dispatch_GET(self) -> None:
+        """Dispatch authenticated GET requests."""
         parsed = urllib.parse.urlparse(self.path)
         path = self._normalize_path(parsed.path)
         qs = urllib.parse.parse_qs(parsed.query)
@@ -307,8 +340,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         # API Routes
         if path == "/api/v1/threads":
             query = qs.get("q", ["tag:inbox"])[0]
-            limit = int(qs.get("limit", ["50"])[0])
-            offset = int(qs.get("offset", ["0"])[0])
+            limit = self._parse_int_param(qs, "limit", 50)
+            offset = self._parse_int_param(qs, "offset", 0)
             threads = service.search_threads(query, limit=limit, offset=offset)
             self.send_json(threads)
             return
@@ -327,7 +360,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         m_part = re.match(r"^/api/v1/messages/([^/]+)/parts/([^/]+)$", path)
         if m_part:
             msg_id = urllib.parse.unquote(m_part.group(1))
-            part_id = int(m_part.group(2))
+            part_id = self._parse_int(m_part.group(2), "part_id")
             content, content_type, filename = service.get_part_data(msg_id, part_id)
             if not content:
                 self.send_error_json("Part not found", HTTPStatus.NOT_FOUND)
@@ -361,8 +394,7 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/v1/contacts":
             q = qs.get("q", [""])[0]
-            limit_raw = qs.get("limit", [None])[0]
-            contacts_limit = int(limit_raw) if limit_raw is not None and limit_raw.isdigit() else None
+            contacts_limit = self._parse_int_param(qs, "limit", -1) if "limit" in qs else None
             matches = service.get_contacts(q, limit=contacts_limit)
             self.send_json(matches)
             return
@@ -388,16 +420,8 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/v1/messages":
             q = qs.get("q", [""])[0] or qs.get("query", [""])[0]
-            limit_str = qs.get("limit", ["1000"])[0]
-            offset_str = qs.get("offset", ["0"])[0]
-            try:
-                limit = int(limit_str)
-            except ValueError:
-                limit = 1000
-            try:
-                offset = int(offset_str)
-            except ValueError:
-                offset = 0
+            limit = self._parse_int_param(qs, "limit", 1000)
+            offset = self._parse_int_param(qs, "offset", 0)
             self.send_json(service.search_messages(q, limit=limit, offset=offset))
             return
 
@@ -410,9 +434,18 @@ class NedRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_error_json("Not found", HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
-        """Route POST requests."""
+        """Route POST requests with clean 400/413 error handling."""
         if not self._check_auth():
             return
+        try:
+            self._dispatch_POST()
+        except _PayloadTooLargeError as e:
+            self.send_error_json(str(e), HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        except ValueError as e:
+            self.send_error_json(str(e), HTTPStatus.BAD_REQUEST)
+
+    def _dispatch_POST(self) -> None:
+        """Dispatch authenticated POST requests."""
 
         try:
             content_len = int(self.headers.get("Content-Length", "0"))

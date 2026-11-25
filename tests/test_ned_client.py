@@ -837,3 +837,54 @@ def test_cli_send(mock_send_raw, running_ned_unix, monkeypatch, tmp_path, capsys
     _, err = capsys.readouterr()
     assert "Error: empty message payload." in err
 
+
+def test_listen_events_handles_ssl_want_read(monkeypatch):
+    """listen_events retries on ssl.SSLWantReadError and drains SSL pending bytes."""
+    import select
+    import ssl
+
+    class FakeSSLSock:
+        def __init__(self):
+            self.step = 0
+            self.blocking = True
+
+        def setblocking(self, flag):
+            self.blocking = flag
+
+        def pending(self):
+            # Step 2 simulates data already buffered inside OpenSSL
+            return 10 if self.step == 2 else 0
+
+        def recv(self, _n):
+            self.step += 1
+            if self.step == 1:
+                raise ssl.SSLWantReadError("want read")
+            if self.step == 2:
+                return b'event: invalidate\ndata: {"scope": "threads", "reason": "ssl"}\n\n'
+            return b""
+
+    fake_sock = FakeSSLSock()
+
+    class FakeResp:
+        status = 200
+        sock = fake_sock
+
+    class FakeConn:
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            return FakeResp()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(select, "select", lambda r, w, x, t: (r, [], []))
+    client = NedClient.http("https://example.ts.net")
+    monkeypatch.setattr(client, "_create_connection", lambda timeout=None: FakeConn())
+
+    events = list(client.listen_events())
+    assert len(events) == 1
+    assert events[0].scope == "threads"
+    assert events[0].reason == "ssl"
+

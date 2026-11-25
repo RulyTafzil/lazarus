@@ -46,14 +46,13 @@ def _show_status(args: argparse.Namespace) -> int:
     sock_path = args.socket or get_default_socket_path()
     is_socket_alive = False
     if os.path.exists(sock_path):
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(1.0)
-        try:
-            s.connect(sock_path)
-            s.close()
-            is_socket_alive = True
-        except OSError:
-            pass
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            try:
+                s.connect(sock_path)
+                is_socket_alive = True
+            except OSError:
+                pass
 
     try:
         config.load_config()

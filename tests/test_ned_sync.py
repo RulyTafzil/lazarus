@@ -81,3 +81,36 @@ def test_run_sync_applies_rules(monkeypatch):
     assert result.ok is True
     assert len(rule_applied) == 1
     assert rule_applied[0][1] == 'tag:inbox'
+
+
+def test_run_sync_serializes_concurrent_calls(monkeypatch):
+    """A second concurrent run_sync() must not spawn overlapping syncs."""
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+    new_calls = []
+
+    def blocking_new(no_hooks=False):
+        new_calls.append(no_hooks)
+        entered.set()
+        assert release.wait(timeout=5.0)
+
+    monkeypatch.setattr(notmuch, 'new', blocking_new)
+    settings.smtp_accounts = []
+    settings.sync_mail_command = 'true'
+
+    results = []
+    t1 = threading.Thread(target=lambda: results.append(run_sync(apply_rules=False)))
+    t1.start()
+    assert entered.wait(timeout=5.0)
+
+    second = run_sync(apply_rules=False)
+    assert second.ok is True
+    assert second.message == 'Sync already in progress'
+
+    release.set()
+    t1.join(timeout=5.0)
+    assert len(results) == 1
+    assert results[0].ok is True
+    assert len(new_calls) == 1

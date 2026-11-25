@@ -211,13 +211,12 @@ class NedDaemon:
 
         if sock_file.exists():
             # Check if an active instance is running
-            test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            try:
-                test_sock.connect(self.socket_path)
-                test_sock.close()
-                raise RuntimeError(f"Another NED instance is already running on {self.socket_path}")
-            except (ConnectionRefusedError, FileNotFoundError, OSError):
-                sock_file.unlink(missing_ok=True)
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as test_sock:
+                try:
+                    test_sock.connect(self.socket_path)
+                    raise RuntimeError(f"Another NED instance is already running on {self.socket_path}")
+                except (ConnectionRefusedError, FileNotFoundError, OSError):
+                    sock_file.unlink(missing_ok=True)
 
         self._unix_server = ThreadingUnixStreamServer(self.socket_path, NedRequestHandler)
         # Secure socket permissions to user-only

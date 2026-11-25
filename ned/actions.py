@@ -585,11 +585,13 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
 
     tagged = 0
     deleted_local = 0
+    failed = 0
     unlinked_paths: set[str] = set()
 
     for f in files:
         if not _is_trash_path(f):
             logger.debug('expunge: not in trash folder: %s', f)
+            failed += 1
             continue
 
         # Re-resolve right before the rename/delete: the collect above may be a
@@ -607,6 +609,7 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
                 deleted_local += 1
             except OSError as e:
                 logger.warning('expunge: local delete failed %s: %s', f, e)
+                failed += 1
             continue
 
         dirname = os.path.dirname(f)
@@ -627,6 +630,7 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
             tagged += 1
         except OSError as e:
             logger.warning('expunge rename failed %s → %s: %s', f, new_path, e)
+            failed += 1
 
     # Sweep any remaining files in local non-IMAP trash directories
     for d in _get_local_trash_dirs(effective_root):
@@ -640,6 +644,7 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
                         deleted_local += 1
                     except OSError as e:
                         logger.warning('expunge: failed to sweep %s: %s', fpath, e)
+                        failed += 1
         except OSError:
             pass
 
@@ -649,8 +654,13 @@ def expunge_trash(trash_folder: Optional[str] = None) -> int:
         except Exception as e:
             logger.warning('notmuch new after local expunge failed: %s', e)
 
-    if tagged or deleted_local:
+    if (tagged or deleted_local) and failed == 0:
         notmuch.tag('-trash', 'tag:trash')
+    elif failed > 0:
+        logger.warning(
+            'expunge: %d file(s) failed or were skipped; keeping tag:trash',
+            failed,
+        )
 
     return tagged + deleted_local
 

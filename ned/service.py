@@ -847,13 +847,19 @@ def _dispatch_and_save(acct: str, msg_bytes: bytes,
     cmd_str = normalized_tmpl.format(account=shlex.quote(acct))
     cmd_args = shlex.split(cmd_str)
 
-    proc = subprocess.Popen(
+    with subprocess.Popen(
         cmd_args,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
-    stdout, stderr = proc.communicate(input=msg_bytes, timeout=60)
+    ) as proc:
+        try:
+            stdout, stderr = proc.communicate(input=msg_bytes, timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            logger.warning('Send command timed out after 60s: %r', cmd_str)
+            return (False, "Send command timed out")
 
     if proc.returncode != 0:
         err_msg = stderr.decode('utf-8', errors='replace').strip() or f"Exit code {proc.returncode}"

@@ -736,3 +736,76 @@ def test_get_all_tags_combined_batch_and_caching(monkeypatch):
     assert data4 == data
 
 
+def test_ned_invalid_query_and_json_return_400(tmp_path):
+    """Malformed query integers, invalid JSON, and non-object JSON return HTTP 400."""
+    sock_path = str(tmp_path / "test_ned.sock")
+    daemon = NedDaemon(socket_path=sock_path, enable_tcp=False)
+    daemon.start()
+    try:
+        conn = UnixHTTPConnection(sock_path)
+
+        for bad_get in (
+            "/api/v1/threads?limit=abc",
+            "/api/v1/threads?offset=nope",
+            "/api/v1/messages/msg-1/parts/notanint",
+            "/api/v1/contacts?limit=bad",
+        ):
+            conn.request("GET", bad_get)
+            resp = conn.getresponse()
+            assert resp.status == 400, bad_get
+            assert "error" in json.loads(resp.read().decode("utf-8"))
+
+        for bad_body in (b"{not-json", b'["a", "list"]'):
+            conn.request(
+                "POST",
+                "/api/v1/tags",
+                body=bad_body,
+                headers={"Content-Type": "application/json"},
+            )
+            resp = conn.getresponse()
+            assert resp.status == 400
+            assert "error" in json.loads(resp.read().decode("utf-8"))
+
+        conn.close()
+    finally:
+        daemon.stop()
+
+
+def test_send_raw_kills_process_on_timeout(monkeypatch):
+    """_dispatch_and_save kills and reaps the sendmail process on TimeoutExpired."""
+    import subprocess
+    from ned import service
+
+    monkeypatch.setattr(service, "get_configured_accounts", lambda: ["default"])
+    monkeypatch.setattr(settings, "send_mail_command", "msmtp -a {account} -t")
+
+    killed = []
+    calls = []
+
+    class FakeProc:
+        returncode = -9
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def communicate(self, input=None, timeout=None):
+            calls.append((input is not None, timeout))
+            if timeout is not None:
+                raise subprocess.TimeoutExpired(cmd=["msmtp"], timeout=timeout)
+            return (b"", b"")
+
+        def kill(self):
+            killed.append(True)
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakeProc())
+
+    ok, msg = service.send_raw("default", b"From: a\nTo: b\n\nhi")
+    assert ok is False
+    assert "timed out" in msg.lower()
+    assert killed == [True]
+    assert len(calls) == 2
+
+

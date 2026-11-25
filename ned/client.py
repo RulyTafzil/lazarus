@@ -33,6 +33,7 @@ import os
 from pathlib import Path
 import select
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -902,6 +903,43 @@ class NedClient:
             data_lines: list[str] = []
             event_id: Optional[str] = None
 
+            def _handle_line(line: str) -> Optional[NedEvent]:
+                nonlocal event_name, data_lines, event_id
+                if not line:
+                    if not data_lines:
+                        return None
+                    data_str = "\n".join(data_lines)
+                    parsed: dict[str, Any] = {}
+                    try:
+                        loaded = json.loads(data_str)
+                        if isinstance(loaded, dict):
+                            parsed = loaded
+                    except Exception:
+                        pass
+                    ev = NedEvent(
+                        event=event_name,
+                        data=parsed,
+                        raw_data=data_str,
+                        id=event_id,
+                        scope=str(parsed.get("scope", "")),
+                        reason=parsed.get("reason"),
+                        target_id=parsed.get("id"),
+                    )
+                    event_name = "message"
+                    data_lines = []
+                    event_id = None
+                    return ev
+
+                if line.startswith(":"):
+                    return None
+                if line.startswith("event:"):
+                    event_name = line[len("event:") :].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line[len("data:") :].strip())
+                elif line.startswith("id:"):
+                    event_id = line[len("id:") :].strip()
+                return None
+
             raw_sock = None
             try:
                 if hasattr(resp, "fp") and hasattr(resp.fp, "raw") and hasattr(resp.fp.raw, "_sock"):
@@ -917,12 +955,15 @@ class NedClient:
                 while True:
                     if stop_event is not None and stop_event.is_set():
                         break
-                    r, _, _ = select.select([raw_sock], [], [], 0.2)
-                    if not r:
-                        continue
+                    pending_fn = getattr(raw_sock, "pending", None)
+                    has_pending = bool(pending_fn and pending_fn() > 0)
+                    if not has_pending:
+                        r, _, _ = select.select([raw_sock], [], [], 0.2)
+                        if not r:
+                            continue
                     try:
                         chunk = raw_sock.recv(4096)
-                    except BlockingIOError:
+                    except (BlockingIOError, ssl.SSLWantReadError, ssl.SSLWantWriteError):
                         continue
                     except OSError:
                         break
@@ -932,40 +973,9 @@ class NedClient:
                     while b"\n" in buf:
                         line_bytes, buf = buf.split(b"\n", 1)
                         line = line_bytes.decode("utf-8", errors="replace").rstrip("\r")
-
-                        if not line:
-                            if data_lines:
-                                data_str = "\n".join(data_lines)
-                                parsed: dict[str, Any] = {}
-                                try:
-                                    loaded = json.loads(data_str)
-                                    if isinstance(loaded, dict):
-                                        parsed = loaded
-                                except Exception:
-                                    pass
-
-                                yield NedEvent(
-                                    event=event_name,
-                                    data=parsed,
-                                    raw_data=data_str,
-                                    id=event_id,
-                                    scope=str(parsed.get("scope", "")),
-                                    reason=parsed.get("reason"),
-                                    target_id=parsed.get("id"),
-                                )
-                                event_name = "message"
-                                data_lines = []
-                                event_id = None
-                            continue
-
-                        if line.startswith(":"):
-                            continue
-                        if line.startswith("event:"):
-                            event_name = line[len("event:") :].strip()
-                        elif line.startswith("data:"):
-                            data_lines.append(line[len("data:") :].strip())
-                        elif line.startswith("id:"):
-                            event_id = line[len("id:") :].strip()
+                        ev = _handle_line(line)
+                        if ev is not None:
+                            yield ev
             else:
                 while True:
                     if stop_event is not None and stop_event.is_set():
@@ -976,40 +986,9 @@ class NedClient:
                         break
 
                     line = line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
-
-                    if not line:
-                        if data_lines:
-                            data_str = "\n".join(data_lines)
-                            parsed_mock: dict[str, Any] = {}
-                            try:
-                                loaded_mock = json.loads(data_str)
-                                if isinstance(loaded_mock, dict):
-                                    parsed_mock = loaded_mock
-                            except Exception:
-                                pass
-
-                            yield NedEvent(
-                                event=event_name,
-                                data=parsed_mock,
-                                raw_data=data_str,
-                                id=event_id,
-                                scope=str(parsed_mock.get("scope", "")),
-                                reason=parsed_mock.get("reason"),
-                                target_id=parsed_mock.get("id"),
-                            )
-                            event_name = "message"
-                            data_lines = []
-                            event_id = None
-                        continue
-
-                    if line.startswith(":"):
-                        continue
-                    if line.startswith("event:"):
-                        event_name = line[len("event:") :].strip()
-                    elif line.startswith("data:"):
-                        data_lines.append(line[len("data:") :].strip())
-                    elif line.startswith("id:"):
-                        event_id = line[len("id:") :].strip()
+                    ev = _handle_line(line)
+                    if ev is not None:
+                        yield ev
 
         except (OSError, HTTPException) as exc:
             if stop_event is not None and stop_event.is_set():
